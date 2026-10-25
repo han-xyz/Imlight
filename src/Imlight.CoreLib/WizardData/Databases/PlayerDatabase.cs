@@ -28,5 +28,7 @@ public class PlayerDatabase : RavenDatabaseSingleton<PlayerDatabase> {
         = ConfigurationManager.Settings["Database.PlayerDatabaseUrl"];
     protected override string CertificatePath { get; } 
         = ConfigurationManager.Settings["Database.PlayerDatabaseCertificatePath"];
+    protected override string CertificateThumbprint { get; }
+        = ConfigurationManager.Settings["Database.PlayerDatabaseCertificateThumbprint"];
 
 }
