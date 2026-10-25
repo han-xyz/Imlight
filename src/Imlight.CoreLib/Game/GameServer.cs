@@ -110,7 +110,7 @@ public class GameServer : Server {
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
         // If this server is the target realm, create the key locally.
         if (message.TargetRealmName == RealmName) {
-            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId, SessionKeyValidity);
+            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
                 Key = key,
@@ -323,10 +323,8 @@ public class GameServer : Server {
         }
     }
 
-    private TimeSpan SessionKeyValidity => TimeSpan.FromSeconds(_sessionKeyValidityTime);
-
     private ByteString CreateKey(ulong accountId)
-        => new(_sessionKeys.IssueLoginKey(accountId, SessionKeyValidity));
+        => new(_sessionKeys.IssueLoginKey(accountId, TimeSpan.FromSeconds(_sessionKeyValidityTime)));
 
     private sealed class FallbackEntry {
 

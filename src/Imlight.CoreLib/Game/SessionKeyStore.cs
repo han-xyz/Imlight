@@ -44,13 +44,18 @@ using Imlight.CoreLib.Shared.Structures;
 
 namespace Imlight.CoreLib.Game;
 
-public sealed class SessionKeyStore {
+public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
 
     private const int LoginKeyLength = 32;
+    private static readonly TimeSpan s_defaultTransferKeyValidity = TimeSpan.FromSeconds(60);
 
     private readonly Lock _lock = new();
     private readonly Cache<ulong, byte[]> _loginKeys = new();
     private readonly Cache<ulong, byte[]> _transferKeys = new();
+
+    public SessionKeyStore()
+        : this(s_defaultTransferKeyValidity) {
+    }
 
     public byte[] IssueLoginKey(ulong userId, TimeSpan validity) {
         var key = RandomNumberGenerator.GetBytes(LoginKeyLength);
@@ -62,12 +67,12 @@ public sealed class SessionKeyStore {
         return key;
     }
 
-    public int IssueTransferKey(ulong userId, TimeSpan validity) {
+    public int IssueTransferKey(ulong userId) {
         // MSG_SERVERTRANSFER carries the key as a 32-bit INT; the client attaches with it as a string.
         var key = RandomNumberGenerator.GetInt32(1, int.MaxValue);
         var keyBytes = Encoding.UTF8.GetBytes(key.ToString(CultureInfo.InvariantCulture));
         lock (_lock) {
-            _transferKeys.Store(userId, keyBytes, validity);
+            _transferKeys.Store(userId, keyBytes, transferKeyValidity);
         }
 
         return key;
@@ -75,7 +80,13 @@ public sealed class SessionKeyStore {
 
     public bool Validate(ulong userId, ReadOnlySpan<byte> key) {
         lock (_lock) {
-            return Matches(_loginKeys.Get(userId), key) | Matches(_transferKeys.Get(userId), key);
+            var isLoginKey = Matches(_loginKeys.Get(userId), key);
+            var isTransferKey = Matches(_transferKeys.Get(userId), key);
+            if (isTransferKey) {
+                _ = _transferKeys.Remove(userId);
+            }
+
+            return isLoginKey || isTransferKey;
         }
     }
 

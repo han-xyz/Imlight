@@ -128,7 +128,7 @@ public class SessionKeyStoreTests {
     public void TransferKey_DecimalString_Validates() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        var transferKey = store.IssueTransferKey(UserId, s_validity);
+        var transferKey = store.IssueTransferKey(UserId);
 
         Assert.True(store.Validate(UserId, DecimalBytes(transferKey)));
     }
@@ -137,7 +137,7 @@ public class SessionKeyStoreTests {
     public void LoginKey_StillValid_AfterTransferKeyIssued() {
         var store = new SessionKeyStore();
         var loginKey = store.IssueLoginKey(UserId, s_validity);
-        _ = store.IssueTransferKey(UserId, s_validity);
+        _ = store.IssueTransferKey(UserId);
 
         Assert.True(store.Validate(UserId, loginKey));
     }
@@ -146,7 +146,7 @@ public class SessionKeyStoreTests {
     public void NewLoginKey_ClearsTransferKey() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        var transferKey = store.IssueTransferKey(UserId, s_validity);
+        var transferKey = store.IssueTransferKey(UserId);
         _ = store.IssueLoginKey(UserId, s_validity);
 
         Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
@@ -155,10 +155,29 @@ public class SessionKeyStoreTests {
     [Fact]
     public void TransferKey_WrongValue_Fails() {
         var store = new SessionKeyStore();
-        var transferKey = store.IssueTransferKey(UserId, s_validity);
+        var transferKey = store.IssueTransferKey(UserId);
         var wrongValue = transferKey == int.MaxValue - 1 ? transferKey - 1 : transferKey + 1;
 
         Assert.False(store.Validate(UserId, DecimalBytes(wrongValue)));
+    }
+
+    [Fact]
+    public void TransferKey_SingleUse() {
+        var store = new SessionKeyStore();
+        var transferKey = store.IssueTransferKey(UserId);
+
+        Assert.True(store.Validate(UserId, DecimalBytes(transferKey)));
+        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
+    }
+
+    [Fact]
+    public void TransferKey_ExpiresFast() {
+        var store = new SessionKeyStore(TimeSpan.FromMilliseconds(5));
+        var transferKey = store.IssueTransferKey(UserId);
+
+        Thread.Sleep(50);
+
+        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
     }
 
     private static byte[] DecimalBytes(int value)
