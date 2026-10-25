@@ -20,9 +20,9 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Accepts the results that only the client acts on (package downloads,
- * zone warnings, mission doors, cinematics) or that the server does not
- * track, so the rest of a result list runs.
+ * Accepts the results the server does not act on, so the rest of a result
+ * list runs: client-only ones (package downloads, zone warnings, mission
+ * doors, cinematics), untracked ones, and ones whose data is missing.
  * 
  * USAGE EXAMPLE:
  * Runs from quest, goal and zone result lists.
@@ -106,6 +106,37 @@ internal sealed class ResCinematicHandler : BaseResultHandler<ResCinematic> {
 
     public override bool Execute(IResultContext context) {
         Logger.Debug("Cinematic {CinematicName} not played.", Logger.Args(Result.m_cinematicName));
+
+        return true;
+    }
+
+}
+
+internal sealed class ResAddTreasureSpellHandler : BaseResultHandler<ResAddTreasureSpell> {
+
+    public override bool Execute(IResultContext context) {
+        Logger.Information("Treasure card not granted: ResAddTreasureSpell names no card.");
+
+        return true;
+    }
+
+}
+
+internal sealed class ResAddEncounterXPHandler : BaseResultHandler<ResAddEncounterXP> {
+
+    public override bool Execute(IResultContext context) {
+        Logger.Information("Encounter experience not granted: ResAddEncounterXP carries no amount.");
+
+        return true;
+    }
+
+}
+
+internal sealed class ResReInteractHandler : BaseResultHandler<ResReInteract> {
+
+    public override bool Execute(IResultContext context) {
+        // Re-interacting needs the persona's NPC, and the zone has no lookup by persona name yet; L19 adds one.
+        Logger.Debug("Re-interaction with {PersonaName} not sent.", Logger.Args(Result.m_personaName));
 
         return true;
     }
