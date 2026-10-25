@@ -273,13 +273,17 @@ internal static class Program {
         var actions = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername);
 
         foreach (var action in actions.Where(a => a.Kind == AdminAccountAuditActionKind.ResetToConfigured)) {
-            _ = AccountCollection.ChangePassword(action.Username, s_adminAccountPassword);
+            if (!AccountCollection.ChangePassword(action.Username, s_adminAccountPassword)) {
+                Logger.Error("Admin account {Username} uses the shipped default password and could not be reset",
+                    Logger.Args(action.Username));
+                continue;
+            }
+
             Logger.Warning("Admin account {Username} still used the shipped default password; it has been reset to the configured one",
                 Logger.Args(action.Username));
         }
 
-        var refusedUsernames = actions
-            .Where(a => a.Kind == AdminAccountAuditActionKind.RefuseStart)
+        var refusedUsernames = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername)
             .Select(a => a.Username)
             .ToList();
         if (refusedUsernames.Count == 0) {
