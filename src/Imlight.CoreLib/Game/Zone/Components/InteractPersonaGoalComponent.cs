@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -65,14 +65,12 @@ internal static class PersonaName {
 
     private const string PersonaSuffix = "_Persona";
 
-    /// <summary>
-    /// The NPC object name a persona goal refers to: quest data names the persona either as the
-    /// object name or as the object name plus "_Persona".
-    /// </summary>
-    public static string Normalize(string name)
-        => name is not null && name.EndsWith(PersonaSuffix, StringComparison.Ordinal)
+    public static string Normalize(string name) {
+        // Quest data names a persona either by the NPC's object name or by that name plus "_Persona".
+        return name is not null && name.EndsWith(PersonaSuffix, StringComparison.Ordinal)
             ? name[..^PersonaSuffix.Length]
             : name;
+    }
 
 }
 
@@ -409,7 +407,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         };
 
         Timers.StartSingleTimer(
-            "delayed_quest_offer",
+            $"delayed_quest_offer_{message.PlayerObject?.m_globalID.Full}",
             delayedQuestOfferMsg,
             TimeSpan.FromMilliseconds(QUEST_COMPLETION_TRANSITION_DELAY_MS));
     }

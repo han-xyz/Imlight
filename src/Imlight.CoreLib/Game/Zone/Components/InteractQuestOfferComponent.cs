@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/22/2025
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -136,10 +136,6 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             m_serviceName = ServiceName,
         };
 
-    /// <summary>
-    /// The quests of <paramref name="offeredQuests"/> the wizard can accept now, in quest name order;
-    /// option i of the offer list is quest i.
-    /// </summary>
     internal static List<QuestTemplate> FindAvailableQuests(IEnumerable<QuestTemplate> offeredQuests, Wizard wizard)
         => [.. offeredQuests
             .Where(quest => IsAvailable(quest, wizard))
@@ -209,15 +205,16 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
     }
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
-        var state = GetOrUpdatePlayerState(playerCharacter);
-        var quest = SelectOfferedQuest(state.AvailableQuests, serviceOptionIndex, playerCharacter);
+        var memento = Entity.GetComponentOfType<InteractServiceMementoComponent>();
+        var playerId = playerObject.m_globalID.Full;
+        var sentOption = memento?.FindSentOption(playerId, this, serviceOptionIndex);
+        var state = GetOrUpdatePlayerState(playerCharacter, forceUpdate: true);
+
+        var quest = FindClickedQuest(sentOption, state.AvailableQuests);
         if (quest is null) {
             Logger.Debug("Quest offer option {OptionIndex} on NPC {Npc} is no longer available; resending options",
                 Logger.Args(serviceOptionIndex, Entity.ActiveGameObject.m_debugName));
-
-            GetOrUpdatePlayerState(playerCharacter, forceUpdate: true);
-            Entity.GetComponentOfType<InteractServiceMementoComponent>()?
-                .ResendServiceOptions(playerActor, playerCharacter, playerObject.m_globalID.Full);
+            memento?.ResendServiceOptions(playerActor, playerCharacter, playerId);
 
             return;
         }
@@ -225,19 +222,10 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         HandleQuestOffer(playerActor, quest, playerCharacter);
     }
 
-    /// <summary>
-    /// The quest behind option <paramref name="optionIndex"/> of <paramref name="listedQuests"/>, or null
-    /// when the index is gone or the wizard can no longer accept that quest.
-    /// </summary>
-    internal static QuestTemplate SelectOfferedQuest(IReadOnlyList<QuestTemplate> listedQuests, uint optionIndex, Wizard wizard) {
-        if (optionIndex >= listedQuests.Count) {
-            return null;
-        }
-
-        var quest = listedQuests[(int) optionIndex];
-
-        return IsAvailable(quest, wizard) ? quest : null;
-    }
+    internal static QuestTemplate FindClickedQuest(ServiceOptionBase sentOption, IEnumerable<QuestTemplate> availableQuests)
+        => sentOption is PrepEntry entry
+            ? availableQuests.FirstOrDefault(quest => (string) quest.m_questTitle == (string) entry.m_displayKey)
+            : null;
 
     private PlayerQuestOfferState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {
         var playerId = wizard.CharId;

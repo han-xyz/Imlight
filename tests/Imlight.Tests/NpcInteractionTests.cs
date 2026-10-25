@@ -112,14 +112,14 @@ public sealed class NpcInteractionTests {
         var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
         var offer = new InteractQuestOfferComponent(null!);
         var table = new ServiceOptionTable();
+        var wizard = NewWizard();
 
-        var quests = InteractQuestOfferComponent.FindAvailableQuests([beta, alpha], NewWizard());
-        var options = table.Build(FirstPlayer, [(offer, [.. quests.Select(offer.ToOfferOption)])]);
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([beta, alpha], wizard);
+        var options = table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
 
         Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
-        Assert.True(table.TryRoute(FirstPlayer, 1, out var owner, out var localIndex));
-        Assert.Same(offer, owner);
-        Assert.Same(beta, quests[(int) localIndex]);
+        Assert.Same(alpha, ClickOffer(table, offer, 0, [beta, alpha], wizard));
+        Assert.Same(beta, ClickOffer(table, offer, 1, [beta, alpha], wizard));
     }
 
     [Fact]
@@ -133,21 +133,19 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
-    public void QuestOffer_QuestTakenAfterOptionBuild_NotOffered() {
-        var alpha = new QuestTemplate { m_questName = "Alpha" };
-        var beta = new QuestTemplate { m_questName = "Beta" };
+    public void QuestOffer_QuestTakenAfterOptionBuild_ClickDoesNotOfferAnother() {
+        var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
+        var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };
         var offer = new InteractQuestOfferComponent(null!);
         var table = new ServiceOptionTable();
         var wizard = NewWizard();
-        var listed = InteractQuestOfferComponent.FindAvailableQuests([alpha, beta], wizard);
-        table.Build(FirstPlayer, [(offer, [.. listed.Select(offer.ToOfferOption)])]);
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([alpha, beta], wizard);
+        table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
 
         wizard.QuestBehavior.CurrentQuestInstances.Add(new QuestInstance { QuestName = "Alpha" });
 
-        Assert.True(table.TryRoute(FirstPlayer, 0, out _, out var takenIndex));
-        Assert.Null(InteractQuestOfferComponent.SelectOfferedQuest(listed, takenIndex, wizard));
-        Assert.True(table.TryRoute(FirstPlayer, 1, out _, out var openIndex));
-        Assert.Same(beta, InteractQuestOfferComponent.SelectOfferedQuest(listed, openIndex, wizard));
+        Assert.Null(ClickOffer(table, offer, 0, [alpha, beta], wizard));
+        Assert.Same(beta, ClickOffer(table, offer, 1, [alpha, beta], wizard));
     }
 
     [Fact]
@@ -157,14 +155,47 @@ public sealed class NpcInteractionTests {
         var other = new QuestTemplate { m_questName = "NotHeld" };
         var underway = new InteractQuestUnderwayComponent(null!);
         var table = new ServiceOptionTable();
+        var wizard = NewWizard("Alpha", "Beta");
 
-        var quests = InteractQuestUnderwayComponent.FindUnderwayQuests([beta, other, alpha], NewWizard("Alpha", "Beta"));
-        var options = table.Build(FirstPlayer, [(underway, [.. quests.Select(underway.ToUnderwayOption)])]);
+        var shown = InteractQuestUnderwayComponent.FindUnderwayQuests([beta, other, alpha], wizard);
+        var options = table.Build(FirstPlayer, [(underway, [.. shown.Select(underway.ToUnderwayOption)])]);
 
         Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
-        Assert.True(table.TryRoute(FirstPlayer, 1, out var owner, out var localIndex));
+        Assert.Same(alpha, ClickUnderway(table, underway, 0, [beta, other, alpha], wizard));
+        Assert.Same(beta, ClickUnderway(table, underway, 1, [beta, other, alpha], wizard));
+    }
+
+    [Fact]
+    public void QuestUnderway_QuestDroppedAfterOptionBuild_ClickShowsNoOther() {
+        var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
+        var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };
+        var underway = new InteractQuestUnderwayComponent(null!);
+        var table = new ServiceOptionTable();
+        var wizard = NewWizard("Alpha", "Beta");
+        var shown = InteractQuestUnderwayComponent.FindUnderwayQuests([alpha, beta], wizard);
+        table.Build(FirstPlayer, [(underway, [.. shown.Select(underway.ToUnderwayOption)])]);
+
+        wizard.QuestBehavior.CurrentQuestInstances.RemoveAll(q => q.QuestName == "Alpha");
+
+        Assert.Null(ClickUnderway(table, underway, 0, [alpha, beta], wizard));
+    }
+
+    private static QuestTemplate ClickOffer(ServiceOptionTable table, InteractQuestOfferComponent offer, uint index,
+                                            QuestTemplate[] npcQuests, Wizard wizard) {
+        Assert.True(table.TryRoute(FirstPlayer, index, out var owner, out var localIndex));
+        Assert.Same(offer, owner);
+        Assert.True(table.TryGetSentOption(FirstPlayer, owner, localIndex, out var sent));
+
+        return InteractQuestOfferComponent.FindClickedQuest(sent, InteractQuestOfferComponent.FindAvailableQuests(npcQuests, wizard));
+    }
+
+    private static QuestTemplate ClickUnderway(ServiceOptionTable table, InteractQuestUnderwayComponent underway, uint index,
+                                               QuestTemplate[] npcQuests, Wizard wizard) {
+        Assert.True(table.TryRoute(FirstPlayer, index, out var owner, out var localIndex));
         Assert.Same(underway, owner);
-        Assert.Same(beta, quests[(int) localIndex]);
+        Assert.True(table.TryGetSentOption(FirstPlayer, owner, localIndex, out var sent));
+
+        return InteractQuestUnderwayComponent.FindClickedQuest(sent, InteractQuestUnderwayComponent.FindUnderwayQuests(npcQuests, wizard));
     }
 
     private static Wizard NewWizard(params string[] heldQuests) {

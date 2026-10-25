@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -167,6 +167,9 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
     internal bool IsInInteractionRange(CoreObject playerObject)
         => IsInHorizontalRadius(playerObject, InteractionRadius);
+
+    internal ServiceOptionBase FindSentOption(ulong playerId, IServiceComponent owner, uint localIndex)
+        => _optionTable.TryGetSentOption(playerId, owner, localIndex, out var option) ? option : null;
 
     internal void ResendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId) {
         SendLeaveServiceRange(playerActor);

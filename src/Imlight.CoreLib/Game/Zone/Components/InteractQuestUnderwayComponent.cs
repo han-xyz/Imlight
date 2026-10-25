@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/22/2025
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -132,10 +132,6 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
             m_serviceName = ServiceName,
         };
 
-    /// <summary>
-    /// The quests of <paramref name="givesQuests"/> the wizard holds and has not completed, in quest
-    /// name order; option i of the underway list is quest i.
-    /// </summary>
     internal static List<QuestTemplate> FindUnderwayQuests(IEnumerable<QuestTemplate> givesQuests, Wizard wizard)
         => [.. givesQuests
             .Where(quest => wizard.HasQuest(quest.m_questName) && !wizard.HasCompletedQuest(quest.m_questName))
@@ -193,16 +189,27 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
     }
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
-        var state = GetOrUpdatePlayerState(playerCharacter);
-        if (serviceOptionIndex >= state.UnderwayQuests.Count) {
-            Logger.Debug("Quest underway option {OptionIndex} on NPC {Npc} no longer exists",
+        var memento = Entity.GetComponentOfType<InteractServiceMementoComponent>();
+        var playerId = playerObject.m_globalID.Full;
+        var sentOption = memento?.FindSentOption(playerId, this, serviceOptionIndex);
+        var state = GetOrUpdatePlayerState(playerCharacter, forceUpdate: true);
+
+        var quest = FindClickedQuest(sentOption, state.UnderwayQuests);
+        if (quest is null) {
+            Logger.Debug("Quest underway option {OptionIndex} on NPC {Npc} is no longer held; resending options",
                 Logger.Args(serviceOptionIndex, Entity.ActiveGameObject.m_debugName));
+            memento?.ResendServiceOptions(playerActor, playerCharacter, playerId);
 
             return;
         }
 
-        ShowQuestUnderwayDialog(playerActor, state.UnderwayQuests[(int) serviceOptionIndex]);
+        ShowQuestUnderwayDialog(playerActor, quest);
     }
+
+    internal static QuestTemplate FindClickedQuest(ServiceOptionBase sentOption, IEnumerable<QuestTemplate> underwayQuests)
+        => sentOption is PrepEntry entry
+            ? underwayQuests.FirstOrDefault(quest => (string) quest.m_questTitle == (string) entry.m_displayKey)
+            : null;
 
     private PlayerQuestUnderwayState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {
         var playerId = wizard.CharId;
