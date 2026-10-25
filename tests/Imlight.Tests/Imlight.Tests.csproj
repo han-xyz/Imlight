@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Imlight.Common/Imlight.Common.csproj" />
+    <ProjectReference Include="../../src/Imlight.CoreLib/Imlight.CoreLib.csproj" />
   </ItemGroup>
 
 </Project>

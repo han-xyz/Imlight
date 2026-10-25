@@ -24,7 +24,6 @@ using Raven.Client.Documents.Operations;
 using Imlight.Common;
 using Imlight.CoreLib.WizardData.Implementations;
 using Raven.Client.Http;
-using System.Net.Security;
 using Raven.Client.Documents.Linq;
 
 namespace Imlight.CoreLib.WizardData;
@@ -46,6 +45,9 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
     protected abstract string DatabaseName { get; }
     protected abstract string Url { get; }
     protected abstract string CertificatePath { get; }
+    protected abstract string CertificateThumbprint { get; }
+
+    private static bool s_isCertificateValidationRegistered;
 
     protected virtual X509Certificate2 Certificate =>
         string.IsNullOrEmpty(Url) ? null : GetCertificate();
@@ -73,18 +75,7 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
             Certificate = Certificate
         };
 
-        // Add the certificate validation callback for self-signed certificates.
-        // TODO: In a production environment, ideally you should never accept self-signed certificates.
-        // This is only for development purposes.
-        RequestExecutor.RemoteCertificateValidationCallback += (message, cert, chain, sslPolicyErrors) => {
-            if (sslPolicyErrors == SslPolicyErrors.None) {
-                return true;
-            }
-
-            Logger.Information("Accepting self-signed certificate: {0}", Logger.Args(cert.Subject));
-            
-            return true;
-        };
+        RegisterCertificateValidation();
 
         RavenSystemTextJsonBridge.Apply(store.Conventions);
 
@@ -92,6 +83,25 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
         Logger.Information("Database initialized.");
 
         return store;
+    }
+
+    private void RegisterCertificateValidation() {
+        if (s_isCertificateValidationRegistered) {
+            return;
+        }
+
+        var pinnedThumbprint = CertificateThumbprint;
+        RequestExecutor.RemoteCertificateValidationCallback += (message, cert, chain, sslPolicyErrors) => {
+            if (CertificatePolicy.Accept(cert as X509Certificate2, sslPolicyErrors, pinnedThumbprint)) {
+                return true;
+            }
+
+            Logger.Warning("Rejected the database server certificate {Subject} ({Errors}).",
+                Logger.Args(cert?.Subject, sslPolicyErrors));
+
+            return false;
+        };
+        s_isCertificateValidationRegistered = true;
     }
 
     protected virtual IDocumentStore CreateEmbeddedStore() {
@@ -111,15 +121,11 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
         // We need to get the absolute path.
         var absolutePath = Path.GetFullPath(CertificatePath);
 
-        // If there is no file at this path, log an error and return null.
         if (!File.Exists(absolutePath)) {
-            Logger.Error("No certificate found at path {0}",
-                Logger.Args(absolutePath));
-
-            return null;
+            throw new FileNotFoundException($"No database certificate found at {absolutePath}", absolutePath);
         }
 
-        return new X509Certificate2(absolutePath);
+        return X509CertificateLoader.LoadPkcs12FromFile(absolutePath, password: null);
     }
 
     public CollectionStatistics GetDatabaseStatistics()
