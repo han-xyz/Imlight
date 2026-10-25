@@ -25,6 +25,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,10 +34,11 @@ namespace Imlight.CoreLib.WizardData;
 
 public static class SpiralDB {
 
-    private static readonly string s_remoteUrl
+    internal static string s_remoteUrl
         = ConfigurationManager.Settings["Database.SpiralDBRemoteUrl"];
-    private static readonly string s_branch
+    internal static string s_branch
         = ConfigurationManager.Settings["Database.SpiralDBBranch"];
+    internal static int s_cloneDepth = 1;
     private static readonly string s_localPath
         = ConfigurationManager.Settings["Database.SpiralDBLocalPath"];
     private static readonly bool s_autoFetch
@@ -205,8 +207,13 @@ public static class SpiralDB {
         }
     }
 
-    private static void SyncRepository(string basePath) {
-        if (!Directory.Exists(basePath)) {
+    internal static void SyncRepository(string basePath) {
+        if (!Repository.IsValid(basePath)) {
+            if (Directory.Exists(basePath) && Directory.EnumerateFileSystemEntries(basePath).Any()) {
+                throw new InvalidOperationException(
+                    $"SpiralDB path '{basePath}' holds files that are not a git checkout.");
+            }
+
             Logger.Information(
                 "SpiralDB not found... cloning from {0} (branch {1})...",
                 Logger.Args(s_remoteUrl, s_branch));
@@ -219,7 +226,7 @@ public static class SpiralDB {
                 IsBare = false
             };
 
-            cloneOptions.FetchOptions.Depth = 1;
+            cloneOptions.FetchOptions.Depth = s_cloneDepth;
             cloneOptions.FetchOptions.OnTransferProgress = _ =>
                 Stopwatch.GetElapsedTime(startStopWatch) < TimeSpan.FromSeconds(s_fetchTimeoutSec);
 
