@@ -92,6 +92,18 @@ public sealed class NpcInteractionTests {
         Assert.False(vendor.HasItem(new GID(1)));
     }
 
+    [Fact]
+    public void PersonaName_SuffixedName_MatchesObjectName() {
+        Assert.Equal("WC-ST01-NPC03", PersonaName.Normalize("WC-ST01-NPC03_Persona"));
+        Assert.Equal(PersonaName.Normalize("WC-ST01-NPC03"), PersonaName.Normalize("WC-ST01-NPC03_Persona"));
+    }
+
+    [Fact]
+    public void PersonaName_OtherNames_Unchanged() {
+        Assert.Equal("WC-ST01-NPC03", PersonaName.Normalize("WC-ST01-NPC03"));
+        Assert.Equal("WC-ST01-NPC03_PersonaX", PersonaName.Normalize("WC-ST01-NPC03_PersonaX"));
+    }
+
     private sealed class FakeService : IServiceComponent {
 
         public string ServiceName => "";

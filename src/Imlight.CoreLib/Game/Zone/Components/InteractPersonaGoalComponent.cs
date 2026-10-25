@@ -62,6 +62,21 @@ internal class PlayerPersonaGoalState {
 
 }
 
+internal static class PersonaName {
+
+    private const string PersonaSuffix = "_Persona";
+
+    /// <summary>
+    /// The NPC object name a persona goal refers to: quest data names the persona either as the
+    /// object name or as the object name plus "_Persona".
+    /// </summary>
+    public static string Normalize(string name)
+        => name is not null && name.EndsWith(PersonaSuffix, StringComparison.Ordinal)
+            ? name[..^PersonaSuffix.Length]
+            : name;
+
+}
+
 internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
     : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory, IWithTimers {
 
@@ -101,14 +116,14 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return false;
         }
 
-        var npcName = goTemplate.m_objectName;
+        var npcName = PersonaName.Normalize(goTemplate.m_objectName);
 
         // Check if this NPC is referenced as a persona goal target in any quest.
         return QuestTemplateCollection
             .GetAllQuests()
             .Where(x => x is not null)
             .SelectMany(quest => quest.m_goals.OfType<PersonaGoalTemplate>())
-            .Any(goal => goal.m_personaName == npcName);
+            .Any(goal => PersonaName.Normalize(goal.m_personaName) == npcName);
     }
 
     /// <summary>
@@ -161,7 +176,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
     public override void OnStart() {
         if (Entity.Template is GameObjectTemplate goTemplate) {
-            _npcName = goTemplate.m_objectName;
+            _npcName = PersonaName.Normalize(goTemplate.m_objectName);
         }
 
         // Cache all persona goals that reference this NPC.
@@ -172,7 +187,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
         foreach (var questTemplate in questTemplates) {
             foreach (var goal in questTemplate.m_goals.OfType<PersonaGoalTemplate>()) {
-                if (goal.m_personaName != _npcName) {
+                if (PersonaName.Normalize(goal.m_personaName) != _npcName) {
                     continue;
                 }
 
