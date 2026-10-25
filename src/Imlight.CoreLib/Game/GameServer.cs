@@ -107,9 +107,9 @@ public class GameServer : Server {
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY))]
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
-        // If this server is the target realm, create the key locally.
+        // If this server is the target realm, issue the transfer ticket locally.
         if (message.TargetRealmName == RealmName) {
-            _sessionKeys.IssueTransferTicket(message.Account.AccountId, message.RemoteIp, message.ZoneName);
+            _sessionKeys.IssueTransferTicket(message.UserId, message.RemoteIp, message.ZoneName);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
                 IP = Ip,

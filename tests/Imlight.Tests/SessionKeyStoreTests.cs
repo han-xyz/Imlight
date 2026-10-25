@@ -164,7 +164,7 @@ public class SessionKeyStoreTests {
     }
 
     [Fact]
-    public void TransferKey_WrongValue_NoPendingTransfer_Fails() {
+    public void Validate_WrongKey_NoTicket_Fails() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
 

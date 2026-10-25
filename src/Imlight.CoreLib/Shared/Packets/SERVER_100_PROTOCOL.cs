@@ -273,7 +273,7 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
         public byte MessageOrder { get; } = 24;
         public byte ServiceID { get; } = 100;
 
-        public Account Account;
+        public ulong UserId;
         public string TargetRealmName;
         public string RemoteIp;
         public string ZoneName;

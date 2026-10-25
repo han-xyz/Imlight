@@ -714,54 +714,39 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        // Ask the LoginServer to create a session key on the target realm's game server.
-        var createKeyMsg = new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
-            Account = account,
-            TargetRealmName = message.RealmName,
-            RemoteIp = SessionActor.RemoteIp,
-            ZoneName = wizard.Zone
-        };
-
-        SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP keyRsp;
+        // Ask the LoginServer to issue a transfer ticket on the target realm's game server, then redirect the client.
+        bool isSent;
         try {
-            keyRsp = AskServer<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP>(createKeyMsg);
+            isSent = SendServerTransfer(account.AccountId, message.RealmName, wizard.Zone, ticket => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
+                IP = ticket.IP,
+                TCPPort = ticket.Port,
+                UDPPort = ticket.Port,
+                CharID = wizard.CharId,
+                ZoneID = new Imcodec.Types.GID((ulong) ticket.Port),
+                Location = Util.GetCompactStringFromVector(wizard.Location, wizard.Orientation),
+                Slot = 0,
+                SessionSlot = 0,
+                SessionID = 0,
+                TargetPlayerID = wizard.CharId,
+                TransitionID = 1,
+                FallbackIP = ticket.IP,
+                FallbackTCPPort = ticket.Port,
+                FallbackUDPPort = ticket.Port,
+                FallbackZone = wizard.Zone,
+                FallbackZoneID = new Imcodec.Types.GID((ulong) ticket.Port)
+            });
         }
         catch {
-            Logger.Error("Failed to create player key for realm transfer to {Realm}.",
+            Logger.Error("Failed to issue a transfer ticket for realm transfer to {Realm}.",
                 Logger.Args(message.RealmName));
 
             return;
         }
 
-        if (!keyRsp.Success) {
+        if (!isSent) {
             Logger.Warning("Realm transfer to {Realm} failed; realm not found.",
                 Logger.Args(message.RealmName));
-
-            return;
         }
-
-        // Send MSG_SERVERTRANSFER to redirect the client to the new game server.
-        var serverTransfer = new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
-            IP = keyRsp.IP,
-            TCPPort = keyRsp.Port,
-            UDPPort = keyRsp.Port,
-            UserID = account.AccountId,
-            CharID = wizard.CharId,
-            ZoneName = wizard.Zone,
-            ZoneID = new Imcodec.Types.GID((ulong) keyRsp.Port),
-            Location = Util.GetCompactStringFromVector(wizard.Location, wizard.Orientation),
-            Slot = 0,
-            SessionSlot = 0,
-            SessionID = 0,
-            TargetPlayerID = wizard.CharId,
-            TransitionID = 1,
-            FallbackIP = keyRsp.IP,
-            FallbackTCPPort = keyRsp.Port,
-            FallbackUDPPort = keyRsp.Port,
-            FallbackZone = wizard.Zone,
-            FallbackZoneID = new Imcodec.Types.GID((ulong) keyRsp.Port)
-        };
-        SendToSocket(serverTransfer);
     }
 
     [MessageHandler(typeof(GAME2_55_PROTOCOL.MSG_CURRENTREALM))]
@@ -862,26 +847,11 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         WizardCollection.UpdateCharacterLocation(character, character.Location, character.Orientation.Z);
 
         var realmName = AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
-        var keyRsp = AskServer<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP>(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
-            Account = account,
-            TargetRealmName = realmName,
-            RemoteIp = SessionActor.RemoteIp,
-            ZoneName = character.QueuedZoneName
-        });
-        if (keyRsp is null || !keyRsp.Success) {
-            Logger.Error("Session {SessionId} could not create a transfer ticket on realm {Realm}; zone transfer to {Zone} not sent.",
-                Logger.Args(SessionActor.SessionID, realmName, character.QueuedZoneName));
-
-            return;
-        }
-
-        var serverTransfer = new GAME_5_PROTOCOL.MSG_SERVERTRANSFER() {
+        var isSent = SendServerTransfer(account.AccountId, realmName, character.QueuedZoneName, _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER() {
             IP = character.GameServerIp,
             TCPPort = character.GameServerPort,
             UDPPort = character.GameServerPort,
-            UserID = account.AccountId,
             CharID = character.CharId,
-            ZoneName = character.QueuedZoneName,
             Location = character.QueuedZoneLocation,
             Slot = 0,
             SessionSlot = 0,
@@ -893,8 +863,14 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackUDPPort = character.GameServerPort,
             FallbackZone = character.Zone,
             FallbackZoneID = _currentDynamicZoneId
-        };
-        SendToSocket(serverTransfer);
+        });
+        if (!isSent) {
+            Logger.Error("Session {SessionId} could not create a transfer ticket on realm {Realm}; zone transfer to {Zone} not sent.",
+                Logger.Args(SessionActor.SessionID, realmName, character.QueuedZoneName));
+
+            return;
+        }
+
         Logger.Information("Session {SessionId} SERVERTRANSFER sent -> {Zone} {Ip}:{Port}",
             Logger.Args(SessionActor.SessionID, character.QueuedZoneName, character.GameServerIp, character.GameServerPort));
 

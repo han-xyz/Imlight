@@ -271,6 +271,15 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
     }
 
     /// <summary>
+    /// Sends MSG_SERVERTRANSFER after the target realm issues a transfer ticket for this session's address
+    /// and the given zone. Returns false, sending nothing, when the realm refuses.
+    /// </summary>
+    protected bool SendServerTransfer(ulong userId, string targetRealmName, string zoneName,
+        Func<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP, GAME_5_PROTOCOL.MSG_SERVERTRANSFER> build)
+        => ServerTransfer.Send(userId, targetRealmName, SessionActor.RemoteIp, zoneName,
+            AskServer<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP>, build, SendToSocket);
+
+    /// <summary>
     /// Gets the connected account attached to the current SessionActor. An AccountService must be
     /// attached to the SessionActor prior.
     /// </summary>
