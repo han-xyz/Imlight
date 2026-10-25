@@ -89,6 +89,20 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
+    public void ResLoot_SecondInteraction_SameCharacter_NoGrant() {
+        Assert.True(ResLootHandler.TryClaimLoot("zone-same-character", "Chest_01", 1001));
+
+        Assert.False(ResLootHandler.TryClaimLoot("zone-same-character", "Chest_01", 1001));
+    }
+
+    [Fact]
+    public void ResLoot_OtherCharacter_StillGrants() {
+        Assert.True(ResLootHandler.TryClaimLoot("zone-other-character", "Chest_01", 1001));
+
+        Assert.True(ResLootHandler.TryClaimLoot("zone-other-character", "Chest_01", 1002));
+    }
+
+    [Fact]
     public void ResUnknown77D46519_ReturnsTrue() {
         Assert.True(Execute<ResUnknown77D46519Handler>(new ResUnknown77D46519 { m_activityType = 25 }));
     }
