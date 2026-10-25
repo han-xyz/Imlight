@@ -384,7 +384,7 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
             });
 
             throw new SessionFatalException(
-                $"User [{message.UserID}] failed to validate login key: {message.LoginKey}.");
+                $"User [{message.UserID}] failed to validate login key.");
         }
         if (!GetWizardFromAccount(account, message.CharID, out var wizard)) {
             SendToSocket(new GAME_5_PROTOCOL.MSG_ATTACHFAILED() {
