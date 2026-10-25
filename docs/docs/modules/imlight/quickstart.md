@@ -169,6 +169,25 @@ SpiralDBDisableRemote = false
 
 Workflow: fork the SpiralDB repository, edit the data with [Imview](https://github.com/Revive101/Imview), commit and push to your fork, and Imlight fetches it on the next boot. Point `SpiralDBRemoteUrl` at your fork.
 
+### Crown shop
+
+What the crown shop sells comes from the data pack: every `CrownShop/*.json` tab file under `SpiralDBLocalPath`, with each item's gold and crowns price. An item with a price of `0` in a currency cannot be bought with that currency. A malformed tab file or a negative price stops the server at boot; on a hot reload the previous catalogue stays live and the error is logged.
+
+| Key in `[CrownShop]` | Default | Meaning |
+| --- | --- | --- |
+| `Enabled` | `true` | Load the catalogue at boot; with `false` the shop is empty |
+| `AutoReloadOnChanges` | `true` | Reload the catalogue when a tab file changes |
+| `WishlistMaxSize` | `30` | Most items a wishlist may hold; a larger wishlist is not saved |
+| `WishlistSBExpansionSize` | `10` | Extra wishlist slots the client shows to subscribers |
+| `MaxBuyCount` | `100` | Most copies of an item one purchase may buy |
+
+```bash
+# sets MaxBuyCount in [CrownShop]
+IMLIGHT__CrownShop__MaxBuyCount=10
+```
+
+Set your own crown balance with `.mod setcrowns <amount>` (Quality Assurance and above).
+
 ## Patch Server Setup
 
 Imlight and the game client must source files from the same location.
