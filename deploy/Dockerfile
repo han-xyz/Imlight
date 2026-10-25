@@ -22,22 +22,22 @@ FROM restore AS build
 RUN dotnet build src/Imlight.sln -c Release --no-restore \
     && dotnet publish src/Imlight.Director/Imlight.Director.csproj -c Release --no-restore -o /app
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0@sha256:0cf09aaccf6a9f68900aed4c73fb28fe25bb59ec85de4dea08ba02240a8635f3 AS runtime
+# RavenDB.Embedded's server needs Microsoft.AspNetCore.App >= 10.0.8 (image tag 10.0 was 10.0.13)
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8af87eba5e7cdafb1514d7388be287365da97c132509e84dfe252ffd552398ca AS runtime
 WORKDIR /app
 COPY --from=build /app .
 RUN mkdir -p /data/db /data/spiraldb /data/logs /data/cache \
-    && chown -R "$APP_UID" /data /app
+    && chown -R "$APP_UID" /data
 USER $APP_UID
 ENV IMLIGHT__Database__EmbeddedDatabaseDataDirectory=/data/db \
     IMLIGHT__Database__SpiralDBLocalPath=/data/spiraldb \
     IMLIGHT__Logging__LogPath=/data/logs/log.txt \
     IMLIGHT__Logging__LogLevel=INFO \
-    IMLIGHT__Patch_Server__LocalWadCachePath=/data/cache \
+    IMLIGHT__Patch_Server__LocalWadCachePath=/data/cache/wad.db \
     IMLIGHT__Patch_Server__PatchServerInternalUrl=http://aurorium:12369 \
     IMLIGHT__Game_Server__GameServerCount=1 \
     IMLIGHT__Game_Server__RealmNames=Centaur \
-    IMLIGHT__Global_Settings__GameRevision=r806919.Wizard_1_610 \
-    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+    IMLIGHT__Global_Settings__GameRevision=r806919.Wizard_1_610
 VOLUME ["/data/db", "/data/spiraldb", "/data/logs", "/data/cache"]
 EXPOSE 12000 12333 12500
 ENTRYPOINT ["dotnet", "Imlight.Director.dll"]

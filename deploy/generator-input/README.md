@@ -5,6 +5,6 @@ Imcodec generates its C# types from your game client's data at build time. `depl
 | File | Goes to | How to produce it |
 | --- | --- | --- |
 | `*.json` | `submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/` | Type dump of the running client from [WizType](https://github.com/wizspoil/wiztype). Any file name. |
-| `*Messages*.xml` | `submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/` | Unpack `Root.wad` from the client: `dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad`, then take every `*Messages*.xml`. |
+| `*Messages*.xml` | `submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/` | Unpack `Root.wad` from the client: `dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad`, then take every `*Messages*.xml`. The command needs the WizType JSON already placed in `submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/`. |
 
-Build from the repository root: `docker build -f deploy/Dockerfile -t imlight .`
+Initialise the Imcodec submodule (`git submodule update --init --recursive`), then build from the repository root: `docker build -f deploy/Dockerfile -t imlight .`

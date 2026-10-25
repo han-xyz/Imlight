@@ -77,6 +77,7 @@ Imcodec requires game data files to generate strongly-typed C# classes at compil
 **Message Definitions**
 1. Extract `Root.wad` from your game client using Imcodec itself:
    ```bash
+   # needs generator inputs: the WizType JSON must already be in the ObjectProperty GeneratorInput folder
    dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad
    ```
 2. Locate XML files matching `*Messages*.xml` pattern
@@ -180,11 +181,11 @@ Imlight and the game client must source files from the same location.
    [Patch Server]
    PatchServerInternalUrl = http://your-patch-server.com
    ```
-3. Set `GameRevision` in `[Global Settings]` to the revision Aurorium mirrored. Aurorium reports it at its `/latest` endpoint.
+3. Set `GameRevision` in `[Global Settings]` to the revision Aurorium mirrored. Aurorium reports it at its `/latest` endpoint with a `V_` prefix (`V_r806919.Wizard_1_610`); write it without the prefix (`r806919.Wizard_1_610`).
 
 ## Docker
 
-The image is built from the repository root, with your generator inputs in `deploy/generator-input/` (see its README for how to produce them; the folder is gitignored):
+The image is built from the repository root, with the Imcodec submodule initialised (`git submodule update --init --recursive`) and your generator inputs in `deploy/generator-input/` (see its README for how to produce them; the folder is gitignored):
 
 ```bash
 docker build -f deploy/Dockerfile -t imlight .
@@ -196,8 +197,9 @@ The build stops with a message when the folder has no `*.json` or no `*Messages*
 | --- | --- |
 | Ports | `12000` login, `12333` game (one per realm), `12500` patch |
 | Volumes | `/data/db`, `/data/spiraldb`, `/data/logs`, `/data/cache` |
+| Game server address | Set `IMLIGHT__Game_Server__GameServerIP` to the address clients connect to; the default `127.0.0.1` sends remote clients to their own machine |
 | Admin password | Not in the image; pass `IMLIGHT__Database__AdminAccountPassword` |
 
 The image sets `IMLIGHT__*` defaults for the data paths, `Patch_Server__PatchServerInternalUrl` (`http://aurorium:12369`), one realm (`Centaur`), `GameRevision`, and `LogLevel`. Override any of them with `-e`. Do not publish the embedded RavenDB port (`8080`) or the Akka remote port (`12999`).
 
-The full stack (Imlight, Aurorium and their volumes) is defined in the [revive101-server](https://github.com/han-xyz/revive101-server) compose repository.
+The full stack (Imlight, Aurorium and their volumes) is defined in the `revive101-server` compose repository.

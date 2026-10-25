@@ -89,7 +89,7 @@ Imcodec relies on compile-time source generation to produce C# classes from game
     ```
     /submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/
     ```
-2. Unpack the root archive using Imcodec itself (`dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad`). Inside, locate the message definition files which can be matched with a wildcard of `*Messages*.xml`. Place these files in:
+2. Unpack the root archive using Imcodec itself (`dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad`, after placing the JSON from step 1 in its folder). Inside, locate the message definition files which can be matched with a wildcard of `*Messages*.xml`. Place these files in:
    ```
    /submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/
    ```
