@@ -31,7 +31,7 @@
  * 
  * TODO:
  * 
- * Created by: Han with Claude (claude-opus-5-5)
+ * Created by: Han
  * Version: KALI 1.0
  * Last Updated: 10/25/2026
  */
