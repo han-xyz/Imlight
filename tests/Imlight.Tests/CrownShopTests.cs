@@ -127,12 +127,48 @@ public sealed class CrownShopTests : IDisposable {
         Assert.False(CrownShopPrice.TryCompute(item, CrownShopPrice.CrownsCurrency, 3, out _));
     }
 
+    [Fact]
+    public void IsAcceptableWishlist_CatalogueItemsWithinSize_IsAccepted() {
+        var catalogue = LoadTwoItems();
+        var wishlist = new WishlistData { Items = [(uint) GoldItemId, (uint) CrownsOnlyItemId] }.ToByteString();
+
+        Assert.True(catalogue.IsAcceptableWishlist(wishlist, maxSize: 2));
+    }
+
+    [Fact]
+    public void IsAcceptableWishlist_OverMaxSize_IsRejected() {
+        var catalogue = LoadTwoItems();
+        var wishlist = new WishlistData { Items = [(uint) GoldItemId, (uint) CrownsOnlyItemId] }.ToByteString();
+
+        Assert.False(catalogue.IsAcceptableWishlist(wishlist, maxSize: 1));
+    }
+
+    [Fact]
+    public void IsAcceptableWishlist_ItemNotInCatalogue_IsRejected() {
+        var catalogue = LoadTwoItems();
+        var wishlist = new WishlistData { Items = [(uint) GoldItemId, 9999] }.ToByteString();
+
+        Assert.False(catalogue.IsAcceptableWishlist(wishlist, maxSize: 30));
+    }
+
+    [Fact]
+    public void IsAcceptableWishlist_UndecodableData_IsRejected() {
+        var catalogue = LoadTwoItems();
+
+        Assert.False(catalogue.IsAcceptableWishlist("not a wishlist", maxSize: 30));
+    }
+
     private static readonly string TwoItems = $$"""
         [
           { "templateId": {{GoldItemId}}, "goldCost": 500, "crownsCost": 50, "displayPriority": [0] },
           { "templateId": {{CrownsOnlyItemId}}, "crownsCost": 250, "displayPriority": [3, 1] }
         ]
         """;
+
+    private CrownShopCatalogue LoadTwoItems() {
+        WriteTab("Tab0.json", 38, TwoItems);
+        return CrownShopCatalogue.Load(_directory);
+    }
 
     private void WriteTab(string fileName, int tabId, string itemsJson) {
         var json = $$"""

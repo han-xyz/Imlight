@@ -718,8 +718,8 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     // This message is fired when the PCS UI is closed.
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_PCS_UPDATEUSERWISHLIST))]
     private void ReceiveWishlistUpdate(WIZARD_12_PROTOCOL.MSG_PCS_UPDATEUSERWISHLIST message) {
-        if (!WishlistData.TryFromByteString(message.Data, out _)) {
-            Logger.Warning("Received invalid crown shop wishlist data.");
+        if (!CrownShopHandler.IsAcceptableWishlist(message.Data)) {
+            Logger.Warning("Rejected crown shop wishlist: undecodable, over the size limit, or naming items the shop does not sell.");
             return;
         }
 

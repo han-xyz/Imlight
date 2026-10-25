@@ -39,6 +39,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using Imcodec.IO;
 using Imcodec.ObjectProperty.TypeCache;
 
 namespace Imlight.CoreLib.Game.CrownShop;
@@ -84,6 +85,11 @@ internal sealed class CrownShopCatalogue {
 
     public bool TryGetItem(ulong templateId, out CrownShopItem item)
         => _items.TryGetValue(templateId, out item);
+
+    public bool IsAcceptableWishlist(ByteString wishlistData, uint maxSize)
+        => WishlistData.TryFromByteString(wishlistData, out var wishlist)
+            && wishlist.Items.Count <= maxSize
+            && wishlist.Items.All(id => _items.ContainsKey(id));
 
     private static CrownShopTabConfig ReadTab(string path) {
         CrownShopTabConfig tab;
