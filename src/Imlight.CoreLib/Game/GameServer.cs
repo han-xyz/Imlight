@@ -24,7 +24,7 @@
  * and coordinates between game world, command processing, and process supervision.
  * 
  * USAGE EXAMPLE:
- * var gameServer = system.ActorOf(GameServer.Props("World1", 6001), "gameServer");
+ * var gameServer = system.ActorOf(GameServer.Props("World1", 6001, sessionKeys), "gameServer");
  * 
  * NOTE:
  *
@@ -32,7 +32,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -47,7 +47,6 @@ using Imlight.CoreLib.Game.Commands;
 using Imlight.CoreLib.WizardData;
 using Imlight.CoreLib.Game.World;
 using Imlight.CoreLib.Game.Processes;
-using Imlight.CoreLib.Shared.Cryptography;
 using Imlight.CoreLib.Shared.Structures;
 using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
@@ -57,23 +56,22 @@ namespace Imlight.CoreLib.Game;
 
 public class GameServer : Server {
 
-    private readonly string _sessionKeyHashInput = ConfigurationManager.Settings["Advanced.SessionKeyHashInput"].AsString();
     private readonly ushort _sessionKeyValidityTime = ConfigurationManager.Settings["Game Server.SessionKeyValidityTime"].AsUShort();
     private readonly ushort _playerLimit = ConfigurationManager.Settings["Game Server.GameServerPlayerLimit"].AsUShort();
 
     private readonly IActorRef _gameWorldRef;
     private readonly IActorRef _commandDispatcherRef;
     private readonly IActorRef _processSupervisorRef;
-    private readonly Cache<ByteString, ulong> _sessionKeys;
+    private readonly SessionKeyStore _sessionKeys;
     private readonly ListQueue<SessionActor> _playerQueue;
     private readonly ConcurrentDictionary<string, FallbackEntry> _fallbackEntries = [];
 
-    public GameServer(string serverName, ushort serverPort, string realmName = null)
+    public GameServer(string serverName, ushort serverPort, SessionKeyStore sessionKeys, string realmName = null)
         : base(serverName, serverPort, GameServiceFactory.Props(),
               ConfigurationManager.Settings["Game Server.GameServerIP"].AsString(), deferListening: true) {
         RealmName = realmName ?? serverName;
+        _sessionKeys = sessionKeys;
         this._playerQueue = new ListQueue<SessionActor>();
-        this._sessionKeys = new Cache<ByteString, ulong>();
         this.ActiveSessions.CollectionChanged += ActiveSessionsChangedEvent;
 
         // Create actor children.
@@ -97,8 +95,8 @@ public class GameServer : Server {
             Logger.Args(serverName, serverPort));
     }
 
-    public static Props Props(string serverName, ushort serverPort, string realmName = null)
-        => Akka.Actor.Props.Create(() => new GameServer(serverName, serverPort, realmName));
+    public static Props Props(string serverName, ushort serverPort, SessionKeyStore sessionKeys, string realmName = null)
+        => Akka.Actor.Props.Create(() => new GameServer(serverName, serverPort, sessionKeys, realmName));
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_CREATEKEY))]
     private void ReceiveCreateKey(SERVER_100_PROTOCOL.MSG_CREATEKEY message) {
@@ -112,7 +110,7 @@ public class GameServer : Server {
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
         // If this server is the target realm, create the key locally.
         if (message.TargetRealmName == RealmName) {
-            var key = CreateKey(message.Account.AccountId);
+            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
                 Key = key,
@@ -145,30 +143,20 @@ public class GameServer : Server {
     private void ReceiveValidateSessionKey(SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEY message) {
         // A user has requested to join this server. We're going to check if the session key is valid.
         // If it is, we'll return the account associated with it. If not, we'll return an error code.
-        var keyTest = SessionKey.GenerateHash(_sessionKeyHashInput, message.UserID);
-
-        foreach (var cachedKey in _sessionKeys) {
-            if (keyTest != cachedKey.Key) {
-                continue;
-            }
-
-            ActiveSessions.Add(message.SessionActor);
-
-            // Get the account associated with this key.
-            var accountId = cachedKey.Value;
-            var account = AccountCollection.GetAccount(accountId);
-
-            // Inform the client that the session key is valid. We'll also send the account associated with it.
-            Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() {
-                ErrorCode = account is null ? 1 : 0,
-                Account = account
-            });
-
+        if (!_sessionKeys.Validate(message.UserID, (byte[]) message.Key)) {
+            Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
             return;
         }
 
-        // The session key was not found in the cache. Return an error code.
-        Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
+        ActiveSessions.Add(message.SessionActor);
+
+        var account = AccountCollection.GetAccount(message.UserID);
+
+        // Inform the client that the session key is valid. We'll also send the account associated with it.
+        Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() {
+            ErrorCode = account is null ? 1 : 0,
+            Account = account
+        });
     }
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_PLAYERENQUEUED))]
@@ -335,16 +323,8 @@ public class GameServer : Server {
         }
     }
 
-    private ByteString CreateKey(ulong accountId) {
-        var key = SessionKey.GenerateHash(_sessionKeyHashInput, accountId);
-
-        // Add this key to the local server. We're going to map the key to an account, that way when a game
-        // client finds its corresponding key, it will get it's account as well.
-        var timeSpan = TimeSpan.FromSeconds(_sessionKeyValidityTime);
-        _sessionKeys.Store(key, accountId, timeSpan);
-
-        return key;
-    }
+    private ByteString CreateKey(ulong accountId)
+        => new(_sessionKeys.IssueLoginKey(accountId, TimeSpan.FromSeconds(_sessionKeyValidityTime)));
 
     private sealed class FallbackEntry {
 
