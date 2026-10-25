@@ -184,6 +184,13 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         // If this is a reinteract scenario, send service range messages first.
         if (reinteract == 2) {
+            if (!_playersInInteractionRange.ContainsKey(playerId)) {
+                Logger.Debug("Ignoring reinteract from {Player} with NPC {Npc}: out of interaction range",
+                    Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_debugName));
+
+                return;
+            }
+
             SendLeaveServiceRange(playerActor);
             SendActorServiceOptions(playerActor, playerId, reinteract);
         }
