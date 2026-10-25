@@ -42,6 +42,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Networking;
@@ -60,6 +61,8 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         = ConfigurationManager.Settings["Character.MaxEmotesAllowed"].AsUInt();
     private static readonly uint s_maxTeleportEffects
         = ConfigurationManager.Settings["Character.MaxTeleportsAllowed"].AsUInt();
+
+    private const int RedeemFailed = 1;
 
     private static readonly CoreObjectSerializer s_coreObjectSerializer = new(behaviors: SerializerFlags.None);
 
@@ -162,109 +165,15 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             }
         }
 
-        switch (itemTemplate) {
-            case BoosterPackTemplate:
-                for (uint i = 0; i < giftRedemption.m_itemCount; i++) {
-                    PackManager.OpenPack(SessionActor.ActorRef, wizard, giftRedemption.m_itemId);
-                }
-                break;
+        var error = GrantTransaction.Run(
+            reserve: () => ReserveMail(wizard.Account, selectedMail),
+            release: () => RestoreMail(wizard.Account, selectedMail),
+            grant: transaction => GrantGift(transaction, wizard, giftRedemption, itemTemplate));
 
-            case GoldAmountTemplate goldItem:
-                wizard.AddGold(goldItem.m_goldAmount * (int) giftRedemption.m_itemCount);
-                SendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEGOLD {
-                    Gold = wizard.GameStats.m_currentGold,
-                    MaxGold = wizard.GameStats.m_baseGoldPouch
-                });
-                break;
-
-            case LunariAmountTemplate lunariTemplate:
-                wizard.AddLunari(lunariTemplate.m_lunariAmount * (int) giftRedemption.m_itemCount);
-                SendToSocket(new WIZARD2_53_PROTOCOL.MSG_UPDATEEVENTCURRENCY1 {
-                    EventCurrency1 = wizard.GameStats.m_currentEventCurrency1,
-                    MaxEventCurrency1 = wizard.GameStats.m_baseEventCurrency1Pouch
-                });
-                break;
-
-            case TourneyTokensAmountTemplate:
-                // TODO: Tournament currency once implemented
-                break;
-
-            // Can pet snacks even be bought?
-            case PetSnackItemTemplate petSnackTemplate:
-                if (!TryGrantPetSnack(wizard, petSnackTemplate.m_templateID, (int) giftRedemption.m_itemCount)) {
-                    SendRedeemFailure(message.MailId);
-                    return;
-                }
-                break;
-
-            case ReagentItemTemplate reagentTemplate:
-                if (!TryGrantReagent(wizard, reagentTemplate.m_templateID, (int) giftRedemption.m_itemCount)) {
-                    SendRedeemFailure(message.MailId);
-                    return;
-                }
-                break;
-
-            case ItemBundleTemplate itemBundle:
-                for (uint i = 0; i < giftRedemption.m_itemCount; i++) {
-                    foreach (var bundleItemTemplateId in itemBundle.m_bundleItems) {
-                        var bundleSubTemplate = CoreObjectFactory.GetCoreTemplate(bundleItemTemplateId);
-                        if (bundleSubTemplate is PetSnackItemTemplate) {
-                            if (!TryGrantPetSnack(wizard, bundleItemTemplateId, 1)) {
-                                SendRedeemFailure(message.MailId);
-                                return;
-                            }
-                        }
-                        else if (bundleSubTemplate is ReagentItemTemplate) {
-                            if (!TryGrantReagent(wizard, bundleItemTemplateId, 1)) {
-                                SendRedeemFailure(message.MailId);
-                                return;
-                            }
-                        }
-                        else {
-                            if (!TryGrantItemOrPet(wizard, bundleItemTemplateId)) {
-                                SendRedeemFailure(message.MailId);
-                                return;
-                            }
-                        }
-                    }
-                }
-                break;
-
-            default:
-                // Check if the item is emote or teleport effect
-                var customEmote = itemTemplate?.m_behaviors?.OfType<CustomEmoteBehaviorTemplate>().FirstOrDefault();
-                if (customEmote != null && customEmote.m_bitFieldNumber >= 0) {
-                    if (customEmote.m_emoteType == CustomEmoteType.CE_Teleport) {
-                        if (wizard.CountTeleportEffectsUnlocked() >= s_maxTeleportEffects) {
-                            InformGameClient("You have already unlocked the maximum number of teleport effects.");
-                            SendRedeemFailure(message.MailId);
-                            return;
-                        }
-
-                        wizard.UnlockCustomTeleportEffect(customEmote.m_bitFieldNumber);
-                    }
-                    else if (customEmote.m_emoteType == CustomEmoteType.CE_Emote) {
-                        if (wizard.CountEmotesUnlocked() >= s_maxEmotes) {
-                            InformGameClient("You have already unlocked the maximum number of emotes.");
-                            SendRedeemFailure(message.MailId);
-                            return;
-                        }
-
-                        wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber);
-                    }
-                }
-
-                for (uint i = 0; i < giftRedemption.m_itemCount; i++) {
-                    if (!TryGrantItemOrPet(wizard, giftRedemption.m_itemId)) {
-                        SendRedeemFailure(message.MailId);
-                        return;
-                    }
-                }
-                break;
+        if (error != 0) {
+            SendRedeemFailure(message.MailId);
+            return;
         }
-
-        // Only remove the mail after the items have been successfully redeemed!
-        wizard.Account.RemoveMail(selectedMail.m_mailId);
 
         SendToSocket(new GAME_5_PROTOCOL.MSG_REDEEM_MAIL_GIFT_RESPONSE {
             ErrorCode = 0,
@@ -275,9 +184,115 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         SendMailData();
     }
 
+    private static int ReserveMail(Account account, Mail mail) {
+        if (!account.RemoveMail(mail.m_mailId)) {
+            Logger.Error("Could not save the redemption of gift mail {0}.", Logger.Args(mail.m_mailId));
+            account.GiftMailbox.Add(mail);
+            return RedeemFailed;
+        }
+
+        return 0;
+    }
+
+    private static void RestoreMail(Account account, Mail mail) {
+        if (!account.AddMail(mail)) {
+            Logger.Error("Could not restore gift mail {0} after a failed redemption.", Logger.Args(mail.m_mailId));
+        }
+    }
+
+    private int GrantGift(GrantTransaction transaction, Wizard wizard, CrownShopGiftRedemption giftRedemption, CoreTemplate itemTemplate) {
+        var count = (int) giftRedemption.m_itemCount;
+        switch (itemTemplate) {
+            // Pack loot is rolled and cannot be taken back, so packs are the whole grant.
+            case BoosterPackTemplate:
+                for (var i = 0; i < count; i++) {
+                    PackManager.OpenPack(SessionActor.ActorRef, wizard, giftRedemption.m_itemId);
+                }
+                return 0;
+
+            case GoldAmountTemplate goldItem:
+                var gold = goldItem.m_goldAmount * count;
+                wizard.AddGold(gold);
+                transaction.OnRollback(() => wizard.RemoveGold(gold));
+                transaction.OnCommit(() => SendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEGOLD {
+                    Gold = wizard.GameStats.m_currentGold,
+                    MaxGold = wizard.GameStats.m_baseGoldPouch
+                }));
+                return 0;
+
+            case LunariAmountTemplate lunariTemplate:
+                var lunari = lunariTemplate.m_lunariAmount * count;
+                wizard.AddLunari(lunari);
+                transaction.OnRollback(() => wizard.RemoveLunari(lunari));
+                transaction.OnCommit(() => SendToSocket(new WIZARD2_53_PROTOCOL.MSG_UPDATEEVENTCURRENCY1 {
+                    EventCurrency1 = wizard.GameStats.m_currentEventCurrency1,
+                    MaxEventCurrency1 = wizard.GameStats.m_baseEventCurrency1Pouch
+                }));
+                return 0;
+
+            case TourneyTokensAmountTemplate:
+                Logger.Warning("Tourney tokens cannot be granted yet; gift {0} stays in the mailbox.", Logger.Args(giftRedemption.m_itemId));
+                return RedeemFailed;
+
+            case PetSnackItemTemplate petSnackTemplate:
+                return TryGrantPetSnack(transaction, wizard, petSnackTemplate.m_templateID, count) ? 0 : RedeemFailed;
+
+            case ReagentItemTemplate reagentTemplate:
+                return TryGrantReagent(transaction, wizard, reagentTemplate.m_templateID, count) ? 0 : RedeemFailed;
+
+            case ItemBundleTemplate itemBundle:
+                for (var i = 0; i < count; i++) {
+                    foreach (var bundleItemTemplateId in itemBundle.m_bundleItems) {
+                        var granted = CoreObjectFactory.GetCoreTemplate(bundleItemTemplateId) switch {
+                            PetSnackItemTemplate => TryGrantPetSnack(transaction, wizard, bundleItemTemplateId, 1),
+                            ReagentItemTemplate => TryGrantReagent(transaction, wizard, bundleItemTemplateId, 1),
+                            _ => TryGrantItemOrPet(transaction, wizard, bundleItemTemplateId),
+                        };
+                        if (!granted) {
+                            return RedeemFailed;
+                        }
+                    }
+                }
+                return 0;
+
+            default:
+                // Check if the item is emote or teleport effect
+                var customEmote = itemTemplate?.m_behaviors?.OfType<CustomEmoteBehaviorTemplate>().FirstOrDefault();
+                if (customEmote != null && customEmote.m_bitFieldNumber >= 0) {
+                    if (customEmote.m_emoteType == CustomEmoteType.CE_Teleport) {
+                        if (wizard.CountTeleportEffectsUnlocked() >= s_maxTeleportEffects) {
+                            InformGameClient("You have already unlocked the maximum number of teleport effects.");
+                            return RedeemFailed;
+                        }
+
+                        transaction.OnCommit(() => wizard.UnlockCustomTeleportEffect(customEmote.m_bitFieldNumber));
+                    }
+                    else if (customEmote.m_emoteType == CustomEmoteType.CE_Emote) {
+                        if (wizard.CountEmotesUnlocked() >= s_maxEmotes) {
+                            InformGameClient("You have already unlocked the maximum number of emotes.");
+                            return RedeemFailed;
+                        }
+
+                        transaction.OnCommit(() => wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber));
+                    }
+                }
+
+                for (var i = 0; i < count; i++) {
+                    if (!TryGrantItemOrPet(transaction, wizard, giftRedemption.m_itemId)) {
+                        return RedeemFailed;
+                    }
+                }
+                return 0;
+        }
+    }
+
     internal static int CalculateRequiredInventorySlots(CoreTemplate itemTemplate, int count) {
+        // One backpack slot per loot table and pack; a table that drops several items can still overflow.
+        if (itemTemplate is BoosterPackTemplate pack) {
+            return (pack.m_lootTables?.Count ?? 0) * count;
+        }
+
         if (itemTemplate is null ||
-            itemTemplate is BoosterPackTemplate ||
             itemTemplate is GoldAmountTemplate ||
             itemTemplate is LunariAmountTemplate ||
             itemTemplate is TourneyTokensAmountTemplate ||
@@ -304,7 +319,7 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         return (int) count;
     }
 
-    private bool TryGrantItemOrPet(Wizard wizard, ulong itemTemplateId) {
+    private bool TryGrantItemOrPet(GrantTransaction transaction, Wizard wizard, ulong itemTemplateId) {
         WizClientObjectItem itemCoreObject;
         if (PetFactory.IsPetTemplate((uint) itemTemplateId)) {
             if (!wizard.AddHatchedPetToInventory((uint) itemTemplateId, out itemCoreObject)) {
@@ -319,16 +334,17 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             }
         }
 
+        transaction.OnRollback(() => wizard.RemoveItemFromInventory(itemCoreObject.m_globalID));
+
         if (!s_coreObjectSerializer.Serialize(itemCoreObject, 24, out var serializedItem)) {
             Logger.Warning("Failed to serialize core object {0}.", Logger.Args(itemTemplateId));
             return false;
         }
 
-        SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_ADDITEM {
+        transaction.OnCommit(() => SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_ADDITEM {
             GlobalID = wizard.GameObjectID,
             SerializedItem = serializedItem
-        });
-
+        }));
         return true;
     }
 
@@ -340,13 +356,16 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         SendMailData();
     }
 
-    private bool TryGrantPetSnack(Wizard wizard, ulong snackTemplateId, int count) {
+    private bool TryGrantPetSnack(GrantTransaction transaction, Wizard wizard, ulong snackTemplateId, int count) {
         ClientPetSnackItem snackObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddSnack(snackTemplateId, out snackObj)) {
                 Logger.Warning("Could not add pet snack {0} to snack bag.", Logger.Args(snackTemplateId));
                 return false;
             }
+
+            var added = snackObj;
+            transaction.OnRollback(() => wizard.RemoveSnack(added.m_globalID, out _));
         }
 
         if (snackObj is null || !s_coreObjectSerializer.Serialize(snackObj, 24, out var serializedSnackObj)) {
@@ -354,33 +373,38 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             return false;
         }
 
-        SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKADD {
-            GlobalID = wizard.GameObjectID,
-            Data = serializedSnackObj
-        });
+        transaction.OnCommit(() => {
+            SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKADD {
+                GlobalID = wizard.GameObjectID,
+                Data = serializedSnackObj
+            });
 
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
-            ItemGlobalID = snackObj.m_globalID,
-            ItemTemplateID = (uint) snackObj.m_templateID,
-            ItemLocation = 1
-        });
+            SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
+                ItemGlobalID = snackObj.m_globalID,
+                ItemTemplateID = (uint) snackObj.m_templateID,
+                ItemLocation = 1
+            });
 
-        SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKUPDATE {
-            GlobalID = wizard.GameObjectID,
-            ItemID = snackObj.m_globalID,
-            Quantity = snackObj.m_quantity
+            SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKUPDATE {
+                GlobalID = wizard.GameObjectID,
+                ItemID = snackObj.m_globalID,
+                Quantity = snackObj.m_quantity
+            });
         });
 
         return true;
     }
 
-    private bool TryGrantReagent(Wizard wizard, ulong reagentTemplateId, int count) {
+    private bool TryGrantReagent(GrantTransaction transaction, Wizard wizard, ulong reagentTemplateId, int count) {
         ClientReagentItem reagentObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddReagent(reagentTemplateId, out reagentObj)) {
                 Logger.Warning("Could not add reagent {0} to inventory.", Logger.Args(reagentTemplateId));
                 return false;
             }
+
+            var added = reagentObj;
+            transaction.OnRollback(() => wizard.RemoveReagent(added.m_globalID, out _));
         }
 
         if (reagentObj is null || !s_coreObjectSerializer.Serialize(reagentObj, 27, out var serializedReagentObj)) {
@@ -388,21 +412,23 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             return false;
         }
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTADD {
-            GlobalID = wizard.GameObjectID,
-            Data = serializedReagentObj
-        });
+        transaction.OnCommit(() => {
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTADD {
+                GlobalID = wizard.GameObjectID,
+                Data = serializedReagentObj
+            });
 
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
-            ItemGlobalID = reagentObj.m_globalID,
-            ItemTemplateID = (uint) reagentObj.m_templateID,
-            ItemLocation = 1
-        });
+            SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
+                ItemGlobalID = reagentObj.m_globalID,
+                ItemTemplateID = (uint) reagentObj.m_templateID,
+                ItemLocation = 1
+            });
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTUPDATE {
-            GlobalID = wizard.GameObjectID,
-            ItemID = reagentObj.m_globalID,
-            Quantity = reagentObj.m_quantity
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTUPDATE {
+                GlobalID = wizard.GameObjectID,
+                ItemID = reagentObj.m_globalID,
+                Quantity = reagentObj.m_quantity
+            });
         });
 
         return true;

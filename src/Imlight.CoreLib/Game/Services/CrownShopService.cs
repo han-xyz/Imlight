@@ -273,11 +273,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private static bool HasInventorySpaceFor(Wizard wizard, CoreTemplate itemTemplate, int count) {
-        var requiredSlots = itemTemplate is BoosterPackTemplate pack
-            // One backpack slot per loot table and pack; a table that drops several items can still overflow.
-            ? (pack.m_lootTables?.Count ?? 0) * count
-            : GiftingService.CalculateRequiredInventorySlots(itemTemplate, count);
-
+        var requiredSlots = GiftingService.CalculateRequiredInventorySlots(itemTemplate, count);
         return requiredSlots == 0 || wizard.InventoryBehavior.HasInventorySpace(requiredSlots);
     }
 
