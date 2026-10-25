@@ -20,25 +20,25 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Issues per-user game session keys (one at login, one per realm transfer) and checks
- * the key a game client attaches with. One instance is shared by every realm.
+ * Issues per-user game session keys at login and transfer tickets on a server transfer, and checks
+ * the attach a game client makes. One instance is shared by every realm.
  * 
  * USAGE EXAMPLE:
- * var key = store.IssueLoginKey(accountId, validity); store.Validate(userId, attachedKey);
+ * var key = store.IssueLoginKey(accountId, validity); store.Validate(userId, attachedKey, remoteIp, zoneName);
  * 
  * NOTE:
- * A user with a pending transfer key is accepted even when the attached key matches neither key,
- * mirroring the pre-L3 behaviour within the 60 s window. The transfer key is consumed.
+ * The client attaches after MSG_SERVERTRANSFER with an empty key, whatever the transfer message carried.
+ * An empty-key attach is accepted only on a transfer ticket: same source address as the session that
+ * requested the transfer, the destination zone the server chose, within 60 s, once.
  * 
  * TODO:
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -46,17 +46,26 @@ using Imlight.CoreLib.Shared.Structures;
 
 namespace Imlight.CoreLib.Game;
 
-public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
+public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
+
+    public enum AttachVerdict {
+        LoginKey,
+        TransferTicket,
+        WrongKey,
+        NoTicket,
+        OtherAddress,
+        OtherZone
+    }
 
     private const int LoginKeyLength = 32;
-    private static readonly TimeSpan s_defaultTransferKeyValidity = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan s_defaultTransferTicketValidity = TimeSpan.FromSeconds(60);
 
     private readonly Lock _lock = new();
     private readonly Cache<ulong, byte[]> _loginKeys = new();
-    private readonly Cache<ulong, byte[]> _transferKeys = new();
+    private readonly Cache<ulong, Ticket> _transferTickets = new();
 
     public SessionKeyStore()
-        : this(s_defaultTransferKeyValidity) {
+        : this(s_defaultTransferTicketValidity) {
     }
 
     public byte[] IssueLoginKey(ulong userId, TimeSpan validity) {
@@ -64,48 +73,58 @@ public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
         var key = Encoding.ASCII.GetBytes(Convert.ToBase64String(RandomNumberGenerator.GetBytes(LoginKeyLength)));
         lock (_lock) {
             _loginKeys.Store(userId, [.. key], validity);
-            _ = _transferKeys.Remove(userId);
+            _ = _transferTickets.Remove(userId);
         }
 
         return key;
     }
 
-    public int IssueTransferKey(ulong userId) {
-        // MSG_SERVERTRANSFER carries the key as a 32-bit INT; the client attaches with it as a string.
-        var key = RandomNumberGenerator.GetInt32(1, int.MaxValue);
-        var keyBytes = Encoding.UTF8.GetBytes(key.ToString(CultureInfo.InvariantCulture));
+    public void IssueTransferTicket(ulong userId, string remoteIp, string zoneName) {
         lock (_lock) {
-            _transferKeys.Store(userId, keyBytes, transferKeyValidity);
+            _transferTickets.Store(userId, new Ticket(remoteIp, zoneName), transferTicketValidity);
         }
-
-        return key;
     }
 
     public bool Validate(ulong userId, ReadOnlySpan<byte> key)
-        => Validate(userId, key, out _);
+        => Validate(userId, key, null, null) == AttachVerdict.LoginKey;
 
-    public bool Validate(ulong userId, ReadOnlySpan<byte> key, out bool acceptedOnPendingTransfer) {
+    public AttachVerdict Validate(ulong userId, ReadOnlySpan<byte> key, string remoteIp, string zoneName) {
         lock (_lock) {
-            acceptedOnPendingTransfer = false;
-            var storedTransferKey = _transferKeys.Get(userId);
-            var isLoginKey = Matches(_loginKeys.Get(userId), key);
-            var isTransferKey = Matches(storedTransferKey, key);
-            if (isTransferKey || (!isLoginKey && storedTransferKey is not null)) {
-                _ = _transferKeys.Remove(userId);
+            if (Matches(_loginKeys.Get(userId), key)) {
+                return AttachVerdict.LoginKey;
             }
 
-            acceptedOnPendingTransfer = !isLoginKey && !isTransferKey && storedTransferKey is not null;
-            return isLoginKey || isTransferKey || acceptedOnPendingTransfer;
+            if (!key.IsEmpty) {
+                return AttachVerdict.WrongKey;
+            }
+
+            var ticket = _transferTickets.Get(userId);
+            if (ticket is null) {
+                return AttachVerdict.NoTicket;
+            }
+
+            if (!string.Equals(ticket.RemoteIp, remoteIp, StringComparison.Ordinal)) {
+                return AttachVerdict.OtherAddress;
+            }
+
+            if (!string.Equals(ticket.ZoneName, zoneName, StringComparison.Ordinal)) {
+                return AttachVerdict.OtherZone;
+            }
+
+            _ = _transferTickets.Remove(userId);
+            return AttachVerdict.TransferTicket;
         }
     }
 
-    public (bool HasLoginKey, bool HasTransferKey) Describe(ulong userId) {
+    public (bool HasLoginKey, bool HasTransferTicket) Describe(ulong userId) {
         lock (_lock) {
-            return (_loginKeys.Get(userId) is not null, _transferKeys.Get(userId) is not null);
+            return (_loginKeys.Get(userId) is not null, _transferTickets.Get(userId) is not null);
         }
     }
 
     private static bool Matches(byte[] stored, ReadOnlySpan<byte> key)
         => stored is not null && CryptographicOperations.FixedTimeEquals(stored, key);
+
+    private sealed record Ticket(string RemoteIp, string ZoneName);
 
 }

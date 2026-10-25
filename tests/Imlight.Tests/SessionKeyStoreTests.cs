@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Behaviour tests for issuing and validating per-login game session keys.
+ * Behaviour tests for issuing and validating per-login game session keys and transfer tickets.
  * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
@@ -31,7 +31,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -46,6 +46,8 @@ namespace Imlight.Tests;
 public class SessionKeyStoreTests {
 
     private const ulong UserId = 42;
+    private const string RemoteIp = "192.168.10.121";
+    private const string ZoneName = "WizardCity/Interiors/WC_Headmistress_House";
     private static readonly TimeSpan s_validity = TimeSpan.FromHours(8);
 
     [Fact]
@@ -137,48 +139,28 @@ public class SessionKeyStoreTests {
         _ = store.IssueLoginKey(UserId, s_validity);
         Assert.Equal((true, false), store.Describe(UserId));
 
-        _ = store.IssueTransferKey(UserId);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
         Assert.Equal((true, true), store.Describe(UserId));
         Assert.Equal((false, false), store.Describe(UserId + 1));
     }
 
     [Fact]
-    public void Validate_PendingTransfer_WrongKey_AcceptsOnce() {
-        var store = new SessionKeyStore();
-        _ = store.IssueLoginKey(UserId, s_validity);
-        _ = store.IssueTransferKey(UserId);
-        var wrongKey = Encoding.ASCII.GetBytes("not-the-key\0");
-
-        Assert.True(store.Validate(UserId, wrongKey));
-        Assert.False(store.Validate(UserId, wrongKey));
-    }
-
-    [Fact]
-    public void TransferKey_DecimalString_Validates() {
-        var store = new SessionKeyStore();
-        _ = store.IssueLoginKey(UserId, s_validity);
-        var transferKey = store.IssueTransferKey(UserId);
-
-        Assert.True(store.Validate(UserId, DecimalBytes(transferKey)));
-    }
-
-    [Fact]
-    public void LoginKey_StillValid_AfterTransferKeyIssued() {
+    public void LoginKey_StillValid_AfterTransferTicketIssued() {
         var store = new SessionKeyStore();
         var loginKey = store.IssueLoginKey(UserId, s_validity);
-        _ = store.IssueTransferKey(UserId);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
 
         Assert.True(store.Validate(UserId, loginKey));
     }
 
     [Fact]
-    public void NewLoginKey_ClearsTransferKey() {
+    public void NewLoginKey_ClearsTransferTicket() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        var transferKey = store.IssueTransferKey(UserId);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
         _ = store.IssueLoginKey(UserId, s_validity);
 
-        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
     }
 
     [Fact]
@@ -190,22 +172,49 @@ public class SessionKeyStoreTests {
     }
 
     [Fact]
-    public void TransferKey_SingleUse() {
+    public void Ticket_EmptyKey_SameIp_SameZone_AcceptsOnce() {
         var store = new SessionKeyStore();
-        var transferKey = store.IssueTransferKey(UserId);
+        _ = store.IssueLoginKey(UserId, s_validity);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
 
-        Assert.True(store.Validate(UserId, DecimalBytes(transferKey)));
-        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
+        Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
     }
 
     [Fact]
-    public void TransferKey_ExpiresFast() {
+    public void Ticket_EmptyKey_OtherIp_Refused() {
+        var store = new SessionKeyStore();
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.OtherAddress, store.Validate(UserId, [], "10.0.0.9", ZoneName));
+        Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
+    }
+
+    [Fact]
+    public void Ticket_EmptyKey_OtherZone_Refused() {
+        var store = new SessionKeyStore();
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.OtherZone, store.Validate(UserId, [], RemoteIp, "WizardCity/WC_Hub"));
+    }
+
+    [Fact]
+    public void Ticket_NonEmptyWrongKey_Refused() {
+        var store = new SessionKeyStore();
+        _ = store.IssueLoginKey(UserId, s_validity);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.WrongKey, store.Validate(UserId, DecimalBytes(12345), RemoteIp, ZoneName));
+    }
+
+    [Fact]
+    public void Ticket_Expired_Refused() {
         var store = new SessionKeyStore(TimeSpan.FromMilliseconds(5));
-        var transferKey = store.IssueTransferKey(UserId);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
 
         Thread.Sleep(50);
 
-        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
     }
 
     private static byte[] DecimalBytes(int value)

@@ -62,4 +62,5 @@ Game servers use cryptographic session keys for secure player authentication:
 - Login server generates session keys during player transitions
 - Game server validates keys before accepting player connections  
 - Keys have configurable expiration times to prevent replay attacks
+- After a server transfer the client attaches with an empty key; the game server accepts it only on the transfer ticket issued with the transfer: same source address, the destination zone the server chose, within 60 s, once
 - Invalid keys result in connection rejection

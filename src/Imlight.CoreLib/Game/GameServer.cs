@@ -109,10 +109,9 @@ public class GameServer : Server {
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
         // If this server is the target realm, create the key locally.
         if (message.TargetRealmName == RealmName) {
-            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId);
+            _sessionKeys.IssueTransferTicket(message.Account.AccountId, message.RemoteIp, message.ZoneName);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
-                Key = key,
                 IP = Ip,
                 Port = (ushort) Port,
                 RealmName = RealmName,
@@ -143,18 +142,14 @@ public class GameServer : Server {
         // A user has requested to join this server. We're going to check if the session key is valid.
         // If it is, we'll return the account associated with it. If not, we'll return an error code.
         var key = (byte[]) message.Key;
-        if (!_sessionKeys.Validate(message.UserID, key, out var acceptedOnPendingTransfer)) {
-            var (hasLoginKey, hasTransferKey) = _sessionKeys.Describe(message.UserID);
-            Logger.Debug("Attach key rejected for user {UserId}: {Shape}, store holds login key {HasLoginKey}, transfer key {HasTransferKey}.",
-                Logger.Args(message.UserID, DescribeKeyShape(key), hasLoginKey, hasTransferKey));
+        var verdict = _sessionKeys.Validate(message.UserID, key, message.SessionActor.RemoteIp, message.ZoneName);
+        if (verdict is not (SessionKeyStore.AttachVerdict.LoginKey or SessionKeyStore.AttachVerdict.TransferTicket)) {
+            var (hasLoginKey, hasTransferTicket) = _sessionKeys.Describe(message.UserID);
+            Logger.Debug("Attach refused for user {UserId}: {Verdict}, {Shape}, store holds login key {HasLoginKey}, transfer ticket {HasTransferTicket}.",
+                Logger.Args(message.UserID, verdict, DescribeKeyShape(key), hasLoginKey, hasTransferTicket));
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
             return;
-        }
-
-        if (acceptedOnPendingTransfer) {
-            Logger.Warning("User {UserId} attached on a pending transfer with a non-matching key: {Shape}.",
-                Logger.Args(message.UserID, DescribeKeyShape(key)));
         }
 
         ActiveSessions.Add(message.SessionActor);

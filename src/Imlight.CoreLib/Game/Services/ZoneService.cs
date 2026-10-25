@@ -38,7 +38,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
@@ -718,7 +717,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         // Ask the LoginServer to create a session key on the target realm's game server.
         var createKeyMsg = new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
             Account = account,
-            TargetRealmName = message.RealmName
+            TargetRealmName = message.RealmName,
+            RemoteIp = SessionActor.RemoteIp,
+            ZoneName = wizard.Zone
         };
 
         SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP keyRsp;
@@ -744,7 +745,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             IP = keyRsp.IP,
             TCPPort = keyRsp.Port,
             UDPPort = keyRsp.Port,
-            Key = keyRsp.Key,
             UserID = account.AccountId,
             CharID = wizard.CharId,
             ZoneName = wizard.Zone,
@@ -762,8 +762,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackZoneID = new Imcodec.Types.GID((ulong) keyRsp.Port)
         };
         SendToSocket(serverTransfer);
-        Logger.Debug("SERVERTRANSFER key for user {UserId}: {Length} decimal digits -> {Ip}:{Port} {Zone}",
-            Logger.Args(account.AccountId, serverTransfer.Key.ToString(CultureInfo.InvariantCulture).Length, keyRsp.IP, keyRsp.Port, wizard.Zone));
     }
 
     [MessageHandler(typeof(GAME2_55_PROTOCOL.MSG_CURRENTREALM))]
@@ -866,10 +864,12 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         var realmName = AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
         var keyRsp = AskServer<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP>(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
             Account = account,
-            TargetRealmName = realmName
+            TargetRealmName = realmName,
+            RemoteIp = SessionActor.RemoteIp,
+            ZoneName = character.QueuedZoneName
         });
         if (keyRsp is null || !keyRsp.Success) {
-            Logger.Error("Session {SessionId} could not create a transfer key on realm {Realm}; zone transfer to {Zone} not sent.",
+            Logger.Error("Session {SessionId} could not create a transfer ticket on realm {Realm}; zone transfer to {Zone} not sent.",
                 Logger.Args(SessionActor.SessionID, realmName, character.QueuedZoneName));
 
             return;
@@ -879,7 +879,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             IP = character.GameServerIp,
             TCPPort = character.GameServerPort,
             UDPPort = character.GameServerPort,
-            Key = keyRsp.Key,
             UserID = account.AccountId,
             CharID = character.CharId,
             ZoneName = character.QueuedZoneName,
@@ -896,8 +895,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackZoneID = _currentDynamicZoneId
         };
         SendToSocket(serverTransfer);
-        Logger.Debug("SERVERTRANSFER key for user {UserId}: {Length} decimal digits -> {Ip}:{Port} {Zone}",
-            Logger.Args(account.AccountId, serverTransfer.Key.ToString(CultureInfo.InvariantCulture).Length, character.GameServerIp, character.GameServerPort, character.QueuedZoneName));
         Logger.Information("Session {SessionId} SERVERTRANSFER sent -> {Zone} {Ip}:{Port}",
             Logger.Args(SessionActor.SessionID, character.QueuedZoneName, character.GameServerIp, character.GameServerPort));
 
