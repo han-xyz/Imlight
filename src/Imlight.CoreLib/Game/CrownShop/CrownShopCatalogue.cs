@@ -36,6 +36,7 @@
  */
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -53,6 +54,10 @@ internal sealed class CrownShopCatalogue {
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
     };
+
+    // WishlistData.Encode: magic u32, version u32, keep flag u16, count u16, then per item template id u32 and u16 padding.
+    private const int WishlistHeaderBytes = 12;
+    private const int WishlistItemBytes = 6;
 
     private readonly Dictionary<ulong, CrownShopItem> _items;
 
@@ -86,10 +91,25 @@ internal sealed class CrownShopCatalogue {
     public bool TryGetItem(ulong templateId, out CrownShopItem item)
         => _items.TryGetValue(templateId, out item);
 
-    public bool IsAcceptableWishlist(ByteString wishlistData, uint maxSize)
-        => WishlistData.TryFromByteString(wishlistData, out var wishlist)
-            && wishlist.Items.Count <= maxSize
-            && wishlist.Items.All(id => _items.ContainsKey(id));
+    /// <summary>
+    /// Decodes a client wishlist that is exactly one encoded wishlist of at most <paramref name="maxSize"/>
+    /// catalogue items. Store <c>wishlist.ToByteString()</c>, never <paramref name="raw"/>.
+    /// </summary>
+    public bool TryAcceptWishlist(ByteString raw, uint maxSize, [NotNullWhen(true)] out WishlistData wishlist) {
+        wishlist = null;
+        if (raw.Length > WishlistHeaderBytes + (WishlistItemBytes * maxSize)
+            || !WishlistData.TryFromByteString(raw, out var decoded)) {
+            return false;
+        }
+
+        var hasTrailingBytes = !raw.IsEmpty && raw.Length != WishlistHeaderBytes + (WishlistItemBytes * decoded.Items.Count);
+        if (hasTrailingBytes || decoded.Items.Count > maxSize || !decoded.Items.All(id => _items.ContainsKey(id))) {
+            return false;
+        }
+
+        wishlist = decoded;
+        return true;
+    }
 
     private static CrownShopTabConfig ReadTab(string path) {
         CrownShopTabConfig tab;

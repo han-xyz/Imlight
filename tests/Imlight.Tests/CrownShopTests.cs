@@ -128,34 +128,54 @@ public sealed class CrownShopTests : IDisposable {
     }
 
     [Fact]
-    public void IsAcceptableWishlist_CatalogueItemsWithinSize_IsAccepted() {
+    public void TryAcceptWishlist_CatalogueItemsWithinSize_IsAccepted() {
         var catalogue = LoadTwoItems();
         var wishlist = new WishlistData { Items = [(uint) GoldItemId, (uint) CrownsOnlyItemId] }.ToByteString();
 
-        Assert.True(catalogue.IsAcceptableWishlist(wishlist, maxSize: 2));
+        Assert.True(catalogue.TryAcceptWishlist(wishlist, maxSize: 2, out _));
     }
 
     [Fact]
-    public void IsAcceptableWishlist_OverMaxSize_IsRejected() {
+    public void TryAcceptWishlist_OverMaxSize_IsRejected() {
         var catalogue = LoadTwoItems();
         var wishlist = new WishlistData { Items = [(uint) GoldItemId, (uint) CrownsOnlyItemId] }.ToByteString();
 
-        Assert.False(catalogue.IsAcceptableWishlist(wishlist, maxSize: 1));
+        Assert.False(catalogue.TryAcceptWishlist(wishlist, maxSize: 1, out _));
     }
 
     [Fact]
-    public void IsAcceptableWishlist_ItemNotInCatalogue_IsRejected() {
+    public void TryAcceptWishlist_ItemNotInCatalogue_IsRejected() {
         var catalogue = LoadTwoItems();
         var wishlist = new WishlistData { Items = [(uint) GoldItemId, 9999] }.ToByteString();
 
-        Assert.False(catalogue.IsAcceptableWishlist(wishlist, maxSize: 30));
+        Assert.False(catalogue.TryAcceptWishlist(wishlist, maxSize: 30, out _));
     }
 
     [Fact]
-    public void IsAcceptableWishlist_UndecodableData_IsRejected() {
+    public void TryAcceptWishlist_UndecodableData_IsRejected() {
         var catalogue = LoadTwoItems();
 
-        Assert.False(catalogue.IsAcceptableWishlist("not a wishlist", maxSize: 30));
+        Assert.False(catalogue.TryAcceptWishlist("not a wishlist", maxSize: 30, out _));
+    }
+
+    [Fact]
+    public void Wishlist_TrailingBytes_Rejected() {
+        var catalogue = LoadTwoItems();
+        byte[] wishlist = new WishlistData { Items = [(uint) GoldItemId] }.ToByteString();
+
+        Assert.False(catalogue.TryAcceptWishlist(wishlist.Concat(new byte[] { 0xAB, 0xCD }).ToArray(), maxSize: 30, out _));
+    }
+
+    [Fact]
+    public void Wishlist_StoredCanonical() {
+        var catalogue = LoadTwoItems();
+        byte[] canonical = new WishlistData { Items = [(uint) GoldItemId, (uint) CrownsOnlyItemId] }.ToByteString();
+        var nonCanonical = (byte[]) canonical.Clone();
+        nonCanonical[8] = 5;
+        nonCanonical[16] = 0x7F;
+
+        Assert.True(catalogue.TryAcceptWishlist(nonCanonical, maxSize: 30, out var wishlist));
+        Assert.Equal(canonical, (byte[]) wishlist.ToByteString());
     }
 
     private static readonly string TwoItems = $$"""

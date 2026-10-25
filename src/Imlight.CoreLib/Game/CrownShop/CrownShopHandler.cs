@@ -190,7 +190,10 @@ public static class CrownShopHandler {
     public static bool TryGetCrownShopItem(ulong id, out CrownShopItem item)
         => s_snapshot.Catalogue.TryGetItem(id, out item);
 
-    public static bool IsAcceptableWishlist(ByteString wishlistData)
-        => s_snapshot.Catalogue.IsAcceptableWishlist(wishlistData, s_wishlistMaxSize);
+    public static bool TryAcceptWishlist(ByteString raw, out ByteString canonical) {
+        var accepted = s_snapshot.Catalogue.TryAcceptWishlist(raw, s_wishlistMaxSize, out var wishlist);
+        canonical = accepted ? wishlist.ToByteString() : default;
+        return accepted;
+    }
 
 }

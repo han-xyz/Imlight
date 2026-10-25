@@ -724,13 +724,13 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     // This message is fired when the PCS UI is closed.
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_PCS_UPDATEUSERWISHLIST))]
     private void ReceiveWishlistUpdate(WIZARD_12_PROTOCOL.MSG_PCS_UPDATEUSERWISHLIST message) {
-        if (!CrownShopHandler.IsAcceptableWishlist(message.Data)) {
+        if (!CrownShopHandler.TryAcceptWishlist(message.Data, out var wishlistData)) {
             Logger.Warning("Rejected crown shop wishlist: undecodable, over the size limit, or naming items the shop does not sell.");
             return;
         }
 
         var wizard = GetActiveWizard();
-        ApplyLocalWishlistUpdate(wizard, message.Data, message.WLItemsRemAftPur, sendToSelf: false);
+        ApplyLocalWishlistUpdate(wizard, wishlistData, message.WLItemsRemAftPur, sendToSelf: false);
 
         Logger.Information("Saved updated crown shop wishlist data for character {Id}",
             Logger.Args(wizard.CharId));
