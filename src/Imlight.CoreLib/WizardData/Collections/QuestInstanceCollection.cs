@@ -110,6 +110,7 @@ public static class QuestInstanceCollection {
         using var session = s_store.OpenSession();
 
         var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .FirstOrDefault(q => q.ID == questInstanceID);
         if (questInstance == null) {
             return false;
@@ -136,6 +137,7 @@ public static class QuestInstanceCollection {
         using var session = s_store.OpenSession();
 
         var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .FirstOrDefault(q => q.ID == questInstanceID);
         if (questInstance == null) {
             return false;
@@ -162,6 +164,7 @@ public static class QuestInstanceCollection {
         using var session = s_store.OpenSession();
 
         var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .FirstOrDefault(q => q.ID == questInstanceID);
         if (questInstance == null) {
             return false;

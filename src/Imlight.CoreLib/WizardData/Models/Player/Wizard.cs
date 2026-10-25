@@ -1201,7 +1201,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.StartQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.StartQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save the start of quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
@@ -1226,7 +1229,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.IncrementQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.IncrementQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save progress on quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
@@ -1251,7 +1257,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.CompleteQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.CompleteQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save the completion of quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
