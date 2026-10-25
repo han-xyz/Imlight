@@ -23,6 +23,7 @@ using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Raven.Client.Documents.Session;
 using System;
+using System.Collections.Generic;
 using Imcodec.ObjectProperty.TypeCache;
 
 namespace Imlight.CoreLib.WizardData.Collections;
@@ -271,6 +272,22 @@ public static class AccountCollection {
             .FirstOrDefault() ?? new Account();
 
         return LoadAccountDetails(session, account, characterListOnly: true);
+    }
+
+    /// <summary>
+    /// Gets the username and password hash of every Administrator account.
+    /// </summary>
+    /// <returns></returns>
+    public static List<AdminAccountCredential> GetAdministratorCredentials() {
+        using var session = s_store.OpenSession();
+
+        return session.Query<Account>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .Where(account => account.AuthLevel == AuthLevel.Administrator)
+            .Select(account => new { account.Username, account.PasswordHash })
+            .ToList()
+            .Select(account => new AdminAccountCredential(account.Username, account.PasswordHash))
+            .ToList();
     }
 
     /// <summary>

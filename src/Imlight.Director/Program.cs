@@ -45,6 +45,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Akka.Actor;
 using Imlight.Common;
 using Imlight.CoreLib.Auth;
@@ -168,6 +169,11 @@ internal static class Program {
 
         // Force load dragon database. Create the admin account if it does not exist yet, on any database.
         _ = PlayerDatabase.Instance.Store;
+        if (!ResetDefaultPasswordAdministrators()) {
+            Environment.ExitCode = 2;
+
+            return;
+        }
         CreateEmbeddedDatabaseAccounts();
 
         OnlinePlayerCollection.Clear();
@@ -261,6 +267,30 @@ internal static class Program {
         _ = await actor.Ask<SERVER_100_PROTOCOL.MSG_INITIALIZE_COMPLETE>(
             new SERVER_100_PROTOCOL.MSG_INITIALIZE()
         );
+    }
+
+    private static bool ResetDefaultPasswordAdministrators() {
+        var actions = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername);
+
+        foreach (var action in actions.Where(a => a.Kind == AdminAccountAuditActionKind.ResetToConfigured)) {
+            _ = AccountCollection.ChangePassword(action.Username, s_adminAccountPassword);
+            Logger.Warning("Admin account {Username} still used the shipped default password; it has been reset to the configured one",
+                Logger.Args(action.Username));
+        }
+
+        var refusedUsernames = actions
+            .Where(a => a.Kind == AdminAccountAuditActionKind.RefuseStart)
+            .Select(a => a.Username)
+            .ToList();
+        if (refusedUsernames.Count == 0) {
+            return true;
+        }
+
+        Logger.Fatal("Administrator accounts {Usernames} still use the shipped default password. "
+            + "Delete them or give them a new password with the account commands from another Administrator.",
+            Logger.Args(string.Join(", ", refusedUsernames)));
+
+        return false;
     }
 
     private static void CreateEmbeddedDatabaseAccounts() {
