@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 3/18/2025
+ * Last Updated: 10/25/2026
  */
 
 using System.Collections.Generic;
@@ -99,23 +99,32 @@ internal sealed class InteractVendorComponent(ZoneEntity entity) : ZoneEntityCom
         }
     }
 
-    public IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard _)
-        => [
+    public IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard _) {
+        if (_inventory is null) {
+            return [];
+        }
+
+        return [
             new EquipmentShopOption {
                 m_displayKey = DisplayKey,
                 m_iconKey = NpcIcon,
                 m_serviceName = ServiceName,
             }
         ];
+    }
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
+        if (_inventory is null) {
+            return;
+        }
+
         SendShopOfferings(playerActor);
         SendPlayerIntoWizbang(playerObject.m_globalID);
         SendPlayerIntoState(playerObject.m_globalID);
     }
 
     public bool HasItem(GID itemGID)
-        => _inventory.Any(x => x.MParts.TemplateId == itemGID.MParts.TemplateId);
+        => _inventory?.Any(x => x.MParts.TemplateId == itemGID.MParts.TemplateId) is true;
 
     private void SendShopOfferings(IActorRef playerActor) {
         var shopOffering = new WizShopOffering() {
