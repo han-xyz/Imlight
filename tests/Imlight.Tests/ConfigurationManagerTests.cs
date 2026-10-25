@@ -126,6 +126,7 @@ public sealed class ConfigurationManagerTests {
     [InlineData("IMLIGHT__A", false, "", "")]
     [InlineData("IMLIGHT____B", false, "", "")]
     [InlineData("OTHER__A__B", false, "", "")]
+    [InlineData("IMLIGHT__Game__Server__X", false, "", "")]
     public void TryParseOverrideName_Matrix(string name, bool expected, string expectedSection, string expectedKey) {
         var parsed = ConfigurationManager.TryParseOverrideName(name, out var section, out var key);
 

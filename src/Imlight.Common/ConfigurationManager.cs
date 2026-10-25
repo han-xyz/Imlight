@@ -176,8 +176,8 @@ public static class ConfigurationManager {
 
     internal static bool TryParseOverrideName(string name, out string section, out string key) {
         section = key = "";
-        var parts = name.Split(OverrideSeparator, 3);
-        if (parts.Length < 3
+        var parts = name.Split(OverrideSeparator);
+        if (parts.Length != 3
             || !parts[0].Equals(OverridePrefix, StringComparison.OrdinalIgnoreCase)
             || parts[1].Length == 0
             || parts[2].Length == 0) {

@@ -30,14 +30,14 @@
  * NOTE:
  * This system uses System.Threading and Akka.Actor for concurrency.
  * Resource loading may take significant time, and timing is logged.
- * Embedded database is initialized with a default admin account.
+ * The admin account is created from the configured credentials on first boot; boot fails on an empty or default password.
  *
  * TODO:
  * - Implement different boot types beyond L&G (Login & Game server)
  *
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/25/2026
 */
 
 using System;
@@ -120,6 +120,14 @@ internal static class Program {
         );
         Logger.Information("Imlight configuration loaded.");
 
+        var adminCredentialVerdict = AdminCredentialPolicy.Validate(s_adminAccountUsername, s_adminAccountPassword);
+        if (!adminCredentialVerdict.IsAccepted) {
+            Logger.Fatal("{Reason}", Logger.Args(adminCredentialVerdict.Message));
+            Environment.ExitCode = 2;
+
+            return;
+        }
+
         // =============================================================
         // AKKA.NET CONFIGURATION
         // =============================================================
@@ -157,7 +165,7 @@ internal static class Program {
         var loginServer = StartLoginServer();
         StartGameServers(loginServer);
 
-        // Force load dragon database. Create a dud account if the database ends up using the embedded database.
+        // Force load dragon database. Create the admin account if it does not exist yet, on any database.
         _ = PlayerDatabase.Instance.Store;
         CreateEmbeddedDatabaseAccounts();
 
@@ -257,14 +265,19 @@ internal static class Program {
         // At least one account needs to exist.
         var adminAccountUsername = s_adminAccountUsername;
         var adminAccountPassword = s_adminAccountPassword;
-        DatabaseUtilities.CreateEmbeddedDatabaseAccount(
+        var adminAccount = DatabaseUtilities.CreateEmbeddedDatabaseAccount(
             adminAccountUsername,
             "testtest@r101.com",
             adminAccountPassword,
             AuthLevel.Administrator);
 
-        Logger.Information("Created admin account.");
-        Logger.Information("Embedded database accounts created.");
+        if (adminAccount is null) {
+            Logger.Information("Admin account {Username} already exists; ini credentials apply only on first creation",
+                Logger.Args(adminAccountUsername));
+            return;
+        }
+
+        Logger.Information("Created admin account {Username}", Logger.Args(adminAccountUsername));
     }
 
     private static void PrintTitle() {
