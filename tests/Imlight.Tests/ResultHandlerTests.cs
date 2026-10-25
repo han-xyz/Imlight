@@ -57,6 +57,7 @@ namespace Imlight.Tests;
 public sealed class ResultHandlerTests : IDisposable {
 
     private const uint WoodChestOpenedTemplateId = 1374674914;
+    private const uint AddExpansionHash = 0x5820E493;
     private const string ChestName = "Chest_01";
     private const ulong CharacterId = 1001;
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(5);
@@ -136,6 +137,13 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
+    public void AddExpansionHash_RegistersAResult() {
+        var type = new ServerGeneratedTypeRegistry().LookupType(AddExpansionHash);
+
+        Assert.True(typeof(Result).IsAssignableFrom(type));
+    }
+
+    [Fact]
     public void ResPlaySound_KnownName_ResolvesTemplate() {
         var success = Execute<ResPlaySoundHandler>(new ResPlaySound { m_soundName = "Wood Chest Opened" });
 
@@ -167,6 +175,7 @@ public sealed class ResultHandlerTests : IDisposable {
         new ResAddEncounterXP(),
         new ResReInteract(),
         new ResSetGardeningLevel(),
+        new ResAddExpansion(),
     ];
 
     [Theory]
