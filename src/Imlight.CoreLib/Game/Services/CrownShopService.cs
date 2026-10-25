@@ -225,30 +225,20 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        int amountToPay;
-        switch (message.Type) {
-            // Gold
-            case 0:
-                amountToPay = (int) message.Count * catalogItem.m_goldCost;
-                if (wizard.GameStats.m_currentGold < amountToPay) {
-                    SendPurchaseError(s_errorCantAfford);
-                    return;
-                }
-                break;
+        if (!CrownShopPrice.TryCompute(catalogItem, message.Type, message.Count, out var amountToPay)) {
+            Logger.Warning("Item {0} has no price for currency type {1}.", Logger.Args(message.Item, message.Type));
+            SendPurchaseError(s_errorNoPriceForType);
+            return;
+        }
 
-            // Crowns
-            case 1:
-                amountToPay = (int) message.Count * catalogItem.m_crownsCost;
-                if (wizard.Account.Crowns < amountToPay) {
-                    SendPurchaseError(s_errorNotEnoughCrowns);
-                    return;
-                }
-                break;
+        if (message.Type == CrownShopPrice.GoldCurrency && wizard.GameStats.m_currentGold < amountToPay) {
+            SendPurchaseError(s_errorCantAfford);
+            return;
+        }
 
-            default:
-                Logger.Warning("Invalid currency type {0} for item {1}.", Logger.Args(message.Type, message.Item));
-                SendPurchaseError(s_errorNoPriceForType);
-                return;
+        if (message.Type == CrownShopPrice.CrownsCurrency && wizard.Account.Crowns < amountToPay) {
+            SendPurchaseError(s_errorNotEnoughCrowns);
+            return;
         }
 
         // Grant items or deliver gift before deducting currency so failed deliveries do not charge the player.
@@ -261,11 +251,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (message.Type == 0) {
+        if (message.Type == CrownShopPrice.GoldCurrency) {
             wizard.RemoveGold(amountToPay);
             SyncGoldBalance(wizard);
         }
-        else if(message.Type == 1) {
+        else if(message.Type == CrownShopPrice.CrownsCurrency) {
             wizard.Account.SetCrowns(wizard.Account.Crowns - amountToPay);
             SyncCrownBalance(wizard);
         }else {

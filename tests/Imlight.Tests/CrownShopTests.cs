@@ -38,6 +38,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.CrownShop;
 using Xunit;
 
@@ -93,6 +94,37 @@ public sealed class CrownShopTests : IDisposable {
         WriteTab("Tab0.json", 36, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": -5 }]""");
 
         Assert.Throws<InvalidDataException>(() => CrownShopCatalogue.Load(_directory));
+    }
+
+    [Fact]
+    public void TryCompute_MultipliesUnitPriceByCount() {
+        var item = new CrownShopItem { m_goldCost = 40, m_crownsCost = 3 };
+
+        Assert.True(CrownShopPrice.TryCompute(item, CrownShopPrice.GoldCurrency, 5, out var gold));
+        Assert.True(CrownShopPrice.TryCompute(item, CrownShopPrice.CrownsCurrency, 5, out var crowns));
+        Assert.Equal(200, gold);
+        Assert.Equal(15, crowns);
+    }
+
+    [Fact]
+    public void TryCompute_CurrencyWithoutPrice_IsRejected() {
+        var crownsOnly = new CrownShopItem { m_goldCost = 0, m_crownsCost = 250 };
+
+        Assert.False(CrownShopPrice.TryCompute(crownsOnly, CrownShopPrice.GoldCurrency, 1, out _));
+    }
+
+    [Fact]
+    public void TryCompute_UnknownCurrency_IsRejected() {
+        var item = new CrownShopItem { m_goldCost = 40, m_crownsCost = 3 };
+
+        Assert.False(CrownShopPrice.TryCompute(item, 2, 1, out _));
+    }
+
+    [Fact]
+    public void TryCompute_OverflowingTotal_IsRejected() {
+        var item = new CrownShopItem { m_crownsCost = int.MaxValue / 2 };
+
+        Assert.False(CrownShopPrice.TryCompute(item, CrownShopPrice.CrownsCurrency, 3, out _));
     }
 
     private static readonly string TwoItems = $$"""
