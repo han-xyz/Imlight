@@ -73,7 +73,7 @@ internal sealed class CrownShopCatalogue {
     /// <summary>
     /// Reads every *.json tab file in <paramref name="directory"/>.
     /// </summary>
-    /// <exception cref="InvalidDataException">A tab file is not valid JSON, or an item has a negative price.</exception>
+    /// <exception cref="InvalidDataException">A tab file is not valid JSON, an item has a negative price, or two tabs price one item differently.</exception>
     public static CrownShopCatalogue Load(string directory) {
         var tabs = Directory.GetFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
             .Select(ReadTab)
@@ -82,6 +82,10 @@ internal sealed class CrownShopCatalogue {
 
         var items = new Dictionary<ulong, CrownShopItem>();
         foreach (var item in tabs.SelectMany(t => t.Items)) {
+            if (items.TryGetValue(item.TemplateId, out var listed) && !HasSamePrices(listed, item)) {
+                throw new InvalidDataException($"Crown shop item {item.TemplateId} is listed in two tabs with different prices.");
+            }
+
             items[item.TemplateId] = ToCrownShopItem(item);
         }
 
@@ -130,6 +134,9 @@ internal sealed class CrownShopCatalogue {
 
         return tab;
     }
+
+    private static bool HasSamePrices(CrownShopItem listed, CrownShopItemConfig item)
+        => listed.m_goldCost == item.GoldCost && listed.m_crownsCost == item.CrownsCost && listed.m_ticketCost == item.TicketCost;
 
     private static CrownShopItem ToCrownShopItem(CrownShopItemConfig item) => new() {
         m_itemTemplateId = item.TemplateId,

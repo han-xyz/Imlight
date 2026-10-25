@@ -210,7 +210,7 @@ public static class CrownShopHandler {
         // An exception here would end the process from the watcher thread; the previous catalogue stays live.
         try {
             LoadCatalogue(Path.GetFullPath(s_crownShopConfigPath));
-        } catch (Exception ex) when (ex is InvalidDataException or IOException) {
+        } catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException) {
             Logger.Error("CrownShop reload failed, keeping the previous catalogue: {0}", Logger.Args(ex.Message));
         }
     }

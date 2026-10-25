@@ -49,6 +49,8 @@ public sealed class CrownShopTests : IDisposable {
     private const ulong GoldItemId = 1001;
     private const ulong CrownsOnlyItemId = 1002;
 
+    private static readonly string? s_spiralDbClone = Environment.GetEnvironmentVariable("SPIRALDB_CLONE");
+
     private readonly string _directory = Directory.CreateTempSubdirectory("imlight-crownshop-").FullName;
 
     public void Dispose() => Directory.Delete(_directory, recursive: true);
@@ -67,6 +69,32 @@ public sealed class CrownShopTests : IDisposable {
         Assert.True(catalogue.TryGetItem(CrownsOnlyItemId, out var item));
         Assert.Equal(250, item.m_crownsCost);
         Assert.Equal("3:0,1:1", item.m_displayPriority);
+    }
+
+    [CloneFact]
+    public void CrownShop_LoadsRealDataPackTabs() {
+        var catalogue = CrownShopCatalogue.Load(Path.Combine(s_spiralDbClone!, "CrownShop"));
+
+        Assert.Equal(Enumerable.Range(36, 11), catalogue.Tabs.Select(t => t.TabId));
+        Assert.True(catalogue.TryGetItem(1217734, out var item));
+        Assert.Equal(3500, item.m_crownsCost);
+        Assert.Equal(35000, item.m_goldCost);
+    }
+
+    [Fact]
+    public void Load_SameItemWithDifferentPrices_Throws() {
+        WriteTab("Tab0.json", 36, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10 }]""");
+        WriteTab("Tab1.json", 37, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 1 }]""");
+
+        Assert.Throws<InvalidDataException>(() => CrownShopCatalogue.Load(_directory));
+    }
+
+    [Fact]
+    public void Load_SameItemWithSamePrices_Loads() {
+        WriteTab("Tab0.json", 36, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10 }]""");
+        WriteTab("Tab1.json", 37, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10 }]""");
+
+        Assert.True(CrownShopCatalogue.Load(_directory).TryGetItem(GoldItemId, out _));
     }
 
     [Fact]
@@ -227,6 +255,14 @@ public sealed class CrownShopTests : IDisposable {
             }
             """;
         File.WriteAllText(Path.Combine(_directory, fileName), json);
+    }
+
+    private sealed class CloneFactAttribute : FactAttribute {
+        public CloneFactAttribute() {
+            if (s_spiralDbClone is null || !Directory.Exists(s_spiralDbClone)) {
+                Skip = "set SPIRALDB_CLONE to a spiraldb clone to run this test";
+            }
+        }
     }
 
 }
