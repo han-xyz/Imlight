@@ -41,6 +41,7 @@
 */
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -274,8 +275,6 @@ internal static class Program {
 
         foreach (var action in actions.Where(a => a.Kind == AdminAccountAuditActionKind.ResetToConfigured)) {
             if (!AccountCollection.ChangePassword(action.Username, s_adminAccountPassword)) {
-                Logger.Error("Admin account {Username} uses the shipped default password and could not be reset",
-                    Logger.Args(action.Username));
                 continue;
             }
 
@@ -283,20 +282,28 @@ internal static class Program {
                 Logger.Args(action.Username));
         }
 
-        var refusedUsernames = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername)
-            .Select(a => a.Username)
-            .ToList();
-        if (refusedUsernames.Count == 0) {
+        var remaining = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername);
+        if (remaining.Count == 0) {
             return true;
         }
 
-        Logger.Fatal("Administrator account(s) {Usernames} still use the shipped default password. "
-            + "Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; "
-            + "(2) delete it from the player database. Boot refused.",
-            Logger.Args(string.Join(", ", refusedUsernames)));
+        var resetFailedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.ResetToConfigured);
+        if (resetFailedUsernames.Length > 0) {
+            Logger.Fatal("Admin account {Username} still uses a known default password after the reset. Either AdminAccountPassword is itself a known default (choose another) or the update failed (check the player database). Boot refused.",
+                Logger.Args(resetFailedUsernames));
+        }
+
+        var refusedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.RefuseStart);
+        if (refusedUsernames.Length > 0) {
+            Logger.Fatal("Administrator account(s) {Usernames} still use the shipped default password. Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; (2) delete it from the player database. Boot refused.",
+                Logger.Args(refusedUsernames));
+        }
 
         return false;
     }
+
+    private static string UsernamesOfKind(IEnumerable<AdminAccountAuditAction> actions, AdminAccountAuditActionKind kind)
+        => string.Join(", ", actions.Where(a => a.Kind == kind).Select(a => a.Username));
 
     private static void CreateEmbeddedDatabaseAccounts() {
         // At least one account needs to exist.

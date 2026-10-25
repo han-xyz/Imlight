@@ -42,6 +42,7 @@ namespace Imlight.Tests;
 public class AdminAccountAuditTests {
 
     private static readonly string s_defaultHash = DatabaseUtilities.CreateHashedPassword("compsci");
+    private static readonly string s_historicDefaultHash = DatabaseUtilities.CreateHashedPassword("dev9999");
     private static readonly string s_otherHash = DatabaseUtilities.CreateHashedPassword("s0me-l0ng-pass");
 
     [Fact]
@@ -56,6 +57,27 @@ public class AdminAccountAuditTests {
         var actions = AdminAccountAudit.Audit([new AdminAccountCredential("admin", s_defaultHash)], "operator");
 
         Assert.Equal([new AdminAccountAuditAction("admin", AdminAccountAuditActionKind.RefuseStart)], actions);
+    }
+
+    [Fact]
+    public void DefaultHash_ConfiguredUserDifferentCase_Reset() {
+        var actions = AdminAccountAudit.Audit([new AdminAccountCredential("Admin", s_defaultHash)], "admin");
+
+        Assert.Equal([new AdminAccountAuditAction("Admin", AdminAccountAuditActionKind.ResetToConfigured)], actions);
+    }
+
+    [Fact]
+    public void HistoricDefaultHash_ConfiguredUser_Reset() {
+        var actions = AdminAccountAudit.Audit([new AdminAccountCredential("dev1", s_historicDefaultHash)], "dev1");
+
+        Assert.Equal([new AdminAccountAuditAction("dev1", AdminAccountAuditActionKind.ResetToConfigured)], actions);
+    }
+
+    [Fact]
+    public void HistoricDefaultHash_OtherAdmin_Refuse() {
+        var actions = AdminAccountAudit.Audit([new AdminAccountCredential("dev1", s_historicDefaultHash)], "admin");
+
+        Assert.Equal([new AdminAccountAuditAction("dev1", AdminAccountAuditActionKind.RefuseStart)], actions);
     }
 
     [Fact]

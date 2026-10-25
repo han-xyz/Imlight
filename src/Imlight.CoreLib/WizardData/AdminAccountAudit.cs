@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Finds stored Administrator accounts that still carry the shipped default password hash
+ * Finds stored Administrator accounts that still carry a known default password hash
  * and decides, per account, whether boot resets it to the configured password or refuses to start.
  * 
  * USAGE EXAMPLE:
@@ -57,14 +57,19 @@ public sealed record AdminAccountAuditAction(string Username, AdminAccountAuditA
 
 public static class AdminAccountAudit {
 
-    private const string ShippedDefaultPassword = "compsci";
-    private static readonly string s_shippedDefaultPasswordHash =
-        DatabaseUtilities.CreateHashedPassword(ShippedDefaultPassword);
+    // "compsci" is the ini default before L2; the rest were hard-coded for Administrator accounts in
+    // src/Director before 106c24fd ("ref: remove embedded accounts") and are public in git history.
+    private static readonly string[] s_knownDefaultPasswords = [
+        "compsci", "debug", "dev9999", "2034", "9090", "2342", "2109", "joji1", "jefffakename",
+        "jootysocoollike", "Niduus", "gay", "is that guy even a dev?", "isthatguyevenadev?",
+    ];
+    private static readonly HashSet<string> s_knownDefaultPasswordHashes =
+        [.. s_knownDefaultPasswords.Select(DatabaseUtilities.CreateHashedPassword)];
 
     public static IReadOnlyList<AdminAccountAuditAction> Audit(
         IEnumerable<AdminAccountCredential> administrators, string configuredUsername) {
         return administrators
-            .Where(admin => admin.PasswordHash == s_shippedDefaultPasswordHash)
+            .Where(admin => s_knownDefaultPasswordHashes.Contains(admin.PasswordHash))
             .Select(admin => new AdminAccountAuditAction(
                 admin.Username,
                 string.Equals(admin.Username, configuredUsername, StringComparison.OrdinalIgnoreCase)
