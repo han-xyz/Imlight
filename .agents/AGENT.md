@@ -114,13 +114,10 @@ Header rules:
   edited years later still say `Created by: Jooty`; that is the convention
   (`QuestService.cs`, `InteractReagentComponent.cs`). For a brand-new file, use
   the git author of its first commit (when I author on your behalf, your handle).
-- **AI-assisted files are credited explicitly.** When an AI agent contributed to
-  the file (drafted, edited, reviewed, or authored), list that agent alongside
-  the human author in the banner, with the exact model. Format:
-  `Created by: <human-author> with <agent-name> (<exact-model>)`. If the AI was
-  the sole author, still lead with the responsible human's handle and append the
-  agent line the same way. Never drop the agent or elide the model to a vague
-  "AI" once it has meaningfully contributed.
+- **AI assistance is not named in the banner.** `Created by:` carries the
+  responsible human's handle only (`Created by: Han`), whatever tool drafted,
+  edited or reviewed the file. No agent name, model id or co-author line
+  anywhere in file headers or commit messages.
 - **`Last Updated:`** is bumped to today's date (zero-padded `MM/DD/YYYY`, e.g.
   `04/01/2026`) whenever the file is substantively changed.
 - `Version:` stays `KALI 1.0`; only the project bumps it.
