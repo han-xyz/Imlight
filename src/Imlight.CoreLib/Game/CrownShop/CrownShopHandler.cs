@@ -31,7 +31,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 28.09.2026
+ * Last Updated: 10/25/2026
  */
 
 using Imcodec.IO;
@@ -42,9 +42,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Intrinsics.Arm;
-using System.Text;
-using System.Text.Json;
 
 namespace Imlight.CoreLib.Game.CrownShop;
 
@@ -62,27 +59,15 @@ public static class CrownShopHandler {
     private static readonly string s_crownShopConfigPath
         = ConfigurationManager.Settings["Database.SpiralDBLocalPath"] + "/CrownShop";
 
-
-    private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() {
-        PropertyNameCaseInsensitive = true,
-        AllowTrailingCommas = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-    };
-
     private static FileSystemWatcher s_watcher;
     private static DateTime s_lastReloadTime = DateTime.MinValue;
     private static readonly object s_reloadLock = new();
 
+    private sealed record Snapshot(CrownShopCatalogue Catalogue, ByteString SerializedData);
 
+    private static volatile Snapshot s_snapshot = new(CrownShopCatalogue.Empty, new());
 
-    private static List<CrownShopTabConfig> s_crownShopTabs = new();
-    private static List<CrownShopCategoryConfig> s_crownShopCategories = new();
-
-    private static Dictionary<ulong, CrownShopItem> s_items = new();
-
-
-    private static ByteString s_serializedCrownShopData = new();
-
+    /// <exception cref="InvalidDataException">A tab file in the data pack is malformed.</exception>
     public static void Load() {
         if (!s_enabled) {
             Logger.Information("CrownShop not initializing (disabled in config)");
@@ -95,110 +80,42 @@ public static class CrownShopHandler {
             return;
         }
 
-        // Load data from config files
+        LoadCatalogue(basePath);
+
+        if (s_autoReloadOnChanges && s_watcher == null) {
+            SetupAutoReloadWatcher(basePath);
+        }
+    }
+
+    private static void LoadCatalogue(string basePath) {
         lock(s_reloadLock) {
             Logger.Information("Loading CrownShop configuration from: {0}", Logger.Args(s_crownShopConfigPath));
 
-            var loadedTabs = new List<CrownShopTabConfig>();
-            var loadedCategories = new List<CrownShopCategoryConfig>();
+            var catalogue = CrownShopCatalogue.Load(basePath);
 
-            var filePaths = Directory.GetFiles(basePath, "*", SearchOption.TopDirectoryOnly);
-            foreach(var path in filePaths) {
-                if (!File.Exists(path)) {
-                    Logger.Warning("CrownShop tab configuration file not found: {0}", Logger.Args(path));
-                    continue;
-                }
+            var layoutTabs = catalogue.Tabs.Select(tab => new CrownShopCategoryMenu() {
+                m_ID = tab.TabId,
+                m_name = tab.Name,
+                m_iconResource = tab.Icon,
+                m_categoryIDs = tab.CategoryIds,
+                m_tags = tab.Tags,
+                m_description = tab.Description
+            }).ToList();
 
-                try {
-                    var json = File.ReadAllText(path);
-                    var tab = JsonSerializer.Deserialize<CrownShopTabConfig>(json, s_jsonSerializerOptions);
-
-                    if (tab == null) {
-                        Logger.Warning("CrownShop tab configuration file is empty or invalid: {0}", Logger.Args(path));
-                        continue;
-                    }
-
-                    loadedTabs.Add(tab);
-                    foreach (var category in tab.Categories) {
-                        loadedCategories.Add(category);
-                    }
-
-                }
-                catch (Exception e) {
-                    Logger.Warning("Failed to load CrownShop tab configuration file: {0}. Error: {1}", Logger.Args(path, e.Message));
-                }
-            }
-
-            s_crownShopTabs = loadedTabs.OrderBy(t => t.TabId).ToList();
-            s_crownShopCategories = s_crownShopTabs.SelectMany(t => t.Categories).ToList();
-
-            var layoutTabs = new List<CrownShopCategoryMenu>();
-            var layoutCategories = new List<CrownShopCategory>();
-            var crownShopItems = new Dictionary<ulong, CrownShopItem>();
-
-            foreach (var tab in s_crownShopTabs) {
-                var layoutTab = new CrownShopCategoryMenu() {
-                    m_ID = tab.TabId,
-                    m_name = tab.Name,
-                    m_iconResource = tab.Icon,
-                    m_categoryIDs = tab.CategoryIds,
-                    m_tags = tab.Tags,
-                    m_description = tab.Description
-                };
-                layoutTabs.Add(layoutTab);
-
-                foreach (var category in tab.Categories) {
-                    var layoutCategory = new CrownShopCategory() {
-                        m_ID = category.CategoryId,
-                        m_parentTabID = category.ParentTabId,
-                        m_name = category.Name,
-                        m_description = category.Description,
-                        m_iconResource = category.Icon,
-                        m_tags = category.Tags,
-                        m_allowMultipleBuy = category.Flags.AllowMultipleBuy,
-                        m_forceDisallowMultipleBuy = category.Flags.ForceDisallowMultipleBuy,
-                        m_dontFilterOwnedRecoItems = category.Flags.DontFilterOwnedRecoItems,
-                        m_isHousesCategory = category.Flags.IsHousesCategory,
-                        m_isEverythingCategory = category.Flags.IsEverythingCategory,
-                        m_isGroupElixirsCategory = category.Flags.IsGroupElixirsCategory
-                    };
-                    layoutCategories.Add(layoutCategory);
-                }
-
-                foreach(var item in tab.Items) {
-
-                    var displayPriority = new StringBuilder();
-                    for (int i = 0; i < item.DisplayPriority.Count; i++) {
-                        displayPriority.Append($"{item.DisplayPriority[i]}:{i},");
-                    }
-                    displayPriority.Length--; // Remove last comma
-
-                    var crownShopItem = new CrownShopItem() {
-                        m_itemTemplateId = item.TemplateId,
-                        m_itemFlags = item.ItemFlags,
-                        m_goldCost = item.GoldCost,
-                        m_strikethruGold = item.StrikethruGold,
-                        m_crownsCost = item.CrownsCost,
-                        m_strikethruCrowns = item.StrikethruCrowns,
-                        m_ticketCost = item.TicketCost,
-                        m_displayPriority = displayPriority.ToString(),
-                        m_combatOnly = item.CrownShopItemFlags.CombatOnly,
-                        m_noGift = item.CrownShopItemFlags.NoGift,
-                        m_recommendIfOwned = item.CrownShopItemFlags.RecommendIfOwned,
-                        m_saleID = 0,
-                        m_description = "",
-                        m_segReqsPoolsStatements = [],
-                        m_segReqsStatement = "",
-                        // Example: HasBadge(Raid01_QuestComplete_01) = True
-                        // Example: ExcludeIfNoSegData = True,HasBadge(FinishAR-PostLM-MAIN-001) = True
-                        // Example: ExcludeIfNoSegData = True,NLevel &gt; 169,HasBadge(WinNightmare) = True,HasBadge(FinishAR-PostWL-MAIN-001) = True
-                    };
-
-                    crownShopItems[item.TemplateId] = crownShopItem;
-                }
-            }
-
-            s_items = crownShopItems;
+            var layoutCategories = catalogue.Tabs.SelectMany(t => t.Categories).Select(category => new CrownShopCategory() {
+                m_ID = category.CategoryId,
+                m_parentTabID = category.ParentTabId,
+                m_name = category.Name,
+                m_description = category.Description,
+                m_iconResource = category.Icon,
+                m_tags = category.Tags,
+                m_allowMultipleBuy = category.Flags.AllowMultipleBuy,
+                m_forceDisallowMultipleBuy = category.Flags.ForceDisallowMultipleBuy,
+                m_dontFilterOwnedRecoItems = category.Flags.DontFilterOwnedRecoItems,
+                m_isHousesCategory = category.Flags.IsHousesCategory,
+                m_isEverythingCategory = category.Flags.IsEverythingCategory,
+                m_isGroupElixirsCategory = category.Flags.IsGroupElixirsCategory
+            }).ToList();
 
             var crownShopLayout = new CrownShopLayout() {
                 m_tabs = layoutTabs,
@@ -206,7 +123,7 @@ public static class CrownShopHandler {
             };
 
             var crownShopData = new CrownShopData() {
-                m_items = crownShopItems.Values.ToList(),
+                m_items = catalogue.Items.ToList(),
                 m_crownShopLayout = crownShopLayout,
                 m_wishlistMaxSize = (int) s_wishlistMaxSize,
                 m_wishlistSBExpansionSize = (int) s_wishlistSBExpansionSize,
@@ -227,15 +144,10 @@ public static class CrownShopHandler {
                 return;
             }
 
-            s_serializedCrownShopData = serializedData;
+            s_snapshot = new Snapshot(catalogue, serializedData);
 
             Logger.Information("CrownShop successfully initialized: {0} tabs, {1} categories.",
-                Logger.Args(s_crownShopTabs.Count, s_crownShopCategories.Count));
-
-            if (s_autoReloadOnChanges && s_watcher == null) {
-                SetupAutoReloadWatcher(basePath);
-            }
-
+                Logger.Args(layoutTabs.Count, layoutCategories.Count));
         }
     }
 
@@ -263,13 +175,19 @@ public static class CrownShopHandler {
 
         s_lastReloadTime = DateTime.UtcNow;
         Logger.Information("CrownShop file changed. Reloading...");
-        Load();
+
+        // An exception here would end the process from the watcher thread; the previous catalogue stays live.
+        try {
+            LoadCatalogue(Path.GetFullPath(s_crownShopConfigPath));
+        } catch (Exception ex) when (ex is InvalidDataException or IOException) {
+            Logger.Error("CrownShop reload failed, keeping the previous catalogue: {0}", Logger.Args(ex.Message));
+        }
     }
 
-    public static ByteString GetCrownShopData() => s_serializedCrownShopData;
+    public static ByteString GetCrownShopData() => s_snapshot.SerializedData;
 
-    public static List<CrownShopItem> GetCrownShopItems() => s_items.Values.ToList();
+    public static List<CrownShopItem> GetCrownShopItems() => s_snapshot.Catalogue.Items.ToList();
     public static bool TryGetCrownShopItem(ulong id, out CrownShopItem item)
-        => s_items.TryGetValue(id, out item);
+        => s_snapshot.Catalogue.TryGetItem(id, out item);
 
 }

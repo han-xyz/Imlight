@@ -1,0 +1,129 @@
+/*
+ * Imlight
+ * Copyright (C) 2025 Revive101
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * ========================================================================
+ * CROWN SHOP CATALOGUE
+ * ========================================================================
+ * 
+ * PURPOSE:
+ * The crown shop tabs, categories and items read from the data pack's
+ * CrownShop/*.json files, checked for prices a purchase could abuse.
+ * 
+ * USAGE EXAMPLE:
+ * CrownShopHandler.Load reads SpiralDBLocalPath/CrownShop through CrownShopCatalogue.Load.
+ * 
+ * NOTE:
+ * 
+ * TODO:
+ * 
+ * Created by: Han with Claude (claude-opus-5-5)
+ * Version: KALI 1.0
+ * Last Updated: 10/25/2026
+ */
+
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using Imcodec.ObjectProperty.TypeCache;
+
+namespace Imlight.CoreLib.Game.CrownShop;
+
+internal sealed class CrownShopCatalogue {
+
+    public static CrownShopCatalogue Empty { get; } = new([], []);
+
+    private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() {
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
+
+    private readonly Dictionary<ulong, CrownShopItem> _items;
+
+    public IReadOnlyList<CrownShopTabConfig> Tabs { get; }
+
+    public IReadOnlyCollection<CrownShopItem> Items => _items.Values;
+
+    private CrownShopCatalogue(IReadOnlyList<CrownShopTabConfig> tabs, Dictionary<ulong, CrownShopItem> items) {
+        Tabs = tabs;
+        _items = items;
+    }
+
+    /// <summary>
+    /// Reads every *.json tab file in <paramref name="directory"/>.
+    /// </summary>
+    /// <exception cref="InvalidDataException">A tab file is not valid JSON, or an item has a negative price.</exception>
+    public static CrownShopCatalogue Load(string directory) {
+        var tabs = Directory.GetFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
+            .Select(ReadTab)
+            .OrderBy(t => t.TabId)
+            .ToList();
+
+        var items = new Dictionary<ulong, CrownShopItem>();
+        foreach (var item in tabs.SelectMany(t => t.Items)) {
+            items[item.TemplateId] = ToCrownShopItem(item);
+        }
+
+        return new CrownShopCatalogue(tabs, items);
+    }
+
+    public bool TryGetItem(ulong templateId, out CrownShopItem item)
+        => _items.TryGetValue(templateId, out item);
+
+    private static CrownShopTabConfig ReadTab(string path) {
+        CrownShopTabConfig tab;
+        try {
+            tab = JsonSerializer.Deserialize<CrownShopTabConfig>(File.ReadAllText(path), s_jsonSerializerOptions);
+        } catch (JsonException e) {
+            throw new InvalidDataException($"Crown shop tab {path} is not valid JSON: {e.Message}", e);
+        }
+
+        if (tab is null) {
+            throw new InvalidDataException($"Crown shop tab {path} is empty.");
+        }
+
+        var negativelyPriced = tab.Items.FirstOrDefault(i => i.GoldCost < 0 || i.CrownsCost < 0 || i.TicketCost < 0);
+        if (negativelyPriced is not null) {
+            throw new InvalidDataException($"Crown shop tab {path} gives item {negativelyPriced.TemplateId} a negative price.");
+        }
+
+        return tab;
+    }
+
+    private static CrownShopItem ToCrownShopItem(CrownShopItemConfig item) => new() {
+        m_itemTemplateId = item.TemplateId,
+        m_itemFlags = item.ItemFlags,
+        m_goldCost = item.GoldCost,
+        m_strikethruGold = item.StrikethruGold,
+        m_crownsCost = item.CrownsCost,
+        m_strikethruCrowns = item.StrikethruCrowns,
+        m_ticketCost = item.TicketCost,
+        m_displayPriority = string.Join(',', item.DisplayPriority.Select((priority, index) => $"{priority}:{index}")),
+        m_combatOnly = item.CrownShopItemFlags.CombatOnly,
+        m_noGift = item.CrownShopItemFlags.NoGift,
+        m_recommendIfOwned = item.CrownShopItemFlags.RecommendIfOwned,
+        m_saleID = 0,
+        m_description = "",
+        m_segReqsPoolsStatements = [],
+        m_segReqsStatement = "",
+        // Example: HasBadge(Raid01_QuestComplete_01) = True
+        // Example: ExcludeIfNoSegData = True,HasBadge(FinishAR-PostLM-MAIN-001) = True
+        // Example: ExcludeIfNoSegData = True,NLevel &gt; 169,HasBadge(WinNightmare) = True,HasBadge(FinishAR-PostWL-MAIN-001) = True
+    };
+
+}
