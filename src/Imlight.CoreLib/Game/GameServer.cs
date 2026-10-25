@@ -24,7 +24,7 @@
  * and coordinates between game world, command processing, and process supervision.
  * 
  * USAGE EXAMPLE:
- * var gameServer = system.ActorOf(GameServer.Props("World1", 6001), "gameServer");
+ * var gameServer = system.ActorOf(GameServer.Props("World1", 6001, sessionKeys), "gameServer");
  * 
  * NOTE:
  *
@@ -62,14 +62,15 @@ public class GameServer : Server {
     private readonly IActorRef _gameWorldRef;
     private readonly IActorRef _commandDispatcherRef;
     private readonly IActorRef _processSupervisorRef;
-    private readonly SessionKeyStore _sessionKeys = new();
+    private readonly SessionKeyStore _sessionKeys;
     private readonly ListQueue<SessionActor> _playerQueue;
     private readonly ConcurrentDictionary<string, FallbackEntry> _fallbackEntries = [];
 
-    public GameServer(string serverName, ushort serverPort, string realmName = null)
+    public GameServer(string serverName, ushort serverPort, SessionKeyStore sessionKeys, string realmName = null)
         : base(serverName, serverPort, GameServiceFactory.Props(),
               ConfigurationManager.Settings["Game Server.GameServerIP"].AsString(), deferListening: true) {
         RealmName = realmName ?? serverName;
+        _sessionKeys = sessionKeys;
         this._playerQueue = new ListQueue<SessionActor>();
         this.ActiveSessions.CollectionChanged += ActiveSessionsChangedEvent;
 
@@ -94,8 +95,8 @@ public class GameServer : Server {
             Logger.Args(serverName, serverPort));
     }
 
-    public static Props Props(string serverName, ushort serverPort, string realmName = null)
-        => Akka.Actor.Props.Create(() => new GameServer(serverName, serverPort, realmName));
+    public static Props Props(string serverName, ushort serverPort, SessionKeyStore sessionKeys, string realmName = null)
+        => Akka.Actor.Props.Create(() => new GameServer(serverName, serverPort, sessionKeys, realmName));
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_CREATEKEY))]
     private void ReceiveCreateKey(SERVER_100_PROTOCOL.MSG_CREATEKEY message) {
@@ -109,7 +110,7 @@ public class GameServer : Server {
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
         // If this server is the target realm, create the key locally.
         if (message.TargetRealmName == RealmName) {
-            var key = CreateKey(message.Account.AccountId);
+            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId, SessionKeyValidity);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
                 Key = key,
@@ -322,8 +323,10 @@ public class GameServer : Server {
         }
     }
 
+    private TimeSpan SessionKeyValidity => TimeSpan.FromSeconds(_sessionKeyValidityTime);
+
     private ByteString CreateKey(ulong accountId)
-        => new(_sessionKeys.Issue(accountId, TimeSpan.FromSeconds(_sessionKeyValidityTime)));
+        => new(_sessionKeys.IssueLoginKey(accountId, SessionKeyValidity));
 
     private sealed class FallbackEntry {
 

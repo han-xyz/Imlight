@@ -282,7 +282,7 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
         public byte MessageOrder { get; } = 25;
         public byte ServiceID { get; } = 100;
 
-        public ByteString Key;
+        public int Key;
         public string IP;
         public ushort Port;
         public string RealmName;

@@ -35,7 +35,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -61,6 +61,7 @@ internal class GameServerPool : ReceiveProtocolDispatcher {
 
     private readonly Dictionary<ushort, IActorRef> _gameServers;
     private readonly Dictionary<string, ushort> _realmToPort = [];
+    private readonly SessionKeyStore _sessionKeys = new();
     private bool _isListening;
 
     public GameServerPool() {
@@ -91,7 +92,7 @@ internal class GameServerPool : ReceiveProtocolDispatcher {
             return;
         }
 
-        var gameProps = GameServer.Props(message.Name, message.Port, message.RealmName);
+        var gameProps = GameServer.Props(message.Name, message.Port, _sessionKeys, message.RealmName);
         var gameServerRef = Context.ActorOf(gameProps, $"{message.Name}.{message.Port}");
 
         _gameServers.Add(message.Port, gameServerRef);

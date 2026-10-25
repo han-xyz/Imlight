@@ -28,8 +28,4 @@
         <ProjectReference Include="..\..\submodule\Imcodec\src\Imcodec.Wad\Imcodec.Wad.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-        <InternalsVisibleTo Include="Imlight.Tests" />
-    </ItemGroup>
-
 </Project>

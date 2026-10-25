@@ -20,10 +20,11 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Issues one random key per user at login and checks the key a game client attaches with.
+ * Issues per-user game session keys (one at login, one per realm transfer) and checks
+ * the key a game client attaches with. One instance is shared by every realm.
  * 
  * USAGE EXAMPLE:
- * var key = store.Issue(accountId, validity); store.Validate(userId, attachedKey);
+ * var key = store.IssueLoginKey(accountId, validity); store.Validate(userId, attachedKey);
  * 
  * NOTE:
  * 
@@ -35,30 +36,50 @@
  */
 
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
 using Imlight.CoreLib.Shared.Structures;
 
 namespace Imlight.CoreLib.Game;
 
-internal sealed class SessionKeyStore {
+public sealed class SessionKeyStore {
 
-    private const int KeyLength = 32;
+    private const int LoginKeyLength = 32;
 
-    private readonly Cache<ulong, byte[]> _keys = new();
+    private readonly Lock _lock = new();
+    private readonly Cache<ulong, byte[]> _loginKeys = new();
+    private readonly Cache<ulong, byte[]> _transferKeys = new();
 
-    public byte[] Issue(ulong userId, TimeSpan validity) {
-        var key = RandomNumberGenerator.GetBytes(KeyLength);
-        _keys.Store(userId, [.. key], validity);
+    public byte[] IssueLoginKey(ulong userId, TimeSpan validity) {
+        var key = RandomNumberGenerator.GetBytes(LoginKeyLength);
+        lock (_lock) {
+            _loginKeys.Store(userId, [.. key], validity);
+            _ = _transferKeys.Remove(userId);
+        }
+
+        return key;
+    }
+
+    public int IssueTransferKey(ulong userId, TimeSpan validity) {
+        // MSG_SERVERTRANSFER carries the key as a 32-bit INT; the client attaches with it as a string.
+        var key = RandomNumberGenerator.GetInt32(1, int.MaxValue);
+        var keyBytes = Encoding.UTF8.GetBytes(key.ToString(CultureInfo.InvariantCulture));
+        lock (_lock) {
+            _transferKeys.Store(userId, keyBytes, validity);
+        }
 
         return key;
     }
 
     public bool Validate(ulong userId, ReadOnlySpan<byte> key) {
-        var stored = _keys.Get(userId);
-        return stored is not null && CryptographicOperations.FixedTimeEquals(stored, key);
+        lock (_lock) {
+            return Matches(_loginKeys.Get(userId), key) | Matches(_transferKeys.Get(userId), key);
+        }
     }
 
-    public bool Remove(ulong userId)
-        => _keys.Remove(userId);
+    private static bool Matches(byte[] stored, ReadOnlySpan<byte> key)
+        => stored is not null && CryptographicOperations.FixedTimeEquals(stored, key);
 
 }

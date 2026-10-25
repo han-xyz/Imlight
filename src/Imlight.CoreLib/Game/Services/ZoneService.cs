@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty, Jeff
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -710,7 +710,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             IP = keyRsp.IP,
             TCPPort = keyRsp.Port,
             UDPPort = keyRsp.Port,
-            Key = 0, // Session key is already stored on the target server.
+            Key = keyRsp.Key,
             UserID = account.AccountId,
             CharID = wizard.CharId,
             ZoneName = wizard.Zone,

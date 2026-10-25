@@ -35,6 +35,8 @@
  */
 
 using System;
+using System.Globalization;
+using System.Text;
 using System.Threading;
 using Imlight.CoreLib.Game;
 using Xunit;
@@ -50,8 +52,8 @@ public class SessionKeyStoreTests {
     public void Key_Is32RandomBytes() {
         var store = new SessionKeyStore();
 
-        var first = store.Issue(UserId, s_validity);
-        var second = store.Issue(UserId + 1, s_validity);
+        var first = store.IssueLoginKey(UserId, s_validity);
+        var second = store.IssueLoginKey(UserId + 1, s_validity);
 
         Assert.Equal(32, first.Length);
         Assert.Equal(32, second.Length);
@@ -61,7 +63,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_WrongKey_Fails() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, s_validity);
+        var key = store.IssueLoginKey(UserId, s_validity);
         key[0] ^= 0xFF;
 
         Assert.False(store.Validate(UserId, key));
@@ -70,7 +72,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_RightKey_Succeeds() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, s_validity);
+        var key = store.IssueLoginKey(UserId, s_validity);
 
         Assert.True(store.Validate(UserId, key));
     }
@@ -78,7 +80,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_UnknownUser_Fails() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, s_validity);
+        var key = store.IssueLoginKey(UserId, s_validity);
 
         Assert.False(store.Validate(UserId + 1, key));
     }
@@ -86,7 +88,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_Expired_Fails() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, TimeSpan.FromMilliseconds(5));
+        var key = store.IssueLoginKey(UserId, TimeSpan.FromMilliseconds(5));
 
         Thread.Sleep(50);
 
@@ -96,7 +98,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_Twice_Succeeds() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, s_validity);
+        var key = store.IssueLoginKey(UserId, s_validity);
 
         Assert.True(store.Validate(UserId, key));
         Assert.True(store.Validate(UserId, key));
@@ -105,8 +107,8 @@ public class SessionKeyStoreTests {
     [Fact]
     public void NewKey_ReplacesOld() {
         var store = new SessionKeyStore();
-        var oldKey = store.Issue(UserId, s_validity);
-        var newKey = store.Issue(UserId, s_validity);
+        var oldKey = store.IssueLoginKey(UserId, s_validity);
+        var newKey = store.IssueLoginKey(UserId, s_validity);
 
         Assert.False(store.Validate(UserId, oldKey));
         Assert.True(store.Validate(UserId, newKey));
@@ -115,10 +117,51 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Validate_WrongLength_Fails() {
         var store = new SessionKeyStore();
-        var key = store.Issue(UserId, s_validity);
+        var key = store.IssueLoginKey(UserId, s_validity);
 
         Assert.False(store.Validate(UserId, key.AsSpan(0, 16)));
         Assert.False(store.Validate(UserId, ReadOnlySpan<byte>.Empty));
     }
+
+
+    [Fact]
+    public void TransferKey_DecimalString_Validates() {
+        var store = new SessionKeyStore();
+        _ = store.IssueLoginKey(UserId, s_validity);
+        var transferKey = store.IssueTransferKey(UserId, s_validity);
+
+        Assert.True(store.Validate(UserId, DecimalBytes(transferKey)));
+    }
+
+    [Fact]
+    public void LoginKey_StillValid_AfterTransferKeyIssued() {
+        var store = new SessionKeyStore();
+        var loginKey = store.IssueLoginKey(UserId, s_validity);
+        _ = store.IssueTransferKey(UserId, s_validity);
+
+        Assert.True(store.Validate(UserId, loginKey));
+    }
+
+    [Fact]
+    public void NewLoginKey_ClearsTransferKey() {
+        var store = new SessionKeyStore();
+        _ = store.IssueLoginKey(UserId, s_validity);
+        var transferKey = store.IssueTransferKey(UserId, s_validity);
+        _ = store.IssueLoginKey(UserId, s_validity);
+
+        Assert.False(store.Validate(UserId, DecimalBytes(transferKey)));
+    }
+
+    [Fact]
+    public void TransferKey_WrongValue_Fails() {
+        var store = new SessionKeyStore();
+        var transferKey = store.IssueTransferKey(UserId, s_validity);
+        var wrongValue = transferKey == int.MaxValue - 1 ? transferKey - 1 : transferKey + 1;
+
+        Assert.False(store.Validate(UserId, DecimalBytes(wrongValue)));
+    }
+
+    private static byte[] DecimalBytes(int value)
+        => Encoding.UTF8.GetBytes(value.ToString(CultureInfo.InvariantCulture));
 
 }
