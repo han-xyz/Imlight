@@ -275,7 +275,7 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         SendMailData();
     }
 
-    private static int CalculateRequiredInventorySlots(CoreTemplate itemTemplate, int count) {
+    internal static int CalculateRequiredInventorySlots(CoreTemplate itemTemplate, int count) {
         if (itemTemplate is null ||
             itemTemplate is BoosterPackTemplate ||
             itemTemplate is GoldAmountTemplate ||

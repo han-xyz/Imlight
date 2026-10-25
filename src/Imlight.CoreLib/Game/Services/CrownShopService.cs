@@ -241,6 +241,12 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
+        var requiredSlots = GiftingService.CalculateRequiredInventorySlots(CoreObjectFactory.GetCoreTemplate(message.Item), message.Count);
+        if (!isGift && requiredSlots > 0 && !wizard.InventoryBehavior.HasInventorySpace(requiredSlots)) {
+            SendPurchaseError(s_errorInvFull);
+            return;
+        }
+
         // Grant items or deliver gift before deducting currency so failed deliveries do not charge the player.
         var deliveryError = isGift
             ? TryDeliverGift(wizard, message)
