@@ -627,7 +627,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                                             Func<string, bool> isHeld,
                                             Func<string, bool> isCompleted,
                                             Func<QuestTemplate, bool> meetsRequirements) {
-        // todo: repeatable quests are refused once completed until repeats are supported.
+        // todo: should a completed repeatable quest be accepted again?
         if (isHeld(quest.m_questName)) {
             return "the quest is already held";
         }
@@ -882,7 +882,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private bool StartQuest(QuestTemplate quest, Wizard wizard) {
-        var questInstance = StartQuestInstance(quest, wizard.CharId, q => RollQuestRewards(q, wizard), wizard.AddQuest);
+        var questInstance = StartQuestInstance(quest, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest);
         if (questInstance is null) {
             return false;
         }
@@ -895,6 +895,18 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         return true;
     }
+
+    /// <summary>
+    /// Creates a quest instance with its rewards rolled and stored, and adds it through <paramref name="addQuest"/>.
+    /// Every quest start goes through here so the rewards shown and granted agree.
+    /// </summary>
+    /// <returns>The new instance, or null when <paramref name="addQuest"/> refused it.</returns>
+    internal static QuestInstance StartQuestInstance(QuestTemplate quest,
+                                                     Wizard wizard,
+                                                     IActorRef playerRef,
+                                                     CoreObject playerObj,
+                                                     Func<QuestInstance, bool> addQuest)
+        => StartQuestInstance(quest, wizard.CharId, q => RollQuestRewards(q, wizard, playerRef, playerObj), addQuest);
 
     internal static QuestInstance StartQuestInstance(QuestTemplate quest,
                                                      ulong charId,
@@ -1701,23 +1713,25 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         return (resultsWithoutDropTables, qInstance.Rewards);
     }
 
-    private DropTableResult RollQuestRewards(QuestTemplate qTemplate, Wizard wizard) {
+    private static DropTableResult RollQuestRewards(QuestTemplate qTemplate,
+                                                    Wizard wizard,
+                                                    IActorRef playerRef,
+                                                    CoreObject playerObj) {
         // Quest rewards are listed in drop tables by "ResDropTable" in the completion results.
-        var playerObj = GetActiveGameObject();
         var dropTableNames = (qTemplate.m_endResults?.m_results ?? [])
             .OfType<ResDropTable>()
             .Where(r => r.m_requirements is null
                 || RequirementDispatcher.EvaluateRequirements(r.m_requirements,
-                    new GenericRequirementContext(r.m_requirements, SessionActor.ActorRef, playerObj, wizard)))
+                    new GenericRequirementContext(r.m_requirements, playerRef, playerObj, wizard)))
             .Select(r => (string) r.m_tableName)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray();
 
-        return DropTableRoller.Roll(dropTableNames, SessionActor.ActorRef, playerObj, wizard);
+        return DropTableRoller.Roll(dropTableNames, playerRef, playerObj, wizard);
     }
 
     private LootInfoList GetQuestRewardLoot(QuestTemplate qTemplate, QuestInstance qInstance, Wizard wizard) {
-        var rewards = ResolveQuestRewards(qInstance, qTemplate, q => RollQuestRewards(q, wizard));
+        var rewards = ResolveQuestRewards(qInstance, qTemplate, q => RollQuestRewards(q, wizard, SessionActor.ActorRef, GetActiveGameObject()));
         var loot = DropTableConverter.ToLootInfoList(rewards);
 
         // Spell rewards live in the results, not the drop tables; surface the wizard's own school spell.
@@ -1935,7 +1949,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 continue;
             }
 
-            var questInstance = StartQuestInstance(template, wizard.CharId, q => RollQuestRewards(q, wizard), wizard.AddQuest);
+            var questInstance = StartQuestInstance(template, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest);
             if (questInstance is null) {
                 continue;
             }

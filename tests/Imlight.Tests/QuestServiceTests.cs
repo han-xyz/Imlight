@@ -39,6 +39,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Madlibs;
 using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -99,7 +100,36 @@ public sealed class QuestServiceTests {
         Assert.Equal(3, QuestService.GetGoalTotal(goal));
     }
 
+    [Fact]
+    public void BountyGoal_WithoutTallyCount_MadlibTotalsAreBountyTotal() {
+        var goal = new BountyGoalTemplate {
+            m_goalName = "DefeatPirates",
+            m_goalType = GOAL_TYPE.GOAL_TYPE_BOUNTY,
+            m_bountyTotal = 3,
+            m_tallyCounter = new TallyCounterTemplate { m_count = 0 },
+        };
+
+        var block = QuestMadlibs.GetAppropriateMadlibBlockForGoal(goal, new GoalInstance(goal, 1));
+
+        var totals = block.m_madlibs.OfType<MadlibArgT_int>()
+            .Where(arg => arg.m_madlibToken == "TOTAL" || arg.m_madlibToken == "SUBSCRIBER_TOTAL")
+            .Select(arg => arg.m_madlibArgument);
+        Assert.Equal([3, 3], totals);
+    }
+
+    [Fact]
+    public void StartQuest_ThroughWizardFactory_StoresRolledRewards() {
+        var template = EmptyQuest("Tutorial");
+        var wizard = new Wizard { CharId = 1 };
+
+        var started = QuestService.StartQuestInstance(template, wizard, null, null, _ => true);
+
+        Assert.NotNull(started.Rewards);
+    }
+
     [Theory]
+    [InlineData(0f, 0.0)]
+    [InlineData(150f, 1.0)]
     [InlineData(100f, 1.0)]
     [InlineData(50f, 0.5)]
     [InlineData(1f, 1.0)]
@@ -122,6 +152,14 @@ public sealed class QuestServiceTests {
         var quest = QuestWithKillThenPersona();
         quest.StartGoal("Kill");
         quest.CompleteGoal("Kill");
+        quest.StartGoal("TalkToNpc");
+
+        Assert.True(quest.IsReadyForTurnIn());
+    }
+
+    [Fact]
+    public void TurnIn_UntakenBranchGoalAndPersonaActive_Ready() {
+        var quest = QuestWithKillThenPersona();
         quest.StartGoal("TalkToNpc");
 
         Assert.True(quest.IsReadyForTurnIn());

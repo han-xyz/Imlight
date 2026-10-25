@@ -237,7 +237,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
         return true;
     }
 
-    private static bool HandleCommandAddQuest(Wizard wizard, string questName) {
+    private bool HandleCommandAddQuest(Wizard wizard, string questName) {
         // The client re-adds quests it already holds (add/remove flickers); re-adds are idempotent.
         if (wizard.QuestBehavior.CurrentQuestInstances.Any(q => q.QuestName == questName)) {
             return true;
@@ -250,9 +250,8 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             return false;
         }
 
-        var qInstance = new QuestInstance(questTemplate, wizard.CharId);
-
-        return wizard.AddQuest(qInstance);
+        return QuestService.StartQuestInstance(questTemplate, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest)
+            is not null;
     }
 
     private bool HandleCommandRemoveQuest(Wizard wizard, string questName) {
@@ -451,7 +450,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
                 return false;
             }
 
-            wizard.AddQuest(new QuestInstance(introTemplate, wizard.CharId));
+            QuestService.StartQuestInstance(introTemplate, wizard, SessionActor.ActorRef, playerObj, wizard.AddQuest);
         }
 
         var instance = wizard.QuestBehavior.CurrentQuestInstances

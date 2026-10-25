@@ -17,7 +17,11 @@
 */
 
 using Raven.Client.Documents;
+using Raven.Client.Documents.Session;
+using Raven.Client.Exceptions;
+using Imlight.Common;
 using Imlight.CoreLib.WizardData.Databases;
+using System;
 using System.Collections.Generic;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System.Linq;
@@ -28,6 +32,7 @@ public static class QuestInstanceCollection {
 
     public const string CollectionName = "QuestInstances";
     private static readonly IDocumentStore s_store;
+    private static readonly TimeSpan s_nonStaleWaitTimeout = TimeSpan.FromSeconds(2);
 
     static QuestInstanceCollection() {
         s_store = PlayerDatabase.Instance.Store;
@@ -88,9 +93,7 @@ public static class QuestInstanceCollection {
     public static bool RemoveQuestInstance(ulong questInstanceID) {
         using var session = s_store.OpenSession();
 
-        var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
-            .Customize(query => query.WaitForNonStaleResults())
-            .FirstOrDefault(q => q.ID == questInstanceID);
+        var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
             return false;
         }
@@ -110,9 +113,7 @@ public static class QuestInstanceCollection {
     public static bool StartQuestGoal(ulong questInstanceID, string goalName) {
         using var session = s_store.OpenSession();
 
-        var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
-            .Customize(query => query.WaitForNonStaleResults())
-            .FirstOrDefault(q => q.ID == questInstanceID);
+        var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
             return false;
         }
@@ -137,9 +138,7 @@ public static class QuestInstanceCollection {
     public static bool IncrementQuestGoal(ulong questInstanceID, string goalName) {
         using var session = s_store.OpenSession();
 
-        var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
-            .Customize(query => query.WaitForNonStaleResults())
-            .FirstOrDefault(q => q.ID == questInstanceID);
+        var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
             return false;
         }
@@ -164,9 +163,7 @@ public static class QuestInstanceCollection {
     public static bool CompleteQuestGoal(ulong questInstanceID, string goalName) {
         using var session = s_store.OpenSession();
 
-        var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
-            .Customize(query => query.WaitForNonStaleResults())
-            .FirstOrDefault(q => q.ID == questInstanceID);
+        var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
             return false;
         }
@@ -180,6 +177,19 @@ public static class QuestInstanceCollection {
         session.SaveChanges();
 
         return true;
+    }
+
+    private static QuestInstance FindQuestInstance(IDocumentSession session, ulong questInstanceID) {
+        try {
+            return session.Query<QuestInstance>(collectionName: CollectionName)
+                .Customize(query => query.WaitForNonStaleResults(s_nonStaleWaitTimeout))
+                .FirstOrDefault(q => q.ID == questInstanceID);
+        } catch (Exception ex) when (ex is TimeoutException or RavenTimeoutException) {
+            Logger.Warning("The QuestInstances index was still stale after {Seconds} s; quest instance {QuestInstanceId} not found.",
+                Logger.Args(s_nonStaleWaitTimeout.TotalSeconds, questInstanceID));
+
+            return null;
+        }
     }
 
 }
