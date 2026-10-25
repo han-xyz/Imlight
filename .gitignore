@@ -365,3 +365,6 @@ spiraldb-cache/
 # Operator-supplied generator inputs (client-derived; never commit)
 /deploy/generator-input/*
 !/deploy/generator-input/README.md
+
+# Cache file created by Imlight
+cache
