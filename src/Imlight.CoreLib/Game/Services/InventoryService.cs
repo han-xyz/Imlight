@@ -66,9 +66,10 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
     private void ReceiveTrashInventoryItem(GAME_5_PROTOCOL.MSG_TRASHINVENTORYITEM message) {
         var wizard = GetActiveWizard();
 
-        // Check if this is an equipped item (e.g. an active elixir).
+        // An active elixir is trashed from its equipment slot. Other equipped items are not in the inventory,
+        // and deleting them here would skip their unequip side effects (pet, mount, teleport effect, dance).
         var slot = wizard.EquipmentBehavior.SlotList?.FirstOrDefault(s => s.ItemId.Value == message.GlobalID);
-        if (slot is not null || wizard.EquipmentBehavior.HasItemEquipped(message.GlobalID)) {
+        if (slot?.SlotType == EquipmentSlotType.Elixir) {
             var item = wizard.EquipmentBehavior.GetItem(message.GlobalID);
             var template = ItemHelper.GetItemTemplate(item);
 
@@ -77,12 +78,6 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
                 if (dbItem is not null) {
                     template = ItemHelper.GetItemTemplate(dbItem);
                 }
-            }
-
-            if (slot is null) {
-                Logger.Error("Tried to unequip item with global id {0} that does not exist in player equipment.",
-                    Logger.Args(message.GlobalID)); 
-                return;
             }
 
             if (template is null) {
