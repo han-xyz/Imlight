@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -88,9 +88,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     private readonly Dictionary<ulong, IActorRef> _playersInInteractionRange = [];
     private readonly Dictionary<ulong, IActorRef> _playersInRenderRange = [];
     private List<IServiceComponent> _serviceComponents = [];
-    private Dictionary<int, IServiceComponent> _optionIndexToComponent = [];
-    private readonly Dictionary<IServiceComponent, int> _componentFirstOption = [];
-    private ServiceMementoBase _serviceMemento;
+    private readonly ServiceOptionTable _optionTable = new();
     private MadlibBlock _madlibBlock;
     private float _renderDistance;
 
@@ -103,7 +101,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         // Set render distance - use zone far clip if available, otherwise default.
         _renderDistance = Entity.Zone?.ZoneData?.m_farClip ?? DEFAULT_RENDER_DISTANCE;
         
-        RefreshServiceMomento(null);
+        _serviceComponents = [.. Entity.GetComponentsOfType<IServiceComponent>()];
 
         // The component set is fixed once loaded, so an entity without services never has a wizbang.
         if (_serviceComponents.Count <= 0) {
@@ -126,6 +124,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
             _playersInRenderRange.Remove(playerObj);
         }
 
+        _optionTable.Remove(id);
     }
 
     public override void OnPlayerMove(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
@@ -144,7 +143,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         if (IsInHorizontalRadius(playerObj, interactionRadius)
             && !_playersInInteractionRange.ContainsKey(playerId)) {
             _playersInInteractionRange.Add(playerId, playerActor);
-            SendActorServiceOptions(playerActor);
+            SendActorServiceOptions(playerActor, playerId);
         }
         else if (!IsInHorizontalRadius(playerObj, interactionRadius)
                  && _playersInInteractionRange.ContainsKey(playerId)) {
@@ -171,6 +170,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         var serviceName = message.ServiceName;
         var serviceIndex = message.ServiceIndex;
         var reinteract = message.Reinteract;
+        var playerId = playerObject.m_globalID.Full;
 
         Logger.Debug("Player {0} interacted with NPC {1} using service {2} at index {3} (Reinteract: {4})",
             Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_globalID.Full, serviceName, serviceIndex, reinteract));
@@ -185,23 +185,19 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         // If this is a reinteract scenario, send service range messages first.
         if (reinteract == 2) {
             SendLeaveServiceRange(playerActor);
-            SendActorServiceOptions(playerActor, reinteract);
+            SendActorServiceOptions(playerActor, playerId, reinteract);
         }
 
         // Route to the component that owns this option index.
         // Using FirstOrDefault by ServiceName is unsafe when multiple components share
         // the same service name (e.g. InteractQuestSelectComponent shadowing WoodenChestComponent).
-        if (!_optionIndexToComponent.TryGetValue((int) serviceIndex, out var serviceComponent)) {
+        if (!_optionTable.TryRoute(playerId, serviceIndex, out var serviceComponent, out var localIndex)) {
             Logger.Warning("No component owns service index {0} for NPC {1} with service name {2}",
                 Logger.Args(serviceIndex, Entity.ActiveGameObject.m_debugName, serviceName));
 
             return;
         }
 
-        // Call the service component's interaction method with the index of its own option.
-        var localIndex = _componentFirstOption.TryGetValue(serviceComponent, out var first)
-            ? serviceIndex - (uint) first
-            : serviceIndex;
         serviceComponent.OnServiceInteraction(playerActor, playerCharacter, playerObject, localIndex);
     }
 
@@ -246,17 +242,17 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         }
     }
 
-    private void SendActorServiceOptions(IActorRef playerActor, int reinteract = 0) {
+    private void SendActorServiceOptions(IActorRef playerActor, ulong playerId, int reinteract = 0) {
         var queryCharacterMsg = new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD();
         var wizard = playerActor
             .Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(queryCharacterMsg)
             .Result
             .Wizard;
 
-        RefreshServiceMomento(wizard);
+        var serviceMemento = BuildServiceMemento(wizard, playerId);
 
         // If we have no service options, do not send anything.
-        if (_serviceMemento.m_serviceOptions.Count <= 0) {
+        if (serviceMemento is null || serviceMemento.m_serviceOptions.Count <= 0) {
             return;
         }
 
@@ -265,7 +261,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
             Versionable: false,
             Behaviors: SerializerFlags.None
         );
-        if (!serializer.Serialize(_serviceMemento, 4, out var data)) {
+        if (!serializer.Serialize(serviceMemento, 4, out var data)) {
             Logger.Error("Failed to serialize service memento for NPC {0}",
                 Logger.Args(Entity.ActiveGameObject.m_debugName));
 
@@ -295,34 +291,22 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         playerActor.Tell(msg);
     }
 
-    private void RefreshServiceMomento(Wizard playerCharacter) {
+    private ServiceMementoBase BuildServiceMemento(Wizard playerCharacter, ulong playerId) {
         _serviceComponents = [.. Entity.GetComponentsOfType<IServiceComponent>()];
         if (_serviceComponents.Count <= 0) {
-            return;
+            return null;
         }
 
         var gameObjTemplate = Entity.Template as GameObjectTemplate;
 
-        // Get all service options and track which component owns each flat index.
-        _optionIndexToComponent.Clear();
-        _componentFirstOption.Clear();
-        var allOptions = new List<ServiceOptionBase>();
-        var componentsWithOptions = new List<IServiceComponent>();
-        foreach (var component in _serviceComponents) {
-            var componentOptions = component.GetServiceOptions(playerCharacter).ToList();
-            if (componentOptions.Count > 0) {
-                componentsWithOptions.Add(component);
-            }
-
-            if (componentOptions.Count > 0) {
-                _componentFirstOption[component] = allOptions.Count;
-            }
-
-            foreach (var option in componentOptions) {
-                _optionIndexToComponent[allOptions.Count] = component;
-                allOptions.Add(option);
-            }
-        }
+        var componentOptions = _serviceComponents
+            .Select(component => (Component: component, Options: component.GetServiceOptions(playerCharacter).ToList()))
+            .ToList();
+        var allOptions = _optionTable.Build(playerId, componentOptions);
+        var componentsWithOptions = componentOptions
+            .Where(x => x.Options.Count > 0)
+            .Select(x => x.Component)
+            .ToList();
 
         // Get UI overrides based on priority.
         // A component with nothing to offer must not set the dialog's icon, name and text (a quest
@@ -342,7 +326,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
             ? DEFAULT_TEXT_KEY
             : highestPriority.NpcTextKey;
 
-        _serviceMemento = new ServiceMementoBase {
+        return new ServiceMementoBase {
             m_npcIcon = npcIconOrDefault ?? string.Empty,
             m_npcNameKey = npcNameKeyOrDefault ?? DEFAULT_NAME_KEY,
             m_npcTextKey = npcTextKeyOrDefault ?? DEFAULT_TEXT_KEY,
