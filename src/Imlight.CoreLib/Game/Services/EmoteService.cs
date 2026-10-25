@@ -49,6 +49,7 @@ using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using System;
+using System.Linq;
 
 namespace Imlight.CoreLib.Game.Services;
 
@@ -57,6 +58,8 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     // A radial menu slot holds an emote or a chat phrase; no menu needs more slots than a player may own emotes.
     private static readonly uint s_maxEmotes
         = ConfigurationManager.Settings["Character.MaxEmotesAllowed"].AsUInt();
+
+    private const int MaxAnimationNameLength = 64;
 
     private static readonly uint ResetStateId = StringHash.Compute("Unremarkable");
     private static readonly uint EmoteStateId = StringHash.Compute("ActionEmoting");
@@ -102,6 +105,12 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private bool MayPlay(string animation) {
+        if (!IsValidAnimationName(animation)) {
+            Logger.Debug("[EmoteService] Character {Id} sent an invalid emote animation name.",
+                Logger.Args(GetActiveWizard().CharId));
+            return false;
+        }
+
         if (!CrownShopHandler.TryGetSoldEmote(animation, out var emote) || Owns(emote)) {
             return true;
         }
@@ -110,6 +119,11 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
             Logger.Args(GetActiveWizard().CharId, animation));
         return false;
     }
+
+    internal static bool IsValidAnimationName(string animation)
+        => animation is not null
+            && animation.Length <= MaxAnimationNameLength
+            && animation.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
 
     private bool MayPlace(uint emoteTemplateId)
         => !CrownShopHandler.TryGetSoldEmote(emoteTemplateId, out var emote) || Owns(emote);

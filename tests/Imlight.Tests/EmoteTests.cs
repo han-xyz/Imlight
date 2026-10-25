@@ -45,6 +45,27 @@ namespace Imlight.Tests;
 
 public sealed class EmoteTests {
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("Emote_Dance-01")]
+    public void AnimationName_SafeAndShort_Accepted(string name) {
+        Assert.True(EmoteService.IsValidAnimationName(name));
+    }
+
+    [Theory]
+    [InlineData("Emote Dance")]
+    [InlineData("Emote<color>")]
+    [InlineData("../Emote")]
+    public void AnimationName_UnsafeCharacters_Rejected(string name) {
+        Assert.False(EmoteService.IsValidAnimationName(name));
+    }
+
+    [Fact]
+    public void AnimationName_LongerThan64_Rejected() {
+        Assert.True(EmoteService.IsValidAnimationName(new string('a', 64)));
+        Assert.False(EmoteService.IsValidAnimationName(new string('a', 65)));
+    }
+
     [Fact]
     public void EmoteText_IsCleanedLikeChat() {
         Assert.Equal("Hello there!", EmoteService.EmoteTextForBroadcast("\u0007Hello there!\u202E ", isMuted: false));
