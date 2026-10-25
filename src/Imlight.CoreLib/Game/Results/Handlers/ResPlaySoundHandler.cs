@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using Akka.Actor;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Zone.Components;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.Types;
@@ -31,12 +32,16 @@ internal sealed class ResPlaySoundHandler : BaseResultHandler<ResPlaySound> {
 
     // The named sound templates (e.g. ObjectData/ChestOpenSound.xml) use a class Imcodec cannot deserialize.
     private static readonly Dictionary<string, uint> s_soundTemplateIdsByName = new() {
-        ["Wood Chest Opened"] = 1374674914,
+        ["Wood Chest Opened"] = WoodenChestComponent.OpenSoundTemplateId,
     };
     private static readonly ConcurrentDictionary<string, byte> s_unresolvedSoundNames = new();
 
     public override bool Execute(IResultContext context) {
         string soundName = Result.m_soundName;
+        if (string.IsNullOrEmpty(soundName) || s_unresolvedSoundNames.ContainsKey(soundName)) {
+            return true;
+        }
+
         if (!TryResolveTemplateId(soundName, out var templateId)) {
             if (s_unresolvedSoundNames.TryAdd(soundName, 0)) {
                 Logger.Warning("Sound {SoundName} has no known template ID; it will not play.",

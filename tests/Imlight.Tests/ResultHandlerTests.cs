@@ -45,7 +45,9 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Game.Results.Handlers;
+using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Packets;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -54,6 +56,8 @@ namespace Imlight.Tests;
 public sealed class ResultHandlerTests : IDisposable {
 
     private const uint WoodChestOpenedTemplateId = 1374674914;
+    private const string ChestName = "Chest_01";
+    private const ulong CharacterId = 1001;
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(5);
 
     private readonly ActorSystem _system = ActorSystem.Create("result-handler-tests");
@@ -75,7 +79,7 @@ public sealed class ResultHandlerTests : IDisposable {
 
         var loot = ResLootHandler.LootFor(lootTable);
 
-        Assert.Equal(40, loot.GoldAmount);
+        Assert.InRange(loot.GoldAmount, 50, 140);
         var item = Assert.Single(loot.Items);
         Assert.Equal(("77825", 2), (item.ItemId, item.Quantity));
     }
@@ -89,17 +93,31 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
-    public void ResLoot_SecondInteraction_SameCharacter_NoGrant() {
-        Assert.True(ResLootHandler.TryClaimLoot("zone-same-character", "Chest_01", 1001));
+    public void ResLoot_WithoutWizard_Fails() {
+        var player = StubPlayer(wizard: null);
 
-        Assert.False(ResLootHandler.TryClaimLoot("zone-same-character", "Chest_01", 1001));
+        Assert.False(Execute<ResLootHandler>(new ResLoot(), new PlayerContext(player, new ResLoot())));
+    }
+
+    [Fact]
+    public void ResLoot_SecondInteraction_SameCharacter_NoGrant() {
+        var zoneState = new ZoneScriptState();
+        zoneState.TryClaimLoot(ChestName, CharacterId);
+        var player = StubPlayer(new Wizard { CharId = CharacterId });
+        var result = new ResLoot();
+
+        var success = Execute<ResLootHandler>(result, new PlayerContext(player, result, ChestName, zoneState));
+
+        Assert.True(success);
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
     }
 
     [Fact]
     public void ResLoot_OtherCharacter_StillGrants() {
-        Assert.True(ResLootHandler.TryClaimLoot("zone-other-character", "Chest_01", 1001));
+        var zoneState = new ZoneScriptState();
 
-        Assert.True(ResLootHandler.TryClaimLoot("zone-other-character", "Chest_01", 1002));
+        Assert.True(zoneState.TryClaimLoot(ChestName, CharacterId));
+        Assert.True(zoneState.TryClaimLoot(ChestName, CharacterId + 1));
     }
 
     [Fact]
@@ -124,10 +142,13 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
     }
 
-    private bool Execute<THandler>(Result result) where THandler : ActorBase {
+    private bool Execute<THandler>(Result result) where THandler : ActorBase
+        => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));
+
+    private bool Execute<THandler>(Result result, IResultContext context) where THandler : ActorBase {
         var handler = _system.ActorOf(Props.Create<THandler>());
         handler.Tell(new CHARACTER_103_PROTOCOL.MSG_INITIALIZEHANDLER {
-            Context = new PlayerContext(_player.Receiver, result),
+            Context = context,
             Result = result,
         });
 
@@ -146,13 +167,29 @@ public sealed class ResultHandlerTests : IDisposable {
         }
     }
 
-    private sealed class PlayerContext(IActorRef player, Result result) : IResultContext {
+    private IActorRef StubPlayer(Wizard? wizard)
+        => _system.ActorOf(Props.Create(() => new StubPlayerActor(_player.Receiver, wizard)));
+
+    private sealed class StubPlayerActor : ReceiveActor {
+
+        public StubPlayerActor(IActorRef inbox, Wizard? wizard) {
+            Receive<CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD>(
+                _ => Sender.Tell(new CHARACTER_103_PROTOCOL.MSG_CHARACTER { Wizard = wizard! }));
+            ReceiveAny(message => inbox.Tell(message));
+        }
+
+    }
+
+    private sealed class PlayerContext(IActorRef player, Result result, string? sourceName = null,
+        ZoneScriptState? zoneState = null) : IResultContext {
 
         public IEnumerable<Result> GetResults() => [result];
         public IActorRef GetZoneActor() => ActorRefs.Nobody;
         public IActorRef GetPlayerRef() => player;
         public CoreObject GetPlayerObj() => null!;
         public IActorRef GetReplyTo() => ActorRefs.Nobody;
+        public string GetSourceName() => sourceName!;
+        public ZoneScriptState GetZoneState() => zoneState!;
 
     }
 

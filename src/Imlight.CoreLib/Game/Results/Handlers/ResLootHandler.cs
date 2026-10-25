@@ -29,11 +29,10 @@
  * NOTE:
  * The client data names a server-side loot table (field 0x975DE361) that
  * Imcodec does not decode, so m_lootTable is null for every chest in the
- * root wad and the wooden chest gold roll is granted instead. Each zone
- * object grants once per character per zone instance.
+ * root wad, and the wooden chest gold roll is granted on top of any table.
+ * A named zone object or trigger grants once per character per zone instance.
  * 
  * TODO:
- * - Decode the loot table name and grant from that table once the tables exist.
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -41,7 +40,6 @@
  */
 
 using System;
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -49,9 +47,9 @@ using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
-using Imlight.CoreLib.Game.Results.Contexts;
 using Imlight.CoreLib.Game.Zone.Components;
 using Imlight.CoreLib.Shared.Packets;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.WizardData.Models.World;
 
 namespace Imlight.CoreLib.Game.Results.Handlers;
@@ -60,27 +58,22 @@ internal sealed class ResLootHandler : BaseResultHandler<ResLoot> {
 
     private const float QueryWizardTimeoutSeconds = 5.0f;
     private static int s_loggedGoldFallback;
-    private static readonly ConcurrentDictionary<(string Zone, string Source, ulong CharacterId), byte> s_claimedLoot = new();
 
     public override bool Execute(IResultContext context) {
-        var queryTimeout = TimeSpan.FromSeconds(QueryWizardTimeoutSeconds);
-        var wizard = context
-            .GetPlayerRef()
-            .Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD(), queryTimeout)
-            .Result?.Wizard;
+        var wizard = QueryWizard(context.GetPlayerRef());
         if (wizard is null) {
-            Logger.Warning("ResLoot could not retrieve the player's wizard within {TimeoutSeconds} seconds.",
-                Logger.Args(QueryWizardTimeoutSeconds));
+            Logger.Warning("ResLoot could not retrieve the player's wizard.");
 
             return false;
         }
 
-        // The interacting zone object's name; a source without one claims for the whole zone instance.
-        var sourceName = (context as GenericResultContext)?.TriggerName ?? "";
-        var zone = context.GetZoneActor()?.Path.ToString() ?? "";
-        if (!TryClaimLoot(zone, sourceName, wizard.CharId)) {
-            Logger.Debug("ResLoot from {SourceName} was already granted to character {CharacterId} in {Zone}.",
-                Logger.Args(sourceName, wizard.CharId, zone));
+        // Results without a named source (quest rewards) are not claimed. InteractObjectStateComponent already
+        // stops offering a chest's option again within a zone instance; the claim also holds it per character.
+        var sourceName = context.GetSourceName();
+        var zoneState = context.GetZoneState();
+        if (!string.IsNullOrEmpty(sourceName) && zoneState?.TryClaimLoot(sourceName, wizard.CharId) == false) {
+            Logger.Debug("ResLoot from {SourceName} was already granted to character {CharacterId}.",
+                Logger.Args(sourceName, wizard.CharId));
 
             return true;
         }
@@ -94,18 +87,11 @@ internal sealed class ResLootHandler : BaseResultHandler<ResLoot> {
         return true;
     }
 
-    internal static bool TryClaimLoot(string zone, string sourceName, ulong characterId)
-        => s_claimedLoot.TryAdd((zone, sourceName, characterId), 0);
-
-    internal static DropTableResult LootFor(LootInfoList lootTable) {
-        if (lootTable is null) {
-            return new DropTableResult { GoldAmount = WoodenChestComponent.RollGold() };
-        }
-
-        return new DropTableResult {
-            GoldAmount = lootTable.m_goldInfo?.m_goldAmount ?? 0,
-            ExperienceAmount = lootTable.m_loot?.OfType<MagicXPLootInfo>().Sum(x => x.m_experience) ?? 0,
-            Items = lootTable.m_loot?
+    internal static DropTableResult LootFor(LootInfoList lootTable)
+        => new() {
+            GoldAmount = WoodenChestComponent.RollGold() + (lootTable?.m_goldInfo?.m_goldAmount ?? 0),
+            ExperienceAmount = lootTable?.m_loot?.OfType<MagicXPLootInfo>().Sum(x => x.m_experience) ?? 0,
+            Items = lootTable?.m_loot?
                 .OfType<ItemLootInfo>()
                 .Select(x => new DropItemResult {
                     ItemId = x.m_itemID.Full.ToString(CultureInfo.InvariantCulture),
@@ -113,6 +99,16 @@ internal sealed class ResLootHandler : BaseResultHandler<ResLoot> {
                 })
                 .ToList() ?? [],
         };
+
+    private static Wizard QueryWizard(IActorRef playerRef) {
+        try {
+            return playerRef
+                .Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD(),
+                    TimeSpan.FromSeconds(QueryWizardTimeoutSeconds))
+                .Result?.Wizard;
+        } catch (AggregateException ex) when (ex.InnerException is AskTimeoutException) {
+            return null;
+        }
     }
 
 }
