@@ -562,6 +562,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private int TryDeliverGift(Wizard sender, WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message) {
+        // Decision: any character may receive a gift, not only the sender's friends; the sender pays for it.
         var targetCharacter = WizardCollection.GetCharacterUnloaded(message.Recipient);
         if (targetCharacter is null && Wizard.TryGetCharacterId(message.Recipient, out var resolvedCharId)) {
             targetCharacter = WizardCollection.GetCharacterUnloaded(resolvedCharId);

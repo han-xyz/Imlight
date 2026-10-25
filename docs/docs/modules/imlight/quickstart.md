@@ -186,6 +186,8 @@ What the crown shop sells comes from the data pack: every `CrownShop/*.json` tab
 IMLIGHT__CrownShop__MaxBuyCount=10
 ```
 
+A gift can be sent to any character, not only the sender's friends.
+
 Set your own crown balance with `.mod setcrowns <amount>` (Quality Assurance and above).
 
 ## Patch Server Setup

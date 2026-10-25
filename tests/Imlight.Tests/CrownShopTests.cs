@@ -40,6 +40,7 @@ using System.IO;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Services;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -79,6 +80,13 @@ public sealed class CrownShopTests : IDisposable {
         Assert.True(catalogue.TryGetItem(1217734, out var item));
         Assert.Equal(3500, item.m_crownsCost);
         Assert.Equal(35000, item.m_goldCost);
+    }
+
+    [Fact]
+    public void BoosterPack_NeedsASlotPerLootTableAndPack() {
+        var pack = new BoosterPackTemplate { m_lootTables = ["Common", "Rare", "Epic"] };
+
+        Assert.Equal(6, GiftingService.CalculateRequiredInventorySlots(pack, 2));
     }
 
     [Fact]
