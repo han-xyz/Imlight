@@ -169,10 +169,8 @@ public class GameServer : Server {
     }
 
     private static string DescribeKeyShape(byte[] key) {
-        var head = Convert.ToHexString(key.AsSpan(0, Math.Min(4, key.Length)));
-        var tail = Convert.ToHexString(key.AsSpan(key.Length - Math.Min(4, key.Length)));
         var endsWithNul = key.Length > 0 && key[^1] == 0;
-        return $"{key.Length} bytes, {ClassifyKeyShape(key)}, ends with NUL {endsWithNul}, head {head}, tail {tail}";
+        return $"{key.Length} bytes, {ClassifyKeyShape(key)}, ends with NUL {endsWithNul}";
     }
 
     private static string ClassifyKeyShape(ReadOnlySpan<byte> key) {
