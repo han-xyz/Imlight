@@ -16,6 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+using Imlight.CoreLib.Auth;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -36,6 +37,14 @@ internal class CommandPunishmentProtocol : CommandProtocol {
 
             return;
         }
+
+        var authorityReason = $"{Context.Account.Username} wants to mute account {Context.SelectedAccount.Username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(Context.SelectedAccount, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot mute an account with a higher auth level than you.");
+
+            return;
+        }
+
         if (Context.SelectedAccount.InfractionHistory.IsCurrentlyMuted) {
             InformSenderClient("This account is already muted.", true);
 
@@ -66,6 +75,14 @@ internal class CommandPunishmentProtocol : CommandProtocol {
 
             return;
         }
+
+        var authorityReason = $"{Context.Account.Username} wants to unmute account {Context.SelectedAccount.Username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(Context.SelectedAccount, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot unmute an account with a higher auth level than you.");
+
+            return;
+        }
+
         if (!Context.SelectedAccount.InfractionHistory.IsCurrentlyMuted) {
             InformSenderClient("This account is not muted.", true);
 
@@ -87,6 +104,13 @@ internal class CommandPunishmentProtocol : CommandProtocol {
             return;
         }
 
+        var authorityReason = $"{Context.Account.Username} wants to kick account {Context.SelectedAccount.Username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(Context.SelectedAccount, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot kick an account with a higher auth level than you.");
+
+            return;
+        }
+
         // Kick the player from the game.
         var kickMsg = new SERVER_100_PROTOCOL.MSG_KICKPLAYER {
             AccountID = Context.SelectedAccount.AccountId
@@ -101,6 +125,13 @@ internal class CommandPunishmentProtocol : CommandProtocol {
     public void WarnCommand([Remainder] string reason) {
         if (Context.SelectedAccount is null) {
             InformSenderClient("You must select a user to use this command.", true);
+
+            return;
+        }
+
+        var authorityReason = $"{Context.Account.Username} wants to warn account {Context.SelectedAccount.Username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(Context.SelectedAccount, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot warn an account with a higher auth level than you.");
 
             return;
         }

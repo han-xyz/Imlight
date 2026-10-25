@@ -33,6 +33,9 @@ internal abstract class CommandProtocol {
     internal abstract string Group { get; set; }
     protected CommandContext Context;
 
+    private const string PermissionDeniedMessage = "You do not have permission to use this command.";
+    private static readonly HashSet<string> s_commandsLoggedWithoutAuth = [];
+
     private Dictionary<string, MethodInfo> _commandMethods;
     private bool _hasInitiated;
 
@@ -59,19 +62,23 @@ internal abstract class CommandProtocol {
         }
 
         var authAttribute = method.GetCustomAttribute<AuthRequiredAttribute>();
-        if (authAttribute != null) {
-            var actualAuthLevel = authAttribute.Level;
+        if (authAttribute is null) {
+            LogMissingAuthRequiredOnce(method);
+            InformSenderClient(PermissionDeniedMessage);
+            return true;
+        }
+
+        var actualAuthLevel = authAttribute.Level;
 #if !DEBUG
-            // If the auth level is developer, bump it up to administrator if we're not in debug builds.
-            if (actualAuthLevel == AuthLevel.Developer) {
-                actualAuthLevel = AuthLevel.Administrator;
-            }
+        // If the auth level is developer, bump it up to administrator if we're not in debug builds.
+        if (actualAuthLevel == AuthLevel.Developer) {
+            actualAuthLevel = AuthLevel.Administrator;
+        }
 #endif
 
-            if (!AuthorityRequester.RequestAuthority(actualAuthLevel, context.Account, $"Command {commandName}")) {
-                InformSenderClient("You do not have permission to use this command.");
-                return true;
-            }
+        if (!AuthorityRequester.RequestAuthority(actualAuthLevel, context.Account, $"Command {commandName}")) {
+            InformSenderClient(PermissionDeniedMessage);
+            return true;
         }
 
         // Process the parameters with respect to RemainderAttribute, if it is present.
@@ -119,6 +126,18 @@ internal abstract class CommandProtocol {
             Message = reason,
             Modal = (byte) (isImportant ? 1 : 0)
         });
+
+    private void LogMissingAuthRequiredOnce(MethodInfo method) {
+        var protocolName = GetType().Name;
+        lock (s_commandsLoggedWithoutAuth) {
+            if (!s_commandsLoggedWithoutAuth.Add($"{protocolName}.{method.Name}")) {
+                return;
+            }
+        }
+
+        Logger.Warning("Command {Command} in {Protocol} has no AuthRequired attribute; denied",
+            Logger.Args(method.Name, protocolName));
+    }
 
     private void InitiateHandlers() {
         _hasInitiated = true;

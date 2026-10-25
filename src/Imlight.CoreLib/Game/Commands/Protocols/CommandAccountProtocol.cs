@@ -52,7 +52,7 @@ internal class CommandAccountProtocol : CommandProtocol {
         }
 
         var authorityReason = $"{Context.Account.Username} wants to delete account {username}.";
-        if (!AuthorityRequester.RequestAuthority(account.AuthLevel, Context.Account, authorityReason)) {
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
             InformSenderClient("You cannot delete an account with a higher auth level than you.");
 
             return;
@@ -80,7 +80,7 @@ internal class CommandAccountProtocol : CommandProtocol {
         }
 
         var authorityReason = $"{Context.Account.Username} wants to lock account {username}.";
-        if (!AuthorityRequester.RequestAuthority(account.AuthLevel, Context.Account, authorityReason)) {
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
             InformSenderClient("You cannot lock an account with a higher auth level than you.");
 
             return;
@@ -97,6 +97,13 @@ internal class CommandAccountProtocol : CommandProtocol {
         var account = AccountCollection.GetAccount(username);
         if (account is null) {
             InformSenderClient("Account not found.");
+
+            return;
+        }
+
+        var authorityReason = $"{Context.Account.Username} wants to unlock account {username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot unlock an account with a higher auth level than you.");
 
             return;
         }
@@ -141,7 +148,7 @@ internal class CommandAccountProtocol : CommandProtocol {
 
         // You cannot change the auth level of an account with a higher auth level than you.
         var authorityReason = $"{Context.Account.Username} wants to change the auth level of account {username}.";
-        if (!AuthorityRequester.RequestAuthority(account.AuthLevel, Context.Account, authorityReason)) {
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
             InformSenderClient("You cannot change the auth level of an account with a higher auth level than you.");
 
             return;
@@ -223,6 +230,7 @@ internal class CommandAccountProtocol : CommandProtocol {
     }
 
     [Command("infractions")]
+    [AuthRequired(AuthLevel.HallMonitor)]
     [Alias("warns", "warnings")]
     private void GetAccountInfractionsCommand(string username) {
         var account = AccountCollection.GetAccount(username);
@@ -258,6 +266,13 @@ internal class CommandAccountProtocol : CommandProtocol {
             return;
         }
 
+        var authorityReason = $"{Context.Account.Username} wants to warn account {username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot warn an account with a higher auth level than you.");
+
+            return;
+        }
+
         var infractionAddedSuccess = account.AddInfraction(InfractionType.Warn, reason, Context.Account.Username);
 
         var reply = infractionAddedSuccess is not null ? "Infraction added successfully." : "Infraction add failed.";
@@ -277,6 +292,13 @@ internal class CommandAccountProtocol : CommandProtocol {
         var account = AccountCollection.GetAccount(username);
         if (account is null) {
             InformSenderClient("Account not found.");
+
+            return;
+        }
+
+        var authorityReason = $"{Context.Account.Username} wants to remove a warning from account {username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot remove a warning from an account with a higher auth level than you.");
 
             return;
         }
