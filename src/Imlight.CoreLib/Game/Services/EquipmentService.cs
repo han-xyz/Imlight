@@ -570,6 +570,18 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
                     Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizard.MagicSchoolBehavior.Level, item.m_templateID, levelUpElixir.m_setCharacterToLevel));
                 return;
             }
+
+            if (wizard.IsInDuel) {
+                return;
+            }
+
+            // Using the elixir frees its own slot.
+            var slotsNeeded = LevelUpElixirHelper.InventorySlotsNeeded(levelUpElixir, wizard.MagicSchoolBehavior.MagicSchool.ToString()) - 1;
+            if (slotsNeeded > 0 && !wizard.InventoryBehavior.HasInventorySpace(slotsNeeded)) {
+                InformGameClient("Your backpack is full! Please make space before using this elixir.");
+                return;
+            }
+
             if (!wizard.InventoryBehavior.RemoveItem(item.m_globalID, out _)) {
                 return;
             }

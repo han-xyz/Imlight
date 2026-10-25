@@ -57,7 +57,36 @@ internal static class LevelUpElixirHelper {
     private static readonly ObjectSerializer s_itemSerializer = new(Versionable: false, Behaviors: SerializerFlags.None);
 
     /// <summary>
+    /// False when the elixir would set the wizard to a level the wizard already has.
+    /// </summary>
+    public static bool IsBelowTargetLevel(Wizard wizard, LevelUpElixirBehaviorTemplate elixirTemplate)
+        => elixirTemplate.m_setCharacterToLevel <= 0 || wizard.MagicSchoolBehavior.Level < elixirTemplate.m_setCharacterToLevel;
+
+    /// <summary>
+    /// Backpack slots the elixir's items and gear take for a wizard of <paramref name="schoolName"/>.
+    /// </summary>
+    public static int InventorySlotsNeeded(LevelUpElixirBehaviorTemplate elixirTemplate, string schoolName)
+        => SchoolData(elixirTemplate, schoolName).Sum(data =>
+            (data.m_itemsToPlaceInInventory?.Count(id => id != 0) ?? 0) + (data.m_gearToEquip?.Count(id => id != 0) ?? 0));
+
+    private static List<LevelUpElixirSchoolSpecificData> SchoolData(LevelUpElixirBehaviorTemplate elixirTemplate, string schoolName) {
+        var schoolDataList = new List<LevelUpElixirSchoolSpecificData>();
+        if (elixirTemplate.m_allSchoolData != null) {
+            schoolDataList.Add(elixirTemplate.m_allSchoolData);
+        }
+
+        var matchingSchool = elixirTemplate.m_schoolSpecificData?.FirstOrDefault(s =>
+            string.Equals(s.m_schoolName, schoolName, StringComparison.OrdinalIgnoreCase));
+        if (matchingSchool != null) {
+            schoolDataList.Add(matchingSchool);
+        }
+
+        return schoolDataList;
+    }
+
+    /// <summary>
     /// Applies the effects of a LevelUpElixir or WorldElixir to the specified wizard.
+    /// Check <see cref="IsBelowTargetLevel"/> and <see cref="InventorySlotsNeeded"/> first: the items it gives are lost without room.
     /// </summary>
     public static void ApplyElixir(Wizard wizard,
                                    LevelUpElixirBehaviorTemplate elixirTemplate,
@@ -72,6 +101,19 @@ internal static class LevelUpElixirHelper {
         // 1. Advance Level and Base Stats if target level is greater than current level
         if (elixirTemplate.m_setCharacterToLevel > wizard.MagicSchoolBehavior.Level) {
             var targetLevel = (byte) elixirTemplate.m_setCharacterToLevel;
+
+            // Without the target level's XP the player would have to re-earn every level the elixir skipped.
+            var oldXp = wizard.MagicSchoolBehavior.ExperiencePoints;
+            var targetLevelXp = MagicLevelsConfig.GetExperiencePointsAtLevel(targetLevel);
+            if (oldXp < targetLevelXp) {
+                wizard.MagicSchoolBehavior.ExperiencePoints = targetLevelXp;
+                sendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEXP {
+                    GlobalID = wizard.GameObjectID,
+                    XP = targetLevelXp - oldXp,
+                    OldXP = oldXp,
+                });
+            }
+
             if (wizard.SetLevel(targetLevel)) {
                 // Broadcast level up visual effect
                 var levelUpMessage = new WIZARD_12_PROTOCOL.MSG_LEVELUP {
@@ -155,20 +197,7 @@ internal static class LevelUpElixirHelper {
         }
 
         // 6. Apply School-Specific & All-School Data
-        var schoolDataList = new List<LevelUpElixirSchoolSpecificData>();
-        if (elixirTemplate.m_allSchoolData != null) {
-            schoolDataList.Add(elixirTemplate.m_allSchoolData);
-        }
-
-        if (elixirTemplate.m_schoolSpecificData != null) {
-            var playerSchoolName = wizard.MagicSchoolBehavior.MagicSchool.ToString();
-            var matchingSchool = elixirTemplate.m_schoolSpecificData.FirstOrDefault(s =>
-                string.Equals(s.m_schoolName, playerSchoolName, StringComparison.OrdinalIgnoreCase));
-
-            if (matchingSchool != null) {
-                schoolDataList.Add(matchingSchool);
-            }
-        }
+        var schoolDataList = SchoolData(elixirTemplate, wizard.MagicSchoolBehavior.MagicSchool.ToString());
 
         string teleportDestination = null;
 

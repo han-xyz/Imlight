@@ -477,6 +477,15 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 if (MeetsEquipRequirements(wizard, wizItemTemplate)) {
                     var levelUpOrWorldElixir = behaviors.OfType<LevelUpElixirBehaviorTemplate>().FirstOrDefault();
                     if (levelUpOrWorldElixir is not null) {
+                        if (!LevelUpElixirHelper.IsBelowTargetLevel(wizard, levelUpOrWorldElixir)) {
+                            return s_errorPurchase;
+                        }
+
+                        var slotsNeeded = LevelUpElixirHelper.InventorySlotsNeeded(levelUpOrWorldElixir, wizard.MagicSchoolBehavior.MagicSchool.ToString());
+                        if (slotsNeeded > 0 && !wizard.InventoryBehavior.HasInventorySpace(slotsNeeded)) {
+                            return s_errorInvFull;
+                        }
+
                         LevelUpElixirHelper.ApplyElixir(
                             wizard,
                             levelUpOrWorldElixir,
