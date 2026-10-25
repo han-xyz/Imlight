@@ -84,11 +84,12 @@ public static class QuestInstanceCollection {
     /// Removes a quest instance from the database by its ID.
     /// </summary>
     /// <param name="questInstanceID">The ID of the quest instance to remove.</param>
-    /// <returns>True if the quest instance was removed successfully, false otherwise.</returns
+    /// <returns>True if the quest instance was removed successfully, false otherwise.</returns>
     public static bool RemoveQuestInstance(ulong questInstanceID) {
         using var session = s_store.OpenSession();
 
         var questInstance = session.Query<QuestInstance>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .FirstOrDefault(q => q.ID == questInstanceID);
         if (questInstance == null) {
             return false;
