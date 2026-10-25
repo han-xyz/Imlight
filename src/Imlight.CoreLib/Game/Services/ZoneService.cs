@@ -863,10 +863,23 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         WizardCollection.UpdateCharacterZone(character, character.Zone, character.ZoneDisplayName);
         WizardCollection.UpdateCharacterLocation(character, character.Location, character.Orientation.Z);
 
+        var realmName = AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
+        var keyRsp = AskServer<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP>(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
+            Account = account,
+            TargetRealmName = realmName
+        });
+        if (keyRsp is null || !keyRsp.Success) {
+            Logger.Error("Session {SessionId} could not create a transfer key on realm {Realm}; zone transfer to {Zone} not sent.",
+                Logger.Args(SessionActor.SessionID, realmName, character.QueuedZoneName));
+
+            return;
+        }
+
         var serverTransfer = new GAME_5_PROTOCOL.MSG_SERVERTRANSFER() {
             IP = character.GameServerIp,
             TCPPort = character.GameServerPort,
             UDPPort = character.GameServerPort,
+            Key = keyRsp.Key,
             UserID = account.AccountId,
             CharID = character.CharId,
             ZoneName = character.QueuedZoneName,

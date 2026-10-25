@@ -143,6 +143,17 @@ public class SessionKeyStoreTests {
     }
 
     [Fact]
+    public void Validate_PendingTransfer_WrongKey_AcceptsOnce() {
+        var store = new SessionKeyStore();
+        _ = store.IssueLoginKey(UserId, s_validity);
+        _ = store.IssueTransferKey(UserId);
+        var wrongKey = Encoding.ASCII.GetBytes("not-the-key\0");
+
+        Assert.True(store.Validate(UserId, wrongKey));
+        Assert.False(store.Validate(UserId, wrongKey));
+    }
+
+    [Fact]
     public void TransferKey_DecimalString_Validates() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
@@ -171,12 +182,11 @@ public class SessionKeyStoreTests {
     }
 
     [Fact]
-    public void TransferKey_WrongValue_Fails() {
+    public void TransferKey_WrongValue_NoPendingTransfer_Fails() {
         var store = new SessionKeyStore();
-        var transferKey = store.IssueTransferKey(UserId);
-        var wrongValue = transferKey == int.MaxValue - 1 ? transferKey - 1 : transferKey + 1;
+        _ = store.IssueLoginKey(UserId, s_validity);
 
-        Assert.False(store.Validate(UserId, DecimalBytes(wrongValue)));
+        Assert.False(store.Validate(UserId, DecimalBytes(12345)));
     }
 
     [Fact]

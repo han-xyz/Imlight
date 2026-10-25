@@ -143,16 +143,18 @@ public class GameServer : Server {
         // A user has requested to join this server. We're going to check if the session key is valid.
         // If it is, we'll return the account associated with it. If not, we'll return an error code.
         var key = (byte[]) message.Key;
-        if (!_sessionKeys.Validate(message.UserID, key)) {
+        if (!_sessionKeys.Validate(message.UserID, key, out var acceptedOnPendingTransfer)) {
             var (hasLoginKey, hasTransferKey) = _sessionKeys.Describe(message.UserID);
-            Logger.Debug("Attach key rejected for user {UserId}: {Length} bytes, shape {Shape}, ends with NUL {EndsWithNul}, head {Head}, tail {Tail}, store holds login key {HasLoginKey}, transfer key {HasTransferKey}.",
-                Logger.Args(message.UserID, key.Length, ClassifyKeyShape(key), key.Length > 0 && key[^1] == 0,
-                    Convert.ToHexString(key.AsSpan(0, Math.Min(4, key.Length))),
-                    Convert.ToHexString(key.AsSpan(key.Length - Math.Min(4, key.Length))),
-                    hasLoginKey, hasTransferKey));
+            Logger.Debug("Attach key rejected for user {UserId}: {Shape}, store holds login key {HasLoginKey}, transfer key {HasTransferKey}.",
+                Logger.Args(message.UserID, DescribeKeyShape(key), hasLoginKey, hasTransferKey));
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
             return;
+        }
+
+        if (acceptedOnPendingTransfer) {
+            Logger.Warning("User {UserId} attached on a pending transfer with a non-matching key: {Shape}.",
+                Logger.Args(message.UserID, DescribeKeyShape(key)));
         }
 
         ActiveSessions.Add(message.SessionActor);
@@ -164,6 +166,13 @@ public class GameServer : Server {
             ErrorCode = account is null ? 1 : 0,
             Account = account
         });
+    }
+
+    private static string DescribeKeyShape(byte[] key) {
+        var head = Convert.ToHexString(key.AsSpan(0, Math.Min(4, key.Length)));
+        var tail = Convert.ToHexString(key.AsSpan(key.Length - Math.Min(4, key.Length)));
+        var endsWithNul = key.Length > 0 && key[^1] == 0;
+        return $"{key.Length} bytes, {ClassifyKeyShape(key)}, ends with NUL {endsWithNul}, head {head}, tail {tail}";
     }
 
     private static string ClassifyKeyShape(ReadOnlySpan<byte> key) {

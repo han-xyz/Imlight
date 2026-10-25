@@ -27,6 +27,8 @@
  * var key = store.IssueLoginKey(accountId, validity); store.Validate(userId, attachedKey);
  * 
  * NOTE:
+ * A user with a pending transfer key is accepted even when the attached key matches neither key,
+ * mirroring the pre-L3 behaviour within the 60 s window. The transfer key is consumed.
  * 
  * TODO:
  * 
@@ -79,15 +81,21 @@ public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
         return key;
     }
 
-    public bool Validate(ulong userId, ReadOnlySpan<byte> key) {
+    public bool Validate(ulong userId, ReadOnlySpan<byte> key)
+        => Validate(userId, key, out _);
+
+    public bool Validate(ulong userId, ReadOnlySpan<byte> key, out bool acceptedOnPendingTransfer) {
         lock (_lock) {
+            acceptedOnPendingTransfer = false;
+            var storedTransferKey = _transferKeys.Get(userId);
             var isLoginKey = Matches(_loginKeys.Get(userId), key);
-            var isTransferKey = Matches(_transferKeys.Get(userId), key);
-            if (isTransferKey) {
+            var isTransferKey = Matches(storedTransferKey, key);
+            if (isTransferKey || (!isLoginKey && storedTransferKey is not null)) {
                 _ = _transferKeys.Remove(userId);
             }
 
-            return isLoginKey || isTransferKey;
+            acceptedOnPendingTransfer = !isLoginKey && !isTransferKey && storedTransferKey is not null;
+            return isLoginKey || isTransferKey || acceptedOnPendingTransfer;
         }
     }
 
