@@ -289,7 +289,7 @@ internal static class Program {
 
         var resetFailedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.ResetToConfigured);
         if (resetFailedUsernames.Length > 0) {
-            Logger.Fatal("Admin account {Username} still uses a known default password after the reset. Either AdminAccountPassword is itself a known default (choose another) or the update failed (check the player database). Boot refused.",
+            Logger.Fatal("Admin account {Username} still uses a known default password because the reset failed; check the player database. Boot refused.",
                 Logger.Args(resetFailedUsernames));
         }
 

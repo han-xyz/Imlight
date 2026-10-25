@@ -27,7 +27,7 @@
  * if (!verdict.IsAccepted) { Logger.Fatal(verdict.Message); }
  * 
  * NOTE:
- * The shipped default password "compsci" is rejected, as is an empty one.
+ * Known default passwords (the shipped "compsci" and those hard-coded in older builds) are rejected, as is an empty one.
  *
  * TODO:
  * 
@@ -37,12 +37,19 @@
  */
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Imlight.Common;
 
 public static class AdminCredentialPolicy {
 
-    private const string DefaultPassword = "compsci";
+    // "compsci" is the ini default before L2; the rest were hard-coded for Administrator accounts in
+    // src/Director before 106c24fd ("ref: remove embedded accounts") and are public in git history.
+    public static IReadOnlyList<string> KnownDefaultPasswords { get; } = [
+        "compsci", "debug", "dev9999", "2034", "9090", "2342", "2109", "joji1", "jefffakename",
+        "jootysocoollike", "Niduus", "gay", "is that guy even a dev?", "isthatguyevenadev?",
+    ];
 
     public static AdminCredentialVerdict Validate(string? username, string? password) {
         if (string.IsNullOrWhiteSpace(username)) {
@@ -57,7 +64,7 @@ public static class AdminCredentialPolicy {
                 + "or the IMLIGHT__Database__AdminAccountPassword environment variable.");
         }
 
-        if (password.Equals(DefaultPassword, StringComparison.OrdinalIgnoreCase)) {
+        if (KnownDefaultPasswords.Contains(password, StringComparer.OrdinalIgnoreCase)) {
             return AdminCredentialVerdict.Rejected(
                 "Admin account password is the shipped default; change Database.AdminAccountPassword in Imlight.ini "
                 + "or set the IMLIGHT__Database__AdminAccountPassword environment variable.");

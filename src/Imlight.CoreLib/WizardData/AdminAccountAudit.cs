@@ -41,6 +41,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Imlight.Common;
 
 namespace Imlight.CoreLib.WizardData;
 
@@ -57,14 +58,8 @@ public sealed record AdminAccountAuditAction(string Username, AdminAccountAuditA
 
 public static class AdminAccountAudit {
 
-    // "compsci" is the ini default before L2; the rest were hard-coded for Administrator accounts in
-    // src/Director before 106c24fd ("ref: remove embedded accounts") and are public in git history.
-    private static readonly string[] s_knownDefaultPasswords = [
-        "compsci", "debug", "dev9999", "2034", "9090", "2342", "2109", "joji1", "jefffakename",
-        "jootysocoollike", "Niduus", "gay", "is that guy even a dev?", "isthatguyevenadev?",
-    ];
     private static readonly HashSet<string> s_knownDefaultPasswordHashes =
-        [.. s_knownDefaultPasswords.Select(DatabaseUtilities.CreateHashedPassword)];
+        [.. AdminCredentialPolicy.KnownDefaultPasswords.Select(DatabaseUtilities.CreateHashedPassword)];
 
     public static IReadOnlyList<AdminAccountAuditAction> Audit(
         IEnumerable<AdminAccountCredential> administrators, string configuredUsername) {

@@ -56,6 +56,13 @@ public class AdminCredentialPolicyTests {
         Assert.False(AdminCredentialPolicy.Validate("admin", password).IsAccepted);
     }
 
+    [Theory]
+    [InlineData("dev9999")]
+    [InlineData("2034")]
+    public void Policy_HistoricDefault_Rejected(string password) {
+        Assert.False(AdminCredentialPolicy.Validate("admin", password).IsAccepted);
+    }
+
     [Fact]
     public void Other_Accepted() {
         Assert.True(AdminCredentialPolicy.Validate("admin", "s0me-l0ng-pass").IsAccepted);
