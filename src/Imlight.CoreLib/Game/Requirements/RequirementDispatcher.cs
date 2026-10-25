@@ -38,10 +38,11 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -57,6 +58,7 @@ namespace Imlight.CoreLib.Game.Requirements;
 public static class RequirementDispatcher {
 
     private static readonly Dictionary<Type, MethodInfo> s_requirementHandlers = [];
+    private static readonly ConcurrentDictionary<Type, byte> s_reportedUnhandledTypes = new();
 
     // ctor
     static RequirementDispatcher()
@@ -110,8 +112,10 @@ public static class RequirementDispatcher {
         var handlerType = FindHandlerForRequirement(requirementType, context);
 
         if (handlerType == null) {
-            Logger.Warning("No handler found for requirement type: {0}",
-                Logger.Args(requirementType.Name));
+            if (s_reportedUnhandledTypes.TryAdd(requirementType, 0)) {
+                Logger.Warning("No handler found for requirement type: {0}",
+                    Logger.Args(requirementType.Name));
+            }
 
             return false;
         }

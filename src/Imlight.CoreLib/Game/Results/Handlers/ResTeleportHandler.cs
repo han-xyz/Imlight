@@ -18,6 +18,8 @@
 
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
+using Imlight.CoreLib.Game.Results.Contexts;
 using Imlight.CoreLib.Shared.Packets;
 
 namespace Imlight.CoreLib.Game.Results.Handlers;
@@ -35,6 +37,9 @@ internal sealed class ResTeleportHandler : BaseResultHandler<ResTeleport> {
         }
 
         if (string.IsNullOrEmpty(Result.m_destinationZone)) {
+            Logger.Warning("ResTeleport from trigger {TriggerName} in zone {ZoneName} has no destination zone.",
+                Logger.Args((context as GenericResultContext)?.TriggerName, context.GetZoneActor()?.Path.Name));
+
             return false;
         }
 
