@@ -56,6 +56,8 @@ public static class ConfigurationManager {
     private static readonly Dictionary<string, Dictionary<string, string>> s_sections = new(StringComparer.OrdinalIgnoreCase);
     private static bool s_isInitialized = false;
     private static string s_configFilePath = "";
+    private const string OverridePrefix = "IMLIGHT";
+    private const string OverrideSeparator = "__";
 
     /// <summary>
     /// Provides indexer access to configuration settings.
@@ -74,6 +76,8 @@ public static class ConfigurationManager {
         s_configFilePath = iniFilePath;
         LoadConfiguration();
         s_isInitialized = true;
+        // After the flag: a malformed override logs, and Logger's static init reads these settings.
+        ApplyEnvironmentOverrides();
     }
 
     /// <summary>
@@ -134,6 +138,7 @@ public static class ConfigurationManager {
     public static void Reload() {
         EnsureInitialized();
         LoadConfiguration();
+        ApplyEnvironmentOverrides();
     }
 
     /// <summary>
@@ -166,6 +171,43 @@ public static class ConfigurationManager {
         }
         catch {
             return defaultValue;
+        }
+    }
+
+    internal static bool TryParseOverrideName(string name, out string section, out string key) {
+        section = key = "";
+        var parts = name.Split(OverrideSeparator, 3);
+        if (parts.Length < 3
+            || !parts[0].Equals(OverridePrefix, StringComparison.OrdinalIgnoreCase)
+            || parts[1].Length == 0
+            || parts[2].Length == 0) {
+            return false;
+        }
+
+        section = parts[1].Replace('_', ' ');
+        key = parts[2];
+        return true;
+    }
+
+    private static void ApplyEnvironmentOverrides() {
+        foreach (string name in Environment.GetEnvironmentVariables().Keys) {
+            if (!name.StartsWith(OverridePrefix + OverrideSeparator, StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            if (!TryParseOverrideName(name, out var section, out var key)) {
+                Logger.Warning("Ignoring malformed config override {Name}; expected IMLIGHT__Section__Key", Logger.Args(name));
+                continue;
+            }
+
+            var value = Environment.GetEnvironmentVariable(name) ?? "";
+            if (!s_sections.TryGetValue(section, out var sectionSettings)) {
+                sectionSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                s_sections[section] = sectionSettings;
+            }
+
+            sectionSettings[key] = value;
+            s_settings[$"{section}.{key}"] = value;
         }
     }
 
