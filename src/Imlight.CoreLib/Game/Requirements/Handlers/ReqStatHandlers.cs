@@ -148,15 +148,6 @@ internal sealed class ReqIsInPartyHandler : BaseRequirementHandler<ReqIsInParty>
 }
 
 /// <summary>
-/// ReqHasExpansion: every player owns every expansion.
-/// </summary>
-internal sealed class ReqHasExpansionHandler : BaseRequirementHandler<ReqHasExpansion> {
-
-    public override bool Evaluate(IRequirementContext context) => true;
-
-}
-
-/// <summary>
 /// ReqIsCSR: nobody here is a customer service representative.
 /// </summary>
 internal sealed class ReqIsCSRHandler : BaseRequirementHandler<ReqIsCSR> {
