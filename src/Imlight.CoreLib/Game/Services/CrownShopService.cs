@@ -51,6 +51,8 @@ using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Elixirs;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Game.Packs;
+using Imlight.CoreLib.Game.Requirements;
+using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -231,42 +233,29 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (message.Type == CrownShopPrice.GoldCurrency && wizard.GameStats.m_currentGold < amountToPay) {
-            SendPurchaseError(s_errorCantAfford);
-            return;
-        }
-
-        if (message.Type == CrownShopPrice.CrownsCurrency && wizard.Account.Crowns < amountToPay) {
-            SendPurchaseError(s_errorNotEnoughCrowns);
-            return;
-        }
-
-        var requiredSlots = GiftingService.CalculateRequiredInventorySlots(CoreObjectFactory.GetCoreTemplate(message.Item), message.Count);
-        if (!isGift && requiredSlots > 0 && !wizard.InventoryBehavior.HasInventorySpace(requiredSlots)) {
+        var itemTemplate = CoreObjectFactory.GetCoreTemplate(message.Item);
+        if (!isGift && !HasInventorySpaceFor(wizard, itemTemplate, message.Count)) {
             SendPurchaseError(s_errorInvFull);
             return;
         }
 
-        // Grant items or deliver gift before deducting currency so failed deliveries do not charge the player.
-        var deliveryError = isGift
-            ? TryDeliverGift(wizard, message)
-            : TryGrantPurchasedItem(wizard, message);
+        var error = GrantTransaction.Run(
+            reserve: () => TryDebit(wizard, message.Type, amountToPay),
+            release: () => Refund(wizard, message.Type, amountToPay),
+            grant: transaction => isGift
+                ? TryDeliverGift(wizard, message)
+                : TryGrantPurchasedItem(transaction, wizard, message, itemTemplate));
 
-        if (deliveryError != 0) {
-            SendPurchaseError(deliveryError);
+        if (error != 0) {
+            SendPurchaseError(error);
             return;
         }
 
         if (message.Type == CrownShopPrice.GoldCurrency) {
-            wizard.RemoveGold(amountToPay);
             SyncGoldBalance(wizard);
         }
-        else if(message.Type == CrownShopPrice.CrownsCurrency) {
-            wizard.Account.SetCrowns(wizard.Account.Crowns - amountToPay);
+        else {
             SyncCrownBalance(wizard);
-        }else {
-            Logger.Error("Invalid currency type {0} for item {1}.", Logger.Args(message.Type, message.Item));
-            return;
         }
 
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
@@ -283,10 +272,56 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
-    private int TryGrantPurchasedItem(Wizard wizard, WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message) {
-        var itemTemplate = CoreObjectFactory.GetCoreTemplate(message.Item);
+    private static bool HasInventorySpaceFor(Wizard wizard, CoreTemplate itemTemplate, int count) {
+        var requiredSlots = itemTemplate is BoosterPackTemplate pack
+            // One backpack slot per loot table and pack; a table that drops several items can still overflow.
+            ? (pack.m_lootTables?.Count ?? 0) * count
+            : GiftingService.CalculateRequiredInventorySlots(itemTemplate, count);
 
+        return requiredSlots == 0 || wizard.InventoryBehavior.HasInventorySpace(requiredSlots);
+    }
+
+    private static int TryDebit(Wizard wizard, int currency, int amount) {
+        if (currency == CrownShopPrice.GoldCurrency) {
+            if (wizard.GameStats.m_currentGold < amount) {
+                return s_errorCantAfford;
+            }
+
+            wizard.RemoveGold(amount);
+            return 0;
+        }
+
+        var crowns = wizard.Account.Crowns;
+        if (crowns < amount) {
+            return s_errorNotEnoughCrowns;
+        }
+
+        if (!wizard.Account.SetCrowns(crowns - amount)) {
+            Logger.Error("Could not save the crowns debit for account {0}.", Logger.Args(wizard.AccountId));
+            wizard.Account.Crowns = crowns;
+            return s_errorPurchase;
+        }
+
+        return 0;
+    }
+
+    private static void Refund(Wizard wizard, int currency, int amount) {
+        if (currency == CrownShopPrice.GoldCurrency) {
+            wizard.AddGold(amount);
+            return;
+        }
+
+        if (!wizard.Account.SetCrowns(wizard.Account.Crowns + amount)) {
+            Logger.Error("Could not save the refund of {0} crowns for account {1}.", Logger.Args(amount, wizard.AccountId));
+        }
+    }
+
+    private int TryGrantPurchasedItem(GrantTransaction transaction,
+                                      Wizard wizard,
+                                      WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message,
+                                      CoreTemplate itemTemplate) {
         switch (itemTemplate) {
+            // Pack loot is rolled and cannot be taken back, so packs are the whole grant and opened last.
             case BoosterPackTemplate:
                 for (var i = 0; i < message.Count; i++) {
                     PackManager.OpenPack(SessionActor.ActorRef, wizard, message.Item);
@@ -294,62 +329,58 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 return 0;
 
             case GoldAmountTemplate goldItem:
-                // Reject, if money >= maxMoney
-                if (wizard.GameStats.m_currentGold + (goldItem.m_goldAmount * message.Count) >= wizard.GameStats.m_baseGoldPouch) {
+                var gold = goldItem.m_goldAmount * message.Count;
+                if (wizard.GameStats.m_currentGold + gold >= wizard.GameStats.m_baseGoldPouch) {
                     return s_errorMaxGold;
                 }
 
-                wizard.AddGold(goldItem.m_goldAmount * message.Count);
-                SyncGoldBalance(wizard);
+                wizard.AddGold(gold);
+                transaction.OnRollback(() => wizard.RemoveGold(gold));
                 return 0;
 
             case LunariAmountTemplate lunariTemplate:
-                if(wizard.GameStats.m_currentEventCurrency1 + (lunariTemplate.m_lunariAmount * message.Count) >= wizard.GameStats.m_baseEventCurrency1Pouch) {
+                var lunari = lunariTemplate.m_lunariAmount * message.Count;
+                if (wizard.GameStats.m_currentEventCurrency1 + lunari >= wizard.GameStats.m_baseEventCurrency1Pouch) {
                     return s_errorMaxLunari;
                 }
 
-                wizard.AddLunari(lunariTemplate.m_lunariAmount * message.Count);
-                SendToSocket(new WIZARD2_53_PROTOCOL.MSG_UPDATEEVENTCURRENCY1 {
+                wizard.AddLunari(lunari);
+                transaction.OnRollback(() => wizard.RemoveLunari(lunari));
+                transaction.OnCommit(() => SendToSocket(new WIZARD2_53_PROTOCOL.MSG_UPDATEEVENTCURRENCY1 {
                     EventCurrency1 = wizard.GameStats.m_currentEventCurrency1,
                     MaxEventCurrency1 = wizard.GameStats.m_baseEventCurrency1Pouch
-                });
+                }));
                 return 0;
 
             case ReagentItemTemplate reagentTemplate:
-                return TryGrantReagent(wizard, reagentTemplate.m_templateID, message.Count);
+                return TryGrantReagent(transaction, wizard, reagentTemplate.m_templateID, message.Count);
 
             case PetSnackItemTemplate petSnackTemplate:
-                return TryGrantPetSnack(wizard, petSnackTemplate.m_templateID, message.Count);
+                return TryGrantPetSnack(transaction, wizard, petSnackTemplate.m_templateID, message.Count);
 
             case TourneyTokensAmountTemplate:
-                // TODO
-                return 0;
+                Logger.Warning("Tourney tokens cannot be granted yet; refusing item {0}.", Logger.Args(message.Item));
+                return s_errorPurchase;
 
             case ItemBundleTemplate itemBundle:
                 for (var i = 0; i < message.Count; i++) {
                     foreach (var templateId in itemBundle.m_bundleItems) {
-                        var bundleSubTemplate = CoreObjectFactory.GetCoreTemplate(templateId);
-                        if (bundleSubTemplate is ReagentItemTemplate) {
-                            var reagentErr = TryGrantReagent(wizard, templateId, 1);
-                            if (reagentErr != 0) {
-                                return reagentErr;
-                            }
-                        }
-                        else if (bundleSubTemplate is PetSnackItemTemplate) {
-                            var snackErr = TryGrantPetSnack(wizard, templateId, 1);
-                            if (snackErr != 0) {
-                                return snackErr;
-                            }
-                        }
-                        else if (!TryAddItemToInventory(wizard, templateId, message.Texture, message.Decal)) {
-                            return s_errorInvFull;
+                        var bundleError = CoreObjectFactory.GetCoreTemplate(templateId) switch {
+                            ReagentItemTemplate => TryGrantReagent(transaction, wizard, templateId, 1),
+                            PetSnackItemTemplate => TryGrantPetSnack(transaction, wizard, templateId, 1),
+                            _ => TryAddItemToInventory(transaction, wizard, templateId, message.Texture, message.Decal)
+                                ? 0
+                                : s_errorInvFull,
+                        };
+                        if (bundleError != 0) {
+                            return bundleError;
                         }
                     }
                 }
                 return 0;
 
             case WizItemTemplate wizItemTemplate:
-                return TryGrantWizItem(wizard, message, wizItemTemplate);
+                return TryGrantWizItem(transaction, wizard, message, wizItemTemplate);
 
             default:
                 Logger.Warning("Unhandled TemplateID: {0}", Logger.Args(message.Item));
@@ -357,13 +388,16 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
-    private int TryGrantReagent(Wizard wizard, ulong reagentTemplateId, int count) {
+    private int TryGrantReagent(GrantTransaction transaction, Wizard wizard, ulong reagentTemplateId, int count) {
         ClientReagentItem reagentObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddReagent(reagentTemplateId, out reagentObj)) {
                 Logger.Warning("Could not add reagent {0} to inventory.", Logger.Args(reagentTemplateId));
                 return s_errorInvFull;
             }
+
+            var added = reagentObj;
+            transaction.OnRollback(() => wizard.RemoveReagent(added.m_globalID, out _));
         }
 
         if (reagentObj is null || !s_coreObjectSerializer.Serialize(reagentObj, ReagentPropertyFlags, out var serializedReagentObj)) {
@@ -371,33 +405,38 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return s_errorPurchase;
         }
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTADD {
-            GlobalID = wizard.GameObjectID,
-            Data = serializedReagentObj
-        });
+        transaction.OnCommit(() => {
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTADD {
+                GlobalID = wizard.GameObjectID,
+                Data = serializedReagentObj
+            });
 
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
-            ItemGlobalID = reagentObj.m_globalID,
-            ItemTemplateID = (uint) reagentObj.m_templateID,
-            ItemLocation = 1
-        });
+            SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
+                ItemGlobalID = reagentObj.m_globalID,
+                ItemTemplateID = (uint) reagentObj.m_templateID,
+                ItemLocation = 1
+            });
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTUPDATE {
-            GlobalID = wizard.GameObjectID,
-            ItemID = reagentObj.m_globalID,
-            Quantity = reagentObj.m_quantity
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REAGENTUPDATE {
+                GlobalID = wizard.GameObjectID,
+                ItemID = reagentObj.m_globalID,
+                Quantity = reagentObj.m_quantity
+            });
         });
 
         return 0;
     }
 
-    private int TryGrantPetSnack(Wizard wizard, ulong snackTemplateId, int count) {
+    private int TryGrantPetSnack(GrantTransaction transaction, Wizard wizard, ulong snackTemplateId, int count) {
         ClientPetSnackItem snackObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddSnack(snackTemplateId, out snackObj)) {
                 Logger.Warning("Could not add pet snack {0} to snack bag.", Logger.Args(snackTemplateId));
                 return s_errorInvFull;
             }
+
+            var added = snackObj;
+            transaction.OnRollback(() => wizard.RemoveSnack(added.m_globalID, out _));
         }
 
         if (snackObj is null || !s_coreObjectSerializer.Serialize(snackObj, 24, out var serializedSnackObj)) {
@@ -405,50 +444,60 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return s_errorPurchase;
         }
 
-        SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKADD {
-            GlobalID = wizard.GameObjectID,
-            Data = serializedSnackObj
-        });
+        transaction.OnCommit(() => {
+            SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKADD {
+                GlobalID = wizard.GameObjectID,
+                Data = serializedSnackObj
+            });
 
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
-            ItemGlobalID = snackObj.m_globalID,
-            ItemTemplateID = (uint) snackObj.m_templateID,
-            ItemLocation = 1
-        });
+            SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
+                ItemGlobalID = snackObj.m_globalID,
+                ItemTemplateID = (uint) snackObj.m_templateID,
+                ItemLocation = 1
+            });
 
-        SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKUPDATE {
-            GlobalID = wizard.GameObjectID,
-            ItemID = snackObj.m_globalID,
-            Quantity = snackObj.m_quantity
+            SendToSocket(new PET_9_PROTOCOL.MSG_PETSNACKUPDATE {
+                GlobalID = wizard.GameObjectID,
+                ItemID = snackObj.m_globalID,
+                Quantity = snackObj.m_quantity
+            });
         });
 
         return 0;
     }
 
-    private int TryGrantWizItem(Wizard wizard, WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message, WizItemTemplate wizItemTemplate) {
+    private int TryGrantWizItem(GrantTransaction transaction,
+                                Wizard wizard,
+                                WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message,
+                                WizItemTemplate wizItemTemplate) {
         var behaviors = wizItemTemplate.m_behaviors;
         if (behaviors is not null) {
             if (message.PurchaseElixirEquipNow > 0) {
-                var levelUpOrWorldElixir = behaviors.OfType<LevelUpElixirBehaviorTemplate>().FirstOrDefault();
-                if (levelUpOrWorldElixir is not null) {
-                    LevelUpElixirHelper.ApplyElixir(
-                        wizard,
-                        levelUpOrWorldElixir,
-                        SendToSocket,
-                        (msg, selfless, target) => ZoneBroadcast(msg, selfless, target),
-                        Teleport,
-                        PlaySound
-                    );
-                    return 0;
+                // Equipping uses one copy and is charged for every copy, so equip-now buys exactly one.
+                if (message.Count != 1) {
+                    return s_errorPurchase;
                 }
 
-                var elixirBehavior = behaviors.OfType<ElixirBehaviorTemplate>().FirstOrDefault();
-                if (elixirBehavior is not null) {
-                    if (TryEquipElixir(wizard, message.Item, wizItemTemplate, elixirBehavior)) {
+                if (MeetsEquipRequirements(wizard, wizItemTemplate)) {
+                    var levelUpOrWorldElixir = behaviors.OfType<LevelUpElixirBehaviorTemplate>().FirstOrDefault();
+                    if (levelUpOrWorldElixir is not null) {
+                        LevelUpElixirHelper.ApplyElixir(
+                            wizard,
+                            levelUpOrWorldElixir,
+                            SendToSocket,
+                            (msg, selfless, target) => ZoneBroadcast(msg, selfless, target),
+                            Teleport,
+                            PlaySound
+                        );
+                        return 0;
+                    }
+
+                    var elixirBehavior = behaviors.OfType<ElixirBehaviorTemplate>().FirstOrDefault();
+                    if (elixirBehavior is not null && TryEquipElixir(wizard, message.Item, wizItemTemplate, elixirBehavior)) {
                         return 0;
                     }
                 }
-                // If it couldn't be equipped (already 3 active, duplicate type, etc.), fall back to inventory.
+                // If it couldn't be equipped (requirements, already 3 active, duplicate type, etc.), fall back to inventory.
             }
 
             // Check if the item is an emote or teleport effect
@@ -459,14 +508,14 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                         return s_errorMaxTeleportEffects;
                     }
 
-                    wizard.UnlockCustomTeleportEffect(customEmote.m_bitFieldNumber);
+                    transaction.OnCommit(() => wizard.UnlockCustomTeleportEffect(customEmote.m_bitFieldNumber));
                 }
                 else if(customEmote.m_emoteType == CustomEmoteType.CE_Emote) {
                     if (wizard.CountEmotesUnlocked() >= s_maxEmotes) {
                         return s_errorMaxEmotes;
                     }
 
-                    wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber);
+                    transaction.OnCommit(() => wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber));
                 }else {
                     Logger.Error($"Unknown CustomEmoteType: {0}", Logger.Args(customEmote.m_emoteType));
                 }
@@ -474,12 +523,26 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         for (var i = 0; i < message.Count; i++) {
-            if (!TryAddItemToInventory(wizard, message.Item, message.Texture, message.Decal)) {
+            if (!TryAddItemToInventory(transaction, wizard, message.Item, message.Texture, message.Decal)) {
                 return s_errorInvFull;
             }
         }
 
         return 0;
+    }
+
+    private bool MeetsEquipRequirements(Wizard wizard, WizItemTemplate itemTemplate) {
+        if (itemTemplate.m_equipRequirements is null) {
+            return true;
+        }
+
+        var context = new GenericRequirementContext(
+            itemTemplate.m_equipRequirements,
+            SessionActor.ActorRef,
+            wizard.GetInitializedGameObject(),
+            wizard);
+
+        return RequirementDispatcher.EvaluateRequirements(itemTemplate.m_equipRequirements, context);
     }
 
     private int TryDeliverGift(Wizard sender, WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message) {
@@ -561,27 +624,38 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         return 0;
     }
 
-    private bool TryAddItemToInventory(Wizard wizard, ulong itemTemplateId, int texture, int decal) {
-        if (!wizard.AddItemToInventory(itemTemplateId, texture, decal, out var itemCoreObject)) {
+    private bool TryAddItemToInventory(GrantTransaction transaction, Wizard wizard, ulong itemTemplateId, int texture, int decal) {
+        if (CoreObjectFactory.FinalizeCoreObject(itemTemplateId) is not WizClientObjectItem item) {
+            Logger.Warning("Cannot add template {0} to inventory because it is not an item.", Logger.Args(itemTemplateId));
+            return false;
+        }
+
+        item.m_primaryColor = texture;
+        item.m_secondaryColor = decal;
+        if (!wizard.AddItemToInventory(item)) {
             Logger.Warning("Could not add item {0} to inventory.", Logger.Args(itemTemplateId));
             return false;
         }
 
-        if (!s_coreObjectSerializer.Serialize(itemCoreObject, 24, out var serializedItem)) {
+        transaction.OnRollback(() => wizard.RemoveItemFromInventory(item.m_globalID));
+
+        if (!s_coreObjectSerializer.Serialize(item, 24, out var serializedItem)) {
             Logger.Warning("Failed to serialize core object {0}.", Logger.Args(itemTemplateId));
             return false;
         }
 
-        SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_ADDITEM {
-            GlobalID = wizard.GameObjectID,
-            SerializedItem = serializedItem
-        });
+        transaction.OnCommit(() => {
+            SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_ADDITEM {
+                GlobalID = wizard.GameObjectID,
+                SerializedItem = serializedItem
+            });
 
-        // Adds the item to 'REVIEW MY ORDER'
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
-            ItemGlobalID = itemCoreObject.m_globalID,
-            ItemLocation = 1,
-            ItemTemplateID = (uint) itemTemplateId
+            // Adds the item to 'REVIEW MY ORDER'
+            SendToSocket(new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
+                ItemGlobalID = item.m_globalID,
+                ItemLocation = 1,
+                ItemTemplateID = (uint) itemTemplateId
+            });
         });
 
         return true;
