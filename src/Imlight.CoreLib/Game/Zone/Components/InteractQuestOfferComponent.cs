@@ -210,14 +210,33 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var state = GetOrUpdatePlayerState(playerCharacter);
-        if (serviceOptionIndex >= state.AvailableQuests.Count) {
-            Logger.Debug("Quest offer option {OptionIndex} on NPC {Npc} no longer exists",
+        var quest = SelectOfferedQuest(state.AvailableQuests, serviceOptionIndex, playerCharacter);
+        if (quest is null) {
+            Logger.Debug("Quest offer option {OptionIndex} on NPC {Npc} is no longer available; resending options",
                 Logger.Args(serviceOptionIndex, Entity.ActiveGameObject.m_debugName));
+
+            GetOrUpdatePlayerState(playerCharacter, forceUpdate: true);
+            Entity.GetComponentOfType<InteractServiceMementoComponent>()?
+                .ResendServiceOptions(playerActor, playerCharacter, playerObject.m_globalID.Full);
 
             return;
         }
 
-        HandleQuestOffer(playerActor, state.AvailableQuests[(int) serviceOptionIndex], playerCharacter);
+        HandleQuestOffer(playerActor, quest, playerCharacter);
+    }
+
+    /// <summary>
+    /// The quest behind option <paramref name="optionIndex"/> of <paramref name="listedQuests"/>, or null
+    /// when the index is gone or the wizard can no longer accept that quest.
+    /// </summary>
+    internal static QuestTemplate SelectOfferedQuest(IReadOnlyList<QuestTemplate> listedQuests, uint optionIndex, Wizard wizard) {
+        if (optionIndex >= listedQuests.Count) {
+            return null;
+        }
+
+        var quest = listedQuests[(int) optionIndex];
+
+        return IsAvailable(quest, wizard) ? quest : null;
     }
 
     private PlayerQuestOfferState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {

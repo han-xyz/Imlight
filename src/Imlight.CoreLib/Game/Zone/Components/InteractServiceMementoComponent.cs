@@ -168,6 +168,11 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     internal bool IsInInteractionRange(CoreObject playerObject)
         => IsInHorizontalRadius(playerObject, InteractionRadius);
 
+    internal void ResendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId) {
+        SendLeaveServiceRange(playerActor);
+        SendServiceOptions(playerActor, wizard, playerId, reinteract: 2);
+    }
+
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION))]
     private void PlayerInteraction(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION message) {
         var playerActor = message.PlayerActor;
@@ -271,6 +276,10 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
             .Result
             .Wizard;
 
+        SendServiceOptions(playerActor, wizard, playerId, reinteract);
+    }
+
+    private void SendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId, int reinteract) {
         var serviceMemento = BuildServiceMemento(wizard, playerId);
 
         // If we have no service options, do not send anything.

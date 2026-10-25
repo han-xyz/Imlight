@@ -133,6 +133,24 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
+    public void QuestOffer_QuestTakenAfterOptionBuild_NotOffered() {
+        var alpha = new QuestTemplate { m_questName = "Alpha" };
+        var beta = new QuestTemplate { m_questName = "Beta" };
+        var offer = new InteractQuestOfferComponent(null!);
+        var table = new ServiceOptionTable();
+        var wizard = NewWizard();
+        var listed = InteractQuestOfferComponent.FindAvailableQuests([alpha, beta], wizard);
+        table.Build(FirstPlayer, [(offer, [.. listed.Select(offer.ToOfferOption)])]);
+
+        wizard.QuestBehavior.CurrentQuestInstances.Add(new QuestInstance { QuestName = "Alpha" });
+
+        Assert.True(table.TryRoute(FirstPlayer, 0, out _, out var takenIndex));
+        Assert.Null(InteractQuestOfferComponent.SelectOfferedQuest(listed, takenIndex, wizard));
+        Assert.True(table.TryRoute(FirstPlayer, 1, out _, out var openIndex));
+        Assert.Same(beta, InteractQuestOfferComponent.SelectOfferedQuest(listed, openIndex, wizard));
+    }
+
+    [Fact]
     public void QuestUnderway_TwoHeldQuests_TwoOptionsRouteToEachQuest() {
         var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };
         var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
