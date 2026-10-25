@@ -103,7 +103,7 @@ Imlight may fail to build with errors about missing types or messages. If you ar
 
 ### 4. Run Imlight
 
-Imlight reads `Config/Imlight.ini` relative to its working directory, so start it from the Director project folder (needs generator inputs):
+Imlight reads `Config/Imlight.ini` from the folder that holds its binary. The build copies `src/Imlight.Director/Config/Imlight.ini` there, so edit that file and rebuild. Other relative paths in the ini resolve from the working directory, so start Imlight from the Director project folder (needs generator inputs):
 
 ```bash
 cd src/Imlight.Director
