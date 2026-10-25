@@ -19,6 +19,7 @@
 using System.Collections.Generic;
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Zone.Core;
 
 namespace Imlight.CoreLib.Game.Results.Contexts;
 
@@ -44,6 +45,8 @@ public class GenericResultContext(ResultList results,
     /// results first wait.
     /// </summary>
     public bool PlayerSpawned { get; set; }
+
+    public ZoneScriptState ScriptState { get; init; }
 
     public IActorRef PlayerRef { get; } = playerRef;
     public CoreObject PlayerObj { get; } = playerObj;
@@ -72,6 +75,12 @@ public class GenericResultContext(ResultList results,
 
     public float GetXpScale()
         => XpScale;
+
+    public string GetSourceName()
+        => TriggerName;
+
+    public ZoneScriptState GetZoneState()
+        => ScriptState;
 
     public bool IsPlayerSpawn()
         => PlayerSpawned;

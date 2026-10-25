@@ -19,6 +19,7 @@
 using System.Collections.Generic;
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Zone.Core;
 
 namespace Imlight.CoreLib.Game.Results;
 
@@ -56,6 +57,18 @@ public interface IResultContext {
     /// </summary>
     /// <returns>Reply-to actor reference or null if no reply needed</returns>
     IActorRef GetReplyTo();
+
+    /// <summary>
+    /// Gets the name of the zone object or trigger whose results these are
+    /// </summary>
+    /// <returns>The source name, or null when the results have no zone source</returns>
+    string GetSourceName() => null;
+
+    /// <summary>
+    /// Gets the state of the zone the results run in
+    /// </summary>
+    /// <returns>The zone's script state, or null when none was given</returns>
+    ZoneScriptState GetZoneState() => null;
 
     /// <summary>
     /// Gets the multiplier for the experience of drop tables among the results

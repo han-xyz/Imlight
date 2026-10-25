@@ -31,7 +31,7 @@
  * 
  * Created by: Phill
  * Version: KALI 1.0
- * Last Updated: 10/09/2025
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -55,9 +55,11 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 internal sealed class WoodenChestComponent(ZoneEntity entity) : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory, IWithTimers {
 
     private const int ANIMATION_TIME = 1;
+    private const int MinGold = 10;
+    private const int MaxGold = 100;
 
     private static readonly uint[] s_treasureChestTemplateIDs = [1233729, 77825, 77884, 77826, 77827, 1562742, 77823, 470099];
-    private static readonly uint s_openSoundTemplateID = 1374674914;
+    internal const uint OpenSoundTemplateId = 1374674914;
     private readonly TimeSpan _chestOpenAnimationTimeSpan = TimeSpan.FromSeconds(ANIMATION_TIME);
 
     public string ServiceName => "Interact";
@@ -77,6 +79,8 @@ internal sealed class WoodenChestComponent(ZoneEntity entity) : ZoneEntityCompon
         template is GameObjectTemplate goTemplate
         && s_treasureChestTemplateIDs.Contains(goTemplate.m_templateID);
 
+    internal static int RollGold() => Random.Shared.Next(MinGold, MaxGold + 1);
+
     public IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard _)
         => [
             new ServiceOptionBase() {
@@ -95,7 +99,7 @@ internal sealed class WoodenChestComponent(ZoneEntity entity) : ZoneEntityCompon
 
         _hasInteracted = true;
 
-        var goldAmount = Random.Shared.Next(10, 101);
+        var goldAmount = RollGold();
 
         SendLoot(playerActor, goldAmount);
         UpdateGold(playerActor, playerCharacter, goldAmount);
@@ -171,7 +175,7 @@ internal sealed class WoodenChestComponent(ZoneEntity entity) : ZoneEntityCompon
     }
 
     private static void PlaySound(IActorRef playerActor) {
-        var soundId = new GID(s_openSoundTemplateID);
+        var soundId = new GID(OpenSoundTemplateId);
         var playSound = new GAME_5_PROTOCOL.MSG_PLAYSOUND {
             SoundID = soundId,
             ReinteractTime = 0,

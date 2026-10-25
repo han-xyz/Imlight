@@ -16,9 +16,12 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Akka.Actor;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Zone.Components;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.Types;
@@ -27,28 +30,35 @@ namespace Imlight.CoreLib.Game.Results.Handlers;
 
 internal sealed class ResPlaySoundHandler : BaseResultHandler<ResPlaySound> {
 
-    private string _soundName;
-    private uint _templateId;
+    // The named sound templates (e.g. ObjectData/ChestOpenSound.xml) use a class Imcodec cannot deserialize.
+    private static readonly Dictionary<string, uint> s_soundTemplateIdsByName = new() {
+        ["Wood Chest Opened"] = WoodenChestComponent.OpenSoundTemplateId,
+    };
+    private static readonly ConcurrentDictionary<string, byte> s_unresolvedSoundNames = new();
 
     public override bool Execute(IResultContext context) {
-        if (_soundName == null) {
-            _soundName = Result.m_soundName;
-            if (!CoreObjectFactory.TryGetCoreTemplateID(x => x.m_filename.ToString().Contains(_soundName), out _templateId)) {
-                Logger.Error("Sound {0} tried to gather data, but a template ID was not found.",
-                    Logger.Args(_soundName));
-                    
-                return false;
+        string soundName = Result.m_soundName;
+        if (string.IsNullOrEmpty(soundName) || s_unresolvedSoundNames.ContainsKey(soundName)) {
+            return true;
+        }
+
+        if (!TryResolveTemplateId(soundName, out var templateId)) {
+            if (s_unresolvedSoundNames.TryAdd(soundName, 0)) {
+                Logger.Warning("Sound {SoundName} has no known template ID; it will not play.",
+                    Logger.Args(soundName));
             }
+
+            return true;
         }
 
-        if (_templateId == 0) {
-            return false;
-        }
-
-        var msg = new GAME_5_PROTOCOL.MSG_PLAYSOUND { SoundID = new GID(_templateId) };
+        var msg = new GAME_5_PROTOCOL.MSG_PLAYSOUND { SoundID = new GID(templateId) };
         context.GetPlayerRef().Tell(msg);
 
         return true;
     }
+
+    private static bool TryResolveTemplateId(string soundName, out uint templateId)
+        => s_soundTemplateIdsByName.TryGetValue(soundName, out templateId)
+           || CoreObjectFactory.TryGetCoreTemplateID(x => x.m_filename.ToString().Contains(soundName), out templateId);
 
 }

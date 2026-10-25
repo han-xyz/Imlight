@@ -81,6 +81,7 @@ public static class ResultDispatcher {
         var context = new GenericResultContext(filteredResults, playerRef, playerObj, replyTo, zoneActor, questName, goalName, triggerName) {
             XpScale = xpScale,
             PlayerSpawned = playerSpawned,
+            ScriptState = scriptState,
         };
         var executor = CreateExecutorInstance(actorContext, context);
 

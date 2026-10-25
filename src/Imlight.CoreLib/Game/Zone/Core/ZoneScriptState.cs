@@ -32,6 +32,7 @@ public sealed class ZoneScriptState {
     private readonly ConcurrentDictionary<string, int> _triggerFires = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _objectStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _changedObjects = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<(string SourceName, ulong CharacterId), byte> _lootClaims = new();
     private readonly InstanceQuestProgress _quests;
     private readonly Lock _lock = new();
 
@@ -176,6 +177,12 @@ public sealed class ZoneScriptState {
     /// </summary>
     public ZONE_102_PROTOCOL.MSG_QUERYINSTANCEQUESTSRSP SnapshotQuestProgress()
         => _quests.Snapshot();
+
+    /// <summary>
+    /// Records that a character took the loot of a zone object or trigger. Returns false when it already had.
+    /// </summary>
+    public bool TryClaimLoot(string sourceName, ulong characterId)
+        => _lootClaims.TryAdd((sourceName, characterId), 0);
 
     /// <summary>
     /// Records the state an object enters. Returns false when it was already in that state.
