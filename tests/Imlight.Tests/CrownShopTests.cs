@@ -39,6 +39,7 @@ using System;
 using System.IO;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Services;
 using Xunit;
@@ -80,6 +81,20 @@ public sealed class CrownShopTests : IDisposable {
         Assert.True(catalogue.TryGetItem(1217734, out var item));
         Assert.Equal(3500, item.m_crownsCost);
         Assert.Equal(35000, item.m_goldCost);
+    }
+
+    [Fact]
+    public void SoldEmotes_SkipsItemWhoseTemplateThrows() {
+        InitializeQuietLogging();
+        WriteTab("Tab0.json", 36, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10 }, { "templateId": {{CrownsOnlyItemId}}, "crownsCost": 250 }]""");
+        var catalogue = CrownShopCatalogue.Load(_directory);
+        var emote = new CustomEmoteBehaviorTemplate { m_emoteType = CustomEmoteType.CE_Emote };
+
+        var emotes = CrownShopHandler.SoldEmotes.From(catalogue, id => id == GoldItemId
+            ? throw new InvalidCastException()
+            : new CoreTemplate { m_behaviors = [emote] });
+
+        Assert.Equal([CrownsOnlyItemId], emotes.ByTemplateId.Keys);
     }
 
     [Fact]
@@ -270,6 +285,17 @@ public sealed class CrownShopTests : IDisposable {
             if (s_spiralDbClone is null || !Directory.Exists(s_spiralDbClone)) {
                 Skip = "set SPIRALDB_CLONE to a spiraldb clone to run this test";
             }
+        }
+    }
+
+    private static void InitializeQuietLogging() {
+        var iniFilePath = Path.GetTempFileName();
+        var logPath = Path.Combine(Path.GetTempPath(), "imlight-tests", "log.txt");
+        try {
+            File.WriteAllText(iniFilePath, $"[Logging]\nLogPath = {logPath}\nLogLevel = ERROR\n");
+            ConfigurationManager.Initialize(iniFilePath);
+        } finally {
+            File.Delete(iniFilePath);
         }
     }
 
