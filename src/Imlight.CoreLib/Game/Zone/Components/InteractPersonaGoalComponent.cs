@@ -33,14 +33,13 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
-using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.WizBang;
@@ -59,6 +58,19 @@ internal class PlayerPersonaGoalState {
     public ulong ActiveQuestId { get; set; }
     public ulong ActiveGoalId { get; set; }
     public DateTime LastUpdated { get; set; }
+
+}
+
+internal static class PersonaName {
+
+    private const string PersonaSuffix = "_Persona";
+
+    public static string Normalize(string name) {
+        // Quest data names a persona either by the NPC's object name or by that name plus "_Persona".
+        return name is not null && name.EndsWith(PersonaSuffix, StringComparison.Ordinal)
+            ? name[..^PersonaSuffix.Length]
+            : name;
+    }
 
 }
 
@@ -101,14 +113,14 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return false;
         }
 
-        var npcName = goTemplate.m_objectName;
+        var npcName = PersonaName.Normalize(goTemplate.m_objectName);
 
         // Check if this NPC is referenced as a persona goal target in any quest.
         return QuestTemplateCollection
             .GetAllQuests()
             .Where(x => x is not null)
             .SelectMany(quest => quest.m_goals.OfType<PersonaGoalTemplate>())
-            .Any(goal => goal.m_personaName == npcName);
+            .Any(goal => PersonaName.Normalize(goal.m_personaName) == npcName);
     }
 
     /// <summary>
@@ -161,7 +173,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
     public override void OnStart() {
         if (Entity.Template is GameObjectTemplate goTemplate) {
-            _npcName = goTemplate.m_objectName;
+            _npcName = PersonaName.Normalize(goTemplate.m_objectName);
         }
 
         // Cache all persona goals that reference this NPC.
@@ -172,7 +184,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
         foreach (var questTemplate in questTemplates) {
             foreach (var goal in questTemplate.m_goals.OfType<PersonaGoalTemplate>()) {
-                if (goal.m_personaName != _npcName) {
+                if (PersonaName.Normalize(goal.m_personaName) != _npcName) {
                     continue;
                 }
 
@@ -380,10 +392,6 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_STARTSEAMLESSTRANSITION))]
     private void HandleStartSeamlessTransition(ZONE_102_PROTOCOL.MSG_STARTSEAMLESSTRANSITION message) {
-        var playerActor = message.PlayerActor;
-        var playerCharacter = message.PlayerCharacter;
-        var playerObject = message.PlayerObject;
-
         var serviceMementoComponent = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         if (serviceMementoComponent == null) {
             Logger.Warning("Cannot trigger service re-evaluation: NPC {0} does not have InteractServiceMementoComponent",
@@ -392,23 +400,14 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return;
         }
 
-        var reinteractMsg = new QUEST_MESSAGES_52_PROTOCOL.MSG_INTERACTNPC {
-            GlobalID = Entity.ActiveGameObject.m_nMobileID,
-            ServiceName = "",
-            Reinteract = 2,
-            ServiceIndex = 0,
-            RequestedSigilMode = 0
-        };
-        playerActor.Tell(reinteractMsg);
-
         var delayedQuestOfferMsg = new ZONE_102_PROTOCOL.MSG_TRIGGERSEAMLESSTRANSITION {
-            PlayerActor = playerActor,
-            PlayerCharacter = playerCharacter,
-            PlayerObject = playerObject
+            PlayerActor = message.PlayerActor,
+            PlayerCharacter = message.PlayerCharacter,
+            PlayerObject = message.PlayerObject
         };
 
         Timers.StartSingleTimer(
-            "delayed_quest_offer",
+            $"delayed_quest_offer_{message.PlayerObject?.m_globalID.Full}",
             delayedQuestOfferMsg,
             TimeSpan.FromMilliseconds(QUEST_COMPLETION_TRANSITION_DELAY_MS));
     }
@@ -418,6 +417,13 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         var serviceMementoComponent = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         if (serviceMementoComponent == null) {
             Logger.Warning("No service memento component found for delayed quest offer");
+
+            return;
+        }
+
+        if (message.PlayerObject is null || !serviceMementoComponent.IsInInteractionRange(message.PlayerObject)) {
+            Logger.Debug("Dropping delayed quest offer of NPC {Npc}: player left interaction range",
+                Logger.Args(Entity.ActiveGameObject.m_debugName));
 
             return;
         }
