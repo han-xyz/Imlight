@@ -277,7 +277,6 @@ public static class AccountCollection {
     /// <summary>
     /// Gets the username and password hash of every Administrator account.
     /// </summary>
-    /// <returns></returns>
     public static List<AdminAccountCredential> GetAdministratorCredentials() {
         using var session = s_store.OpenSession();
 

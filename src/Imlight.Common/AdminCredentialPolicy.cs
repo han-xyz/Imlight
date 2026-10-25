@@ -44,8 +44,10 @@ namespace Imlight.Common;
 
 public static class AdminCredentialPolicy {
 
-    // "compsci" is the ini default before L2; the rest were hard-coded for Administrator accounts in
-    // src/Director before 106c24fd ("ref: remove embedded accounts") and are public in git history.
+    /// <summary>
+    /// Passwords boot rejects for the admin account: the old ini default "compsci", and the passwords hard-coded
+    /// for Administrator accounts in src/Director before commit 106c24fd, which are public in git history.
+    /// </summary>
     public static IReadOnlyList<string> KnownDefaultPasswords { get; } = [
         "compsci", "debug", "dev9999", "2034", "9090", "2342", "2109", "joji1", "jefffakename",
         "jootysocoollike", "Niduus", "gay", "is that guy even a dev?", "isthatguyevenadev?",
@@ -66,7 +68,7 @@ public static class AdminCredentialPolicy {
 
         if (KnownDefaultPasswords.Contains(password, StringComparer.OrdinalIgnoreCase)) {
             return AdminCredentialVerdict.Rejected(
-                "Admin account password is the shipped default; change Database.AdminAccountPassword in Imlight.ini "
+                "Admin account password is a known default password; change Database.AdminAccountPassword in Imlight.ini "
                 + "or set the IMLIGHT__Database__AdminAccountPassword environment variable.");
         }
 

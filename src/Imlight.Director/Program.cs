@@ -289,13 +289,13 @@ internal static class Program {
 
         var resetFailedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.ResetToConfigured);
         if (resetFailedUsernames.Length > 0) {
-            Logger.Fatal("Admin account {Username} still uses a known default password because the reset failed; check the player database. Boot refused.",
+            Logger.Fatal("Admin account(s) {Usernames} still use a known default password because the reset failed; check the player database. Boot refused.",
                 Logger.Args(resetFailedUsernames));
         }
 
         var refusedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.RefuseStart);
         if (refusedUsernames.Length > 0) {
-            Logger.Fatal("Administrator account(s) {Usernames} still use the shipped default password. Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; (2) delete it from the player database. Boot refused.",
+            Logger.Fatal("Administrator account(s) {Usernames} still use a known default password. Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; (2) delete it from the player database. Boot refused.",
                 Logger.Args(refusedUsernames));
         }
 
