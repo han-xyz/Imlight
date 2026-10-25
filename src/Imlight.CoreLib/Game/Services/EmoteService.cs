@@ -72,15 +72,28 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
         _lastEmoteAnimation = message.EmoteAnimationName;
 
         var wizard = GetActiveWizard();
+        var emoteText = EmoteTextForBroadcast(message.EmoteText, GetActiveAccount().InfractionHistory.IsCurrentlyMuted);
         var broadcastMsg = new WIZARD3_56_PROTOCOL.MSG_PIIRADIALMENUPLAYEMOTE {
             SourceID = wizard.GameObjectID,
             EmoteAnimationName = message.EmoteAnimationName,
-            EmoteText = message.EmoteText
+            EmoteText = emoteText
         };
 
-        ZoneBroadcast(broadcastMsg);
+        if (emoteText.Length == 0) {
+            ZoneBroadcast(broadcastMsg);
+        }
+        else {
+            // The text is chat, so it takes the chat path: logged, and hidden from players who blocked the sender.
+            LogChatMessage(wizard.PlayerNameBehavior.GetWizardName(), emoteText, wizard.Zone);
+            SaveChatLog(emoteText, GetActiveGameObject(), wizard);
+            SendFilteredZoneMessage(broadcastMsg, wizard.CharId, wizard.Zone);
+        }
+
         BroadcastEmoteAnimation(wizard.GameObjectID, message.EmoteAnimationName, true);
     }
+
+    internal static string EmoteTextForBroadcast(string emoteText, bool isMuted)
+        => isMuted || string.IsNullOrEmpty(emoteText) ? string.Empty : CleanChatText(emoteText);
 
     /// <summary>
     /// Handles core radial menu emote requests. If not already broadcast via

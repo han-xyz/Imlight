@@ -44,6 +44,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Imcodec.MessageLayer;
@@ -113,6 +114,47 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
             SendToSocket(new GAME_5_PROTOCOL.MSG_PLAYSOUND {
                 SoundID = new GID(templateId)
             });
+        }
+    }
+
+    // Keeps letters, digits, punctuation and spaces.
+    private const string ChatTextPattern = "[^a-zA-Z0-9\\p{P} ]";
+
+    protected static string CleanChatText(string text)
+        => Regex.Replace(text, ChatTextPattern, "").Trim();
+
+    protected static void LogChatMessage(string name, string message, string zoneName)
+        => Logger.Information("[{0}] {1}: {2}", Logger.Args(zoneName, name, message));
+
+    protected static void SaveChatLog(string message, CoreObject charObj, Wizard character) 
+        => ChatLogCollection.AddChatLog(new ChatLog() {
+            TimeStamp = DateTime.UtcNow,
+            ZoneName = character.Zone,
+            CharacterId = character.CharId,
+            AccountId = character.AccountId,
+            Message = message,
+        });
+
+    /// <summary>
+    /// Sends a zone chat message to all online players in the zone, skipping those
+    /// who have ignored the sender.
+    /// </summary>
+    protected void SendFilteredZoneMessage(IMessage msg, ulong senderCharId, string zoneName) {
+        var blockedBy = BuddyRelationshipCollection.GetCharactersWhoBlocked(senderCharId);
+        var playersInZone = OnlinePlayerCollection.GetPlayersInZone(zoneName);
+
+        foreach (var player in playersInZone) {
+            // Skip the sender (they see their own message client-side).
+            if (player.CharacterId == senderCharId) {
+                continue;
+            }
+
+            // Skip players who have blocked the sender.
+            if (blockedBy.Contains(player.CharacterId)) {
+                continue;
+            }
+
+            Context.ActorSelection(player.ActorPath).Tell(msg);
         }
     }
 
