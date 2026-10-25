@@ -130,6 +130,19 @@ public class SessionKeyStoreTests {
 
 
     [Fact]
+    public void SessionKeyStore_Describe_ReportsPresence() {
+        var store = new SessionKeyStore();
+        Assert.Equal((false, false), store.Describe(UserId));
+
+        _ = store.IssueLoginKey(UserId, s_validity);
+        Assert.Equal((true, false), store.Describe(UserId));
+
+        _ = store.IssueTransferKey(UserId);
+        Assert.Equal((true, true), store.Describe(UserId));
+        Assert.Equal((false, false), store.Describe(UserId + 1));
+    }
+
+    [Fact]
     public void TransferKey_DecimalString_Validates() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);

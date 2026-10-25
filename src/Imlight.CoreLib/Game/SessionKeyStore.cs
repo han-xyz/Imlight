@@ -91,6 +91,12 @@ public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
         }
     }
 
+    public (bool HasLoginKey, bool HasTransferKey) Describe(ulong userId) {
+        lock (_lock) {
+            return (_loginKeys.Get(userId) is not null, _transferKeys.Get(userId) is not null);
+        }
+    }
+
     private static bool Matches(byte[] stored, ReadOnlySpan<byte> key)
         => stored is not null && CryptographicOperations.FixedTimeEquals(stored, key);
 

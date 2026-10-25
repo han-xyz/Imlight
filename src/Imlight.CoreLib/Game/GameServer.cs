@@ -142,7 +142,15 @@ public class GameServer : Server {
     private void ReceiveValidateSessionKey(SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEY message) {
         // A user has requested to join this server. We're going to check if the session key is valid.
         // If it is, we'll return the account associated with it. If not, we'll return an error code.
-        if (!_sessionKeys.Validate(message.UserID, (byte[]) message.Key)) {
+        var key = (byte[]) message.Key;
+        if (!_sessionKeys.Validate(message.UserID, key)) {
+            var (hasLoginKey, hasTransferKey) = _sessionKeys.Describe(message.UserID);
+            Logger.Debug("Attach key rejected for user {UserId}: {Length} bytes, shape {Shape}, ends with NUL {EndsWithNul}, head {Head}, tail {Tail}, store holds login key {HasLoginKey}, transfer key {HasTransferKey}.",
+                Logger.Args(message.UserID, key.Length, ClassifyKeyShape(key), key.Length > 0 && key[^1] == 0,
+                    Convert.ToHexString(key.AsSpan(0, Math.Min(4, key.Length))),
+                    Convert.ToHexString(key.AsSpan(key.Length - Math.Min(4, key.Length))),
+                    hasLoginKey, hasTransferKey));
+
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
             return;
         }
@@ -156,6 +164,19 @@ public class GameServer : Server {
             ErrorCode = account is null ? 1 : 0,
             Account = account
         });
+    }
+
+    private static string ClassifyKeyShape(ReadOnlySpan<byte> key) {
+        if (key.Length > 0 && key.IndexOfAnyExceptInRange((byte) '0', (byte) '9') < 0) {
+            return "digits";
+        }
+
+        var isBase64 = key.Length > 0;
+        foreach (var b in key) {
+            isBase64 &= char.IsAsciiLetterOrDigit((char) b) || b is (byte) '+' or (byte) '/' or (byte) '=';
+        }
+
+        return isBase64 ? "base64" : "other";
     }
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_PLAYERENQUEUED))]

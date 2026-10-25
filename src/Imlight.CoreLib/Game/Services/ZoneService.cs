@@ -38,6 +38,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
@@ -761,6 +762,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackZoneID = new Imcodec.Types.GID((ulong) keyRsp.Port)
         };
         SendToSocket(serverTransfer);
+        Logger.Debug("SERVERTRANSFER key for user {UserId}: {Length} decimal digits -> {Ip}:{Port} {Zone}",
+            Logger.Args(account.AccountId, serverTransfer.Key.ToString(CultureInfo.InvariantCulture).Length, keyRsp.IP, keyRsp.Port, wizard.Zone));
     }
 
     [MessageHandler(typeof(GAME2_55_PROTOCOL.MSG_CURRENTREALM))]
@@ -880,6 +883,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackZoneID = _currentDynamicZoneId
         };
         SendToSocket(serverTransfer);
+        Logger.Debug("SERVERTRANSFER key for user {UserId}: {Length} decimal digits -> {Ip}:{Port} {Zone}",
+            Logger.Args(account.AccountId, serverTransfer.Key.ToString(CultureInfo.InvariantCulture).Length, character.GameServerIp, character.GameServerPort, character.QueuedZoneName));
         Logger.Information("Session {SessionId} SERVERTRANSFER sent -> {Zone} {Ip}:{Port}",
             Logger.Args(SessionActor.SessionID, character.QueuedZoneName, character.GameServerIp, character.GameServerPort));
 
