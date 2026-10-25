@@ -178,6 +178,21 @@ public sealed class CrownShopTests : IDisposable {
         Assert.Equal(canonical, (byte[]) wishlist.ToByteString());
     }
 
+    [Fact]
+    public void RemovedWishlistItems_ListsWhatTheNewWishlistDropped() {
+        var before = new WishlistData { Items = [1, 2, 3] }.ToByteString();
+        var after = new WishlistData { Items = [2] }.ToByteString();
+
+        Assert.Equal("1,3", CrownShopWishlist.RemovedItems(before, after));
+    }
+
+    [Fact]
+    public void RemovedWishlistItems_NothingStoredYet_IsEmpty() {
+        var after = new WishlistData { Items = [2] }.ToByteString();
+
+        Assert.Equal("", CrownShopWishlist.RemovedItems(default, after));
+    }
+
     private static readonly string TwoItems = $$"""
         [
           { "templateId": {{GoldItemId}}, "goldCost": 500, "crownsCost": 50, "displayPriority": [0] },

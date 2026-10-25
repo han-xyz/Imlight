@@ -811,7 +811,12 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         var wizard = GetActiveWizard();
-        ApplyLocalWishlistUpdate(wizard, wishlistData, message.WLItemsRemAftPur, sendToSelf: false);
+        if (wizard.CrownShopWishlist == wishlistData) {
+            return;
+        }
+
+        var removedItems = CrownShopWishlist.RemovedItems(wizard.CrownShopWishlist, wishlistData);
+        ApplyLocalWishlistUpdate(wizard, wishlistData, removedItems, sendToSelf: false);
 
         Logger.Information("Saved updated crown shop wishlist data for character {Id}",
             Logger.Args(wizard.CharId));
