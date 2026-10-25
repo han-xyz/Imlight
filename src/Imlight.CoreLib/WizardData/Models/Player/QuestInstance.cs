@@ -18,6 +18,7 @@
 
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Shared.Utilities;
+using Imlight.CoreLib.WizardData.Models.World;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
@@ -42,6 +43,12 @@ public class QuestInstance {
     public string QuestName { get; set; } = string.Empty;
 
     public GoalInstance[] GoalProgress { get; set; } = [];
+
+    /// <summary>
+    /// The rewards rolled when the quest was started: shown with the quest and granted on completion.
+    /// Null for an instance started before rewards were stored.
+    /// </summary>
+    public DropTableResult Rewards { get; set; }
 
     [JsonConstructor]
     public QuestInstance() { }
@@ -120,14 +127,18 @@ public class QuestInstance {
     }
 
     public bool IsReadyForTurnIn() {
-        // Check if all goals are completed.
-        var allCompleted = GoalProgress.All(goal => goal.CurrentProgress == int.MaxValue);
+        if (GoalProgress.Length == 0) {
+            return false;
+        }
 
-        // Check if the last goal is a persona goal,
-        var lastIsPersona = GoalProgress.Length > 0 &&
-            GoalProgress[^1].GoalType == GOAL_TYPE.GOAL_TYPE_PERSONA;
-
-        return allCompleted || lastIsPersona;
+        // The turn-in is the quest's last goal, a persona goal; unstarted goals belong to branches not taken.
+        var turnInGoal = GoalProgress[^1];
+        return turnInGoal.GoalType == GOAL_TYPE.GOAL_TYPE_PERSONA
+            && turnInGoal.DoesPlayerHaveGoal()
+            && !turnInGoal.IsGoalCompleted()
+            && GoalProgress
+                .Where(goal => goal.GoalType != GOAL_TYPE.GOAL_TYPE_PERSONA && goal.DoesPlayerHaveGoal())
+                .All(goal => goal.IsGoalCompleted());
     }
 
 }

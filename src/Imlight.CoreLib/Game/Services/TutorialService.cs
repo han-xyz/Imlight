@@ -263,6 +263,10 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
     }
 
     private void RemoveQuestAndClearFromJournal(Wizard wizard, string questName) {
+        if (!wizard.HasQuest(questName)) {
+            return;
+        }
+
         var instance = wizard.QuestBehavior.CurrentQuestInstances.FirstOrDefault(q => q.QuestName == questName);
         var questId = instance?.ID ?? 0;
         wizard.RemoveQuest(questName);
