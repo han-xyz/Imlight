@@ -6,9 +6,9 @@ In the [shared data article](../imlight/concepts/shared-data-systems.md), it's d
 
 *There is no way for the server to know the missing information unless it is manually created.*
 
-Creating a server using Imlight requires filling in these gaps with your own data. Imlight uses a second database, [WorldData](#database-configuration), to store this information. 
+Creating a server using Imlight requires filling in these gaps with your own data. Imlight loads this information from a [data pack](#world-data-spiraldb-data-pack), a git repository of JSON files. 
 
-This separate database and the data it contains is referred to as a "data pack".
+That repository and the data it contains is referred to as a "data pack".
 
 **If you do not recreate this data, you will notice missing functionality in your server:**
 - Where gateways lead (zone transfers)
@@ -26,7 +26,7 @@ This separate database and the data it contains is referred to as a "data pack".
 :::tip
 Revive101 has developed a tool to help manually recreate this data called [Imview](https://github.com/Revive101/Imview). This tool is an over-arching tool to manage Imlight as a whole, but includes a subset of features to help with data creation. It is highly recommended to use this tool to help with data creation.
 
-Imview can connect to your WorldData database. If you are a part of a team, you can share your data pack with other team members by sharing the database.
+If you are part of a team, you share your data pack by sharing its git repository.
 :::
 :::warning
 It is impossible to know precisely how the original servers handled server-side data. Imlight must make informed assumptions about the original server behavior. Consequently, certain data or the way it is processed may differ from the original implementation and may not be entirely accurate.
@@ -41,12 +41,14 @@ It's been observed that in some game revisions, NPC spell decks are shipped with
 ## Prerequisites
 
 **Development Environment**
-- **.NET 9.0 SDK** - Required for building Imlight and Imcodec
+- **.NET 10 SDK** - Required for building Imlight and Imcodec
 - **Git** - For cloning repositories and managing submodules
 
 **External Tools**
 - **[WizType](https://github.com/wizspoil/wiztype)** - Extract type definitions from game client
 - **[Aurorium](https://github.com/Revive101/Aurorium)** - Self-hosted patch server
+
+Node.js is only needed to build this documentation site (`cd docs && npm ci && npm run docs:build`).
 
 ## Core Setup
 
@@ -69,7 +71,7 @@ Imcodec requires game data files to generate strongly-typed C# classes at compil
 1. Use [WizType](https://github.com/wizspoil/wiztype) to extract type definitions from your game client
 2. Save the generated JSON file to:
    ```
-   /submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/
+   submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/
    ```
 
 **Message Definitions**
@@ -80,69 +82,91 @@ Imcodec requires game data files to generate strongly-typed C# classes at compil
 2. Locate XML files matching `*Messages*.xml` pattern
 3. Copy all message XML files to:
    ```
-   /submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/
+   submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/
    ```
 
 ### 3. Build Imlight
 
+There is no solution file at the repository root; build from `src/`. (needs generator inputs)
+
 ```bash
-# From Imlight root directory
-dotnet build
+dotnet build src/Imlight.sln
 
 # Or for release build
-dotnet publish -c Release
+dotnet publish src/Imlight.Director/Imlight.Director.csproj -c Release
 ```
 
 :::tip
-Imlight may fail to build with errors about missing types or messages. If you certain you've put the correct files in the GeneratorInput directories, build the Imcodec project first to ensure the source generation completes successfully.
+Imlight may fail to build with errors about missing types or messages. If you are certain you've put the correct files in the GeneratorInput directories, build the Imcodec project first to ensure the source generation completes successfully.
 :::
 
-## Database Configuration
+### 4. Run Imlight
 
-Imlight uses **RavenDB** with two separate databases for different data types. There are two different modes of operation: remote database connections or an embedded fallback database. The embedded database will be used if you do not supply remote database URL.
+Imlight reads `Config/Imlight.ini` relative to its working directory, so start it from the Director project folder (needs generator inputs):
 
-### Database Types
+```bash
+cd src/Imlight.Director
+dotnet run
+```
 
-**PlayerDatabase**
-- **Purpose**: User accounts and character data
-- **Access**: Production deployment only (highly sensitive)
+## Configuration
 
-**WorldDatabase**  
-- **Purpose**: Server-specific world data and gap-fill information
-- **Access**: Development teams should have access for data creation
+Edit `src/Imlight.Director/Config/Imlight.ini`.
 
-### Configuration
+### Configuration overrides
 
-Edit `/src/Imlight.Director/Config/Imlight.ini`:
+Any key can be overridden with an environment variable named `IMLIGHT__<Section>__<Key>`. The variable wins over the ini file. Write each space in the section name as `_`:
+
+```bash
+# sets GameServerIP in [Game Server]
+IMLIGHT__Game_Server__GameServerIP=10.0.0.5
+```
+
+A variable that starts with `IMLIGHT__` but does not have a section and a key is logged as a warning and ignored.
+
+### Admin account
+
+The server refuses to start when `AdminAccountPassword` in `[Database]` is empty or `compsci`. Set it in the ini or with `IMLIGHT__Database__AdminAccountPassword`. `AdminAccountUsername` defaults to `admin`.
+
+The admin account is created on first boot only. Changing the credentials later does not change an existing account.
+
+### Player database
+
+Player accounts and characters live in **RavenDB**. With `PlayerDatabaseUrl` empty, Imlight starts an embedded RavenDB.
 
 ```ini
 [Database]
-# Leave empty for embedded database
-PlayerDatabaseUrl = 
+# Leave empty for the embedded database
+PlayerDatabaseUrl =
 PlayerDatabaseName = Playerdata
-
-# Production WorldData URL or empty for embedded
-WorldDatabaseUrl = https://your-worlddata-server.com
-WorldDatabaseName = WorldData
-
-# Certificate paths (required for remote databases)
-PlayerDatabaseCertificatePath = ../Certificates/playerdb.pfx
-WorldDatabaseCertificatePath = ../Certificates/worlddb.pfx
+# Required for a remote database; resolved from the working directory
+PlayerDatabaseCertificatePath = ../playerdb-dev-1yr.pfx
 
 # Embedded database settings
 EmbeddedDatabaseDataDirectory = ../ImlightEmbeddedDatabase/
 EmbeddedDatabasePort = 8080
-EmbeddedDatabaseUseFull = False
 ```
 
-### Certificate Setup
+For a remote database, set the URL and place the certificate at `PlayerDatabaseCertificatePath`.
 
-For remote database connections, place certificates in:
+### World data (SpiralDB data pack)
+
+Imlight fetches the data pack from a git repository (the SpiralDB format) into a local clone:
+
+```ini
+[Database]
+# Your fork of the data pack
+SpiralDBRemoteUrl = https://github.com/Revive101/spiraldb.git
+SpiralDBBranch = main
+# Local clone location, relative to the working directory
+SpiralDBLocalPath = ./spiraldb-cache
+# Fetch the latest commit on boot
+SpiralDBAutoFetch = true
+# Use the local clone only and never contact the remote
+SpiralDBDisableRemote = false
 ```
-./Imlight/Certificates/
-├── playerdb.pfx
-└── worlddb.pfx
-```
+
+Workflow: fork the SpiralDB repository, edit the data with [Imview](https://github.com/Revive101/Imview), commit and push to your fork, and Imlight fetches it on the next boot. Point `SpiralDBRemoteUrl` at your fork.
 
 ## Patch Server Setup
 
@@ -156,3 +180,24 @@ Imlight and the game client must source files from the same location.
    [Patch Server]
    PatchServerInternalUrl = http://your-patch-server.com
    ```
+3. Set `GameRevision` in `[Global Settings]` to the revision Aurorium mirrored. Aurorium reports it at its `/latest` endpoint.
+
+## Docker
+
+The image is built from the repository root, with your generator inputs in `deploy/generator-input/` (see its README for how to produce them; the folder is gitignored):
+
+```bash
+docker build -f deploy/Dockerfile -t imlight .
+```
+
+The build stops with a message when the folder has no `*.json` or no `*Messages*.xml`. A successful build needs generator inputs.
+
+| Item | Value |
+| --- | --- |
+| Ports | `12000` login, `12333` game (one per realm), `12500` patch |
+| Volumes | `/data/db`, `/data/spiraldb`, `/data/logs`, `/data/cache` |
+| Admin password | Not in the image; pass `IMLIGHT__Database__AdminAccountPassword` |
+
+The image sets `IMLIGHT__*` defaults for the data paths, `Patch_Server__PatchServerInternalUrl` (`http://aurorium:12369`), one realm (`Centaur`), `GameRevision`, and `LogLevel`. Override any of them with `-e`. Do not publish the embedded RavenDB port (`8080`) or the Akka remote port (`12999`).
+
+The full stack (Imlight, Aurorium and their volumes) is defined in the [revive101-server](https://github.com/han-xyz/revive101-server) compose repository.

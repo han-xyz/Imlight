@@ -20,7 +20,7 @@ Imlight is a framework for building a private server. Do not expect a full game 
 
 The game client does not ship with all of the data required to run a true server, and thus some of it must be recollected manually. You can find the data we've managed to collect in the [spiraldb](https://github.com/Revive101/spiraldb) repository.
 
-If you care to contribute to the data recollection effort, you may use [Imview](#imview). Imview is Imlight's one-stop tool for managing Imlight, as well as data recollection.
+If you care to contribute to the data recollection effort, you may use [Imview](https://github.com/Revive101/Imview). Imview is Imlight's one-stop tool for managing Imlight, as well as data recollection.
 
 ### What you can expect
 - [x] Character management
@@ -89,14 +89,14 @@ Imcodec relies on compile-time source generation to produce C# classes from game
     ```
     /submodule/Imcodec/src/Imcodec.ObjectProperty/GeneratorInput/
     ```
-2. Unpack the root archive using Imcodec itself (via `imcodec wad unpack`). Inside, locate the message definition files which can be matched with a wildcard of `*Messages*.xml`. Place these files in:
+2. Unpack the root archive using Imcodec itself (`dotnet run --project submodule/Imcodec/src/Imcodec.Cli wad unpack Root.wad`). Inside, locate the message definition files which can be matched with a wildcard of `*Messages*.xml`. Place these files in:
    ```
    /submodule/Imcodec/src/Imcodec.MessageLayer/GeneratorInput/
    ```
 
 ## Information
 * The Kronos teams' [Grimoire](https://kronos-project.github.io/grimoire/foreword.html).
-* Our [Documentation](https://revive101.github.io/Imlight-docs/) book.
+* Our [Documentation](https://revive101.github.io/Imlight/) book.
 
 ## Contributing
 Contributions are welcome from anyone.
