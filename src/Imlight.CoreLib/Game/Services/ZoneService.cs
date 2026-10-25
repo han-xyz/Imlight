@@ -717,27 +717,26 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         // Ask the LoginServer to issue a transfer ticket on the target realm's game server, then redirect the client.
         bool isSent;
         try {
-            isSent = SendServerTransfer(account.AccountId, message.RealmName, wizard.Zone, ticket => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
-                IP = ticket.IP,
-                TCPPort = ticket.Port,
-                UDPPort = ticket.Port,
+            isSent = SendServerTransfer(account.AccountId, message.RealmName, wizard.Zone, wizard.Zone, realm => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
+                IP = realm.IP,
+                TCPPort = realm.Port,
+                UDPPort = realm.Port,
                 CharID = wizard.CharId,
-                ZoneID = new Imcodec.Types.GID((ulong) ticket.Port),
+                ZoneID = new Imcodec.Types.GID((ulong) realm.Port),
                 Location = Util.GetCompactStringFromVector(wizard.Location, wizard.Orientation),
                 Slot = 0,
                 SessionSlot = 0,
                 SessionID = 0,
                 TargetPlayerID = wizard.CharId,
                 TransitionID = 1,
-                FallbackIP = ticket.IP,
-                FallbackTCPPort = ticket.Port,
-                FallbackUDPPort = ticket.Port,
-                FallbackZone = wizard.Zone,
-                FallbackZoneID = new Imcodec.Types.GID((ulong) ticket.Port)
+                FallbackIP = realm.IP,
+                FallbackTCPPort = realm.Port,
+                FallbackUDPPort = realm.Port,
+                FallbackZoneID = new Imcodec.Types.GID((ulong) realm.Port)
             });
         }
         catch {
-            Logger.Error("Failed to issue a transfer ticket for realm transfer to {Realm}.",
+            Logger.Error("Realm transfer to {Realm} failed.",
                 Logger.Args(message.RealmName));
 
             return;
@@ -847,7 +846,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         WizardCollection.UpdateCharacterLocation(character, character.Location, character.Orientation.Z);
 
         var realmName = AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
-        var isSent = SendServerTransfer(account.AccountId, realmName, character.QueuedZoneName, _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER() {
+        var isSent = SendServerTransfer(account.AccountId, realmName, character.QueuedZoneName, character.Zone, _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER() {
             IP = character.GameServerIp,
             TCPPort = character.GameServerPort,
             UDPPort = character.GameServerPort,
@@ -861,7 +860,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             FallbackIP = character.GameServerIp,
             FallbackTCPPort = character.GameServerPort,
             FallbackUDPPort = character.GameServerPort,
-            FallbackZone = character.Zone,
             FallbackZoneID = _currentDynamicZoneId
         });
         if (!isSent) {

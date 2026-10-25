@@ -48,6 +48,7 @@ public class SessionKeyStoreTests {
     private const ulong UserId = 42;
     private const string RemoteIp = "192.168.10.121";
     private const string ZoneName = "WizardCity/Interiors/WC_Headmistress_House";
+    private const string FallbackZoneName = "WizardCity/WC_Streets/WC_Unicorn";
     private static readonly TimeSpan s_validity = TimeSpan.FromHours(8);
 
     [Fact]
@@ -139,7 +140,7 @@ public class SessionKeyStoreTests {
         _ = store.IssueLoginKey(UserId, s_validity);
         Assert.Equal((true, false), store.Describe(UserId));
 
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
         Assert.Equal((true, true), store.Describe(UserId));
         Assert.Equal((false, false), store.Describe(UserId + 1));
     }
@@ -148,7 +149,7 @@ public class SessionKeyStoreTests {
     public void LoginKey_StillValid_AfterTransferTicketIssued() {
         var store = new SessionKeyStore();
         var loginKey = store.IssueLoginKey(UserId, s_validity);
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Assert.True(store.Validate(UserId, loginKey));
     }
@@ -157,7 +158,7 @@ public class SessionKeyStoreTests {
     public void NewLoginKey_ClearsTransferTicket() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
         _ = store.IssueLoginKey(UserId, s_validity);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
@@ -175,7 +176,7 @@ public class SessionKeyStoreTests {
     public void Ticket_EmptyKey_SameIp_SameZone_AcceptsOnce() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
         Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
@@ -184,7 +185,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Ticket_EmptyKey_OtherIp_Refused() {
         var store = new SessionKeyStore();
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.OtherAddress, store.Validate(UserId, [], "10.0.0.9", ZoneName));
         Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
@@ -193,7 +194,7 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Ticket_EmptyKey_OtherZone_Refused() {
         var store = new SessionKeyStore();
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.OtherZone, store.Validate(UserId, [], RemoteIp, "WizardCity/WC_Hub"));
     }
@@ -202,7 +203,7 @@ public class SessionKeyStoreTests {
     public void Ticket_NonEmptyWrongKey_Refused() {
         var store = new SessionKeyStore();
         _ = store.IssueLoginKey(UserId, s_validity);
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.WrongKey, store.Validate(UserId, DecimalBytes(12345), RemoteIp, ZoneName));
     }
@@ -210,11 +211,31 @@ public class SessionKeyStoreTests {
     [Fact]
     public void Ticket_Expired_Refused() {
         var store = new SessionKeyStore(TimeSpan.FromMilliseconds(5));
-        store.IssueTransferTicket(UserId, RemoteIp, ZoneName);
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
 
         Thread.Sleep(50);
 
         Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
+    }
+
+    [Fact]
+    public void Ticket_EmptyKey_FallbackZone_AcceptsOnce() {
+        var store = new SessionKeyStore();
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket, store.Validate(UserId, [], RemoteIp, FallbackZoneName));
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, FallbackZoneName));
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, ZoneName));
+    }
+
+    [Fact]
+    public void Ticket_EmptyKey_FallbackZone_Expired_Refused() {
+        var store = new SessionKeyStore(TimeSpan.FromMilliseconds(5));
+        store.IssueTransferTicket(UserId, RemoteIp, ZoneName, FallbackZoneName);
+
+        Thread.Sleep(50);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.NoTicket, store.Validate(UserId, [], RemoteIp, FallbackZoneName));
     }
 
     private static byte[] DecimalBytes(int value)

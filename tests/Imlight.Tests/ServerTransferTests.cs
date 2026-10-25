@@ -48,31 +48,50 @@ public class ServerTransferTests {
     private const string RealmName = "Imlight";
     private const string RemoteIp = "192.168.10.121";
     private const string ZoneName = "WizardCity/Interiors/WC_Headmistress_House";
+    private const string FallbackZoneName = "WizardCity/WC_Streets/WC_Unicorn";
 
     [Fact]
     public void Send_IssuesTicketForTheZoneItSends() {
         var store = new SessionKeyStore();
         GAME_5_PROTOCOL.MSG_SERVERTRANSFER sent = null;
 
-        var isSent = ServerTransfer.Send(UserId, RealmName, RemoteIp, ZoneName,
+        var isSent = ServerTransfer.Send(UserId, RealmName, RemoteIp, ZoneName, FallbackZoneName,
             request => {
-                store.IssueTransferTicket(request.UserId, request.RemoteIp, request.ZoneName);
+                store.IssueTransferTicket(request.UserId, request.RemoteIp, request.ZoneName, request.FallbackZoneName);
                 return new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP { Success = true };
             },
-            _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER { ZoneName = "WizardCity/WC_Hub" },
+            _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER { ZoneName = "WizardCity/WC_Hub", FallbackZone = "WizardCity/WC_Hub" },
             transfer => sent = transfer);
 
         Assert.True(isSent);
         Assert.Equal(UserId, sent.UserID);
+        Assert.Equal(FallbackZoneName, (string) sent.FallbackZone);
         Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket,
             store.Validate(sent.UserID, [], RemoteIp, (string) sent.ZoneName));
+    }
+
+    [Fact]
+    public void Send_IssuesTicketForTheFallbackZoneItSends() {
+        var store = new SessionKeyStore();
+        GAME_5_PROTOCOL.MSG_SERVERTRANSFER sent = null;
+
+        _ = ServerTransfer.Send(UserId, RealmName, RemoteIp, ZoneName, FallbackZoneName,
+            request => {
+                store.IssueTransferTicket(request.UserId, request.RemoteIp, request.ZoneName, request.FallbackZoneName);
+                return new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP { Success = true };
+            },
+            _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER(),
+            transfer => sent = transfer);
+
+        Assert.Equal(SessionKeyStore.AttachVerdict.TransferTicket,
+            store.Validate(sent.UserID, [], RemoteIp, (string) sent.FallbackZone));
     }
 
     [Fact]
     public void Send_TicketRefused_SendsNothing() {
         GAME_5_PROTOCOL.MSG_SERVERTRANSFER sent = null;
 
-        var isSent = ServerTransfer.Send(UserId, RealmName, RemoteIp, ZoneName,
+        var isSent = ServerTransfer.Send(UserId, RealmName, RemoteIp, ZoneName, FallbackZoneName,
             _ => new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP { Success = false },
             _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER(),
             transfer => sent = transfer);

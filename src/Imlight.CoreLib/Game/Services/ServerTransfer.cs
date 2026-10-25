@@ -21,13 +21,14 @@
  * 
  * PURPOSE:
  * Sends MSG_SERVERTRANSFER only after the target realm has issued a transfer ticket for the
- * same user, source address and zone, so the client's empty-key attach that follows is accepted.
+ * same user, source address, zone and fallback zone, so the client's empty-key attach that follows is accepted.
  * 
  * USAGE EXAMPLE:
- * SendServerTransfer(userId, realmName, zoneName, ticket => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER { ... });
+ * ServerTransfer.Send(userId, realmName, remoteIp, zoneName, fallbackZoneName, issueTicket, realm => transfer, send);
  * 
  * NOTE:
- * Send sets UserID and ZoneName on the built message, so the ticket and the transfer cannot disagree.
+ * Send sets UserID, ZoneName and FallbackZone on the built message, so the ticket and the transfer cannot disagree.
+ * Only an authenticated session may call it; the attach-timeout redirect must not mint a ticket.
  * 
  * TODO:
  * 
@@ -44,23 +45,25 @@ namespace Imlight.CoreLib.Game.Services;
 
 internal static class ServerTransfer {
 
-    public static bool Send(ulong userId, string targetRealmName, string remoteIp, string zoneName,
+    public static bool Send(ulong userId, string targetRealmName, string remoteIp, string zoneName, string fallbackZoneName,
         Func<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY, SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP> issueTicket,
         Func<SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP, GAME_5_PROTOCOL.MSG_SERVERTRANSFER> build,
         Action<GAME_5_PROTOCOL.MSG_SERVERTRANSFER> send) {
-        var ticket = issueTicket(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
+        var realm = issueTicket(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY {
             UserId = userId,
             TargetRealmName = targetRealmName,
             RemoteIp = remoteIp,
-            ZoneName = zoneName
+            ZoneName = zoneName,
+            FallbackZoneName = fallbackZoneName
         });
-        if (ticket is null || !ticket.Success) {
+        if (realm is null || !realm.Success) {
             return false;
         }
 
-        var transfer = build(ticket);
+        var transfer = build(realm);
         transfer.UserID = userId;
         transfer.ZoneName = zoneName;
+        transfer.FallbackZone = fallbackZoneName;
         send(transfer);
 
         return true;

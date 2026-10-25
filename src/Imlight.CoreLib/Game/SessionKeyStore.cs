@@ -29,7 +29,7 @@
  * NOTE:
  * The client attaches after MSG_SERVERTRANSFER with an empty key, whatever the transfer message carried.
  * An empty-key attach is accepted only on a transfer ticket: same source address as the session that
- * requested the transfer, the destination zone the server chose, within 60 s, once.
+ * requested the transfer, the destination or fallback zone the server sent, within 60 s, once.
  * 
  * TODO:
  * 
@@ -79,9 +79,9 @@ public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
         return key;
     }
 
-    public void IssueTransferTicket(ulong userId, string remoteIp, string zoneName) {
+    public void IssueTransferTicket(ulong userId, string remoteIp, string zoneName, string fallbackZoneName) {
         lock (_lock) {
-            _transferTickets.Store(userId, new Ticket(remoteIp, zoneName), transferTicketValidity);
+            _transferTickets.Store(userId, new Ticket(remoteIp, zoneName, fallbackZoneName), transferTicketValidity);
         }
     }
 
@@ -107,7 +107,8 @@ public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
                 return AttachVerdict.OtherAddress;
             }
 
-            if (!string.Equals(ticket.ZoneName, zoneName, StringComparison.Ordinal)) {
+            if (!string.Equals(ticket.ZoneName, zoneName, StringComparison.Ordinal)
+                && !string.Equals(ticket.FallbackZoneName, zoneName, StringComparison.Ordinal)) {
                 return AttachVerdict.OtherZone;
             }
 
@@ -125,6 +126,6 @@ public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
     private static bool Matches(byte[] stored, ReadOnlySpan<byte> key)
         => stored is not null && CryptographicOperations.FixedTimeEquals(stored, key);
 
-    private sealed record Ticket(string RemoteIp, string ZoneName);
+    private sealed record Ticket(string RemoteIp, string ZoneName, string FallbackZoneName);
 
 }

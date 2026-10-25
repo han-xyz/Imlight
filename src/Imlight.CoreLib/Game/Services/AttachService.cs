@@ -521,12 +521,13 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
             Logger.Information("Session {SessionId} fallback found for {RemoteIp}, redirecting to zone {Zone}.",
                 Logger.Args(SessionActor.SessionID, SessionActor.RemoteIp, rsp.FallbackZone));
 
-            var realmName = AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
-            var isSent = SendServerTransfer(rsp.UserId, realmName, rsp.FallbackZone, _ => new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
+            var serverTransfer = new GAME_5_PROTOCOL.MSG_SERVERTRANSFER {
                 IP = rsp.GameServerIp,
                 TCPPort = rsp.GameServerPort,
                 UDPPort = rsp.GameServerPort,
+                UserID = rsp.UserId,
                 CharID = rsp.CharId,
+                ZoneName = rsp.FallbackZone,
                 ZoneID = rsp.FallbackZoneId,
                 Location = rsp.FallbackLocation,
                 Slot = 0,
@@ -539,11 +540,8 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
                 FallbackUDPPort = rsp.GameServerPort,
                 FallbackZone = rsp.FallbackZone,
                 FallbackZoneID = rsp.FallbackZoneId
-            });
-            if (!isSent) {
-                Logger.Error("Session {SessionId} could not create a transfer ticket on realm {Realm}; fallback redirect to {Zone} not sent.",
-                    Logger.Args(SessionActor.SessionID, realmName, rsp.FallbackZone));
-            }
+            };
+            SendToSocket(serverTransfer);
 
             // Remove the fallback entry now that we've consumed it.
             SessionActor.ServerRef.Tell(new SERVICE_101_PROTOCOL.MSG_REMOVE_FALLBACK {

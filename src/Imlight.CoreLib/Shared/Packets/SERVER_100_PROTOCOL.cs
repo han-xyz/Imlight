@@ -277,6 +277,7 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
         public string TargetRealmName;
         public string RemoteIp;
         public string ZoneName;
+        public string FallbackZoneName;
 
     }
 
