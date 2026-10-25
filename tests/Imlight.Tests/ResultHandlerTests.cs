@@ -151,6 +151,44 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
     }
 
+    public static TheoryData<Result> UnhandledQuestResults => [
+        new ResWizPlayMusic(),
+        new ResDownloadPackage(),
+        new ResDownloadElement(),
+        new ResMarkZoneNoWarn(),
+        new ResTimeStampEntry(),
+        new ResAddMissionDoor(),
+        new ResRemoveMissionDoor(),
+        new ResCinematic(),
+        new ResAddBadge(),
+    ];
+
+    [Theory]
+    [MemberData(nameof(UnhandledQuestResults))]
+    public void UnhandledQuestResults_AllRegistered(Result result) {
+        var handler = ResultDispatcher.FindHandlerForResult(result.GetType(), new PlayerContext(_player.Receiver, result));
+
+        Assert.NotNull(handler);
+    }
+
+    [Fact]
+    public void ResWizPlayMusic_ForwardsToClient() {
+        var success = Execute<ResWizPlayMusicHandler>(new ResWizPlayMusic {
+            m_musicName = "WizardCity4M",
+            m_fadeTime = 3f,
+            m_startDelay = 1.5f,
+        });
+
+        Assert.True(success);
+        var playMusic = Assert.IsType<WIZARD_12_PROTOCOL.MSG_PLAYMUSIC>(_player.Receive(s_timeout));
+        Assert.Equal(("WizardCity4M", 3f, 1.5f), (playMusic.SoundFilename.ToString(), playMusic.FadeTime, playMusic.StartDelay));
+    }
+
+    [Fact]
+    public void ResAddBadge_WithoutBadgeStorage_Succeeds() {
+        Assert.True(Execute<ResAddBadgeHandler>(new ResAddBadge { m_badgeName = "FinishG14BarkinghamPalace" }));
+    }
+
     private bool Execute<THandler>(Result result) where THandler : ActorBase
         => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));
 
