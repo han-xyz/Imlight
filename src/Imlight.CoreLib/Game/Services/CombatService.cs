@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/09/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -391,8 +391,8 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         // Serialize item and broadcast equip action to other players.
         var pubItem = ItemHelper.GetPublicItem(item);
 
-        if (_itemSerializer.Serialize(pubItem, PropertyFlags.Prop_Transmit, out var data)) {
-            Logger.Error("Failed to serialize item {0}", Logger.Args(item.m_globalID));
+        if (!_itemSerializer.Serialize(pubItem, PropertyFlags.Prop_Transmit, out var data)) {
+            Logger.Error("Failed to serialize item {0}", Logger.Args(item.m_globalID.Full));
 
             return;
         }

@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/25/2026
  */
 
 using Akka.Actor;
@@ -173,9 +173,12 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         var wizard = GetActiveWizard();
         RemoveDungeonQuestsOutsideZone(wizard);
 
-        foreach (var qInstance in wizard.QuestBehavior.CurrentQuestInstances) {
-            var qTemplate = QuestTemplateCollection.GetQuestByName(qInstance.QuestName);
+        var (toSend, skipped) = PlanQuestResume(wizard.QuestBehavior.CurrentQuestInstances, QuestTemplateCollection.GetQuestByName);
+        foreach (var questName in skipped) {
+            Logger.Warning("Quest {QuestName} is not in the data pack; skipping", Logger.Args(questName));
+        }
 
+        foreach (var (qInstance, qTemplate) in toSend) {
             SendQuestResumeMessage(qTemplate, qInstance);
 
             // Cache the quest template so we can reference it later if needed.
@@ -183,6 +186,23 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 _cachedQuestTemplates.Add(qTemplate);
             }
         }
+    }
+
+    internal static (List<(QuestInstance Instance, QuestTemplate Template)> ToSend, List<string> Skipped) PlanQuestResume(
+        IEnumerable<QuestInstance> instances, Func<string, QuestTemplate> findTemplate) {
+        var toSend = new List<(QuestInstance Instance, QuestTemplate Template)>();
+        var skipped = new List<string>();
+        foreach (var qInstance in instances) {
+            var qTemplate = findTemplate(qInstance.QuestName);
+            if (qTemplate is null) {
+                skipped.Add(qInstance.QuestName);
+                continue;
+            }
+
+            toSend.Add((qInstance, qTemplate));
+        }
+
+        return (toSend, skipped);
     }
 
     [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE))]
@@ -216,7 +236,12 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
-        _cachedQuestOffers.Add(quest);
+        AddQuestOffer(_cachedQuestOffers, quest);
+    }
+
+    internal static void AddQuestOffer(List<QuestTemplate> offers, QuestTemplate quest) {
+        offers.RemoveAll(q => q.m_questName == quest.m_questName);
+        offers.Add(quest);
     }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_COMPLETEPERSONAGOAL))]
@@ -245,8 +270,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         // Get the goal template for this goal.
-        var qTemplate = _cachedQuestTemplates
-            .FirstOrDefault(q => q.m_questName == qInstance.QuestName);
+        var qTemplate = GetQuestTemplate(qInstance.QuestName);
         if (qTemplate == null) {
             Logger.Error("Failed to find quest template for quest '{0}' when completing goal ID '{1}'",
                 Logger.Args(qInstance.QuestName, goalId));
@@ -361,8 +385,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
-        var gTemplate = _cachedQuestTemplates
-            .FirstOrDefault(q => q.m_questName == qInstance.QuestName)?.m_goals
+        var gTemplate = GetQuestTemplate(qInstance.QuestName)?.m_goals
             .FirstOrDefault(g => g.m_goalName == gInstance.GoalName);
         if (gTemplate == null) {
             Logger.Error("Failed to find goal template for goal '{0}' in quest '{1}' when its completion dialog closed.",
@@ -425,8 +448,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         // Get the goal template for this goal.
-        var qTemplate = _cachedQuestTemplates
-            .FirstOrDefault(q => q.m_questName == qInstance.QuestName);
+        var qTemplate = GetQuestTemplate(qInstance.QuestName);
         if (qTemplate == null) {
             Logger.Error("Failed to find quest template for quest '{0}' when completing goal ID '{1}'",
                 Logger.Args(qInstance.QuestName, goalId));
@@ -486,8 +508,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         // Get the goal template for this goal.
-        var qTemplate = _cachedQuestTemplates
-            .FirstOrDefault(q => q.m_questName == qInstance.QuestName);
+        var qTemplate = GetQuestTemplate(qInstance.QuestName);
         if (qTemplate == null) {
             Logger.Error("Failed to find quest template for quest '{0}' when completing proximity goal ID '{1}'",
                 Logger.Args(qInstance.QuestName, message.GoalID));
@@ -523,7 +544,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         var wizard = GetActiveWizard();
         foreach (var qInstance in wizard.QuestBehavior.CurrentQuestInstances.ToList()) {
-            var qTemplate = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == qInstance.QuestName);
+            var qTemplate = GetQuestTemplate(qInstance.QuestName);
             if (qTemplate?.m_goals is null) {
                 continue;
             }
@@ -548,8 +569,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         var qInstance = GetActiveWizard().QuestBehavior.CurrentQuestInstances
             .FirstOrDefault(q => q.QuestName == message.QuestName);
-        var gTemplate = _cachedQuestTemplates
-            .FirstOrDefault(q => q.m_questName == message.QuestName)?.m_goals?
+        var gTemplate = GetQuestTemplate(message.QuestName)?.m_goals?
             .FirstOrDefault(g => g.m_goalName == message.GoalName);
         if (qInstance is null || gTemplate is null || !qInstance.IsGoalActive(gTemplate.m_goalName)) {
             return;
@@ -846,7 +866,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             && GroupRegistry.AreGrouped(wizard.CharId, allyCharId)) == true;
 
         foreach (var qInstance in wizard.QuestBehavior.CurrentQuestInstances.ToList()) {
-            var qTemplate = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == qInstance.QuestName);
+            var qTemplate = GetQuestTemplate(qInstance.QuestName);
             if (qTemplate == null) {
                 Logger.Error("Failed to find quest template for quest '{0}' when processing combat victory.",
                     Logger.Args(qInstance.QuestName));
@@ -1202,7 +1222,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             }
         }
 
-        var qTemplate = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == questInstance.QuestName);
+        var qTemplate = GetQuestTemplate(questInstance.QuestName);
         if (qTemplate == null) {
             Logger.Error("Failed to find quest template for quest '{0}' when completing goal '{1}'",
                 Logger.Args(questInstance.QuestName, goalTemplate.m_goalName));
@@ -1257,7 +1277,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         SendCompleteQuest(questInstance.ID);
 
-        var qTemplate = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == questInstance.QuestName);
+        var qTemplate = GetQuestTemplate(questInstance.QuestName);
         if (qTemplate == null) {
             Logger.Error("Failed to find quest template for quest '{0}' when completing quest",
                 Logger.Args(questInstance.QuestName));

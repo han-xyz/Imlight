@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -90,6 +90,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
     private readonly Dictionary<string, List<PersonaGoalTemplate>> _personaGoalsByQuest = [];
     private readonly Dictionary<ulong, DateTime> _lastWizBangUpdate = [];
     private readonly Dictionary<ulong, PlayerPersonaGoalState> _cachedPlayerStates = [];
+    private readonly HashSet<string> _questsWithoutTemplate = [];
     private string _npcName;
 
     public static bool ShouldAttachToEntity(CoreTemplate template) {
@@ -139,6 +140,11 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         var qTemplate = questName is null ? null : QuestTemplateCollection.GetQuestByName(questName);
 
         if (qTemplate == null) {
+            if (questName is not null && _questsWithoutTemplate.Add(questName)) {
+                Logger.Warning("Persona goal of quest {QuestName} dropped: the quest is not in the data pack.",
+                    Logger.Args(questName));
+            }
+
             yield break;
         }
 
