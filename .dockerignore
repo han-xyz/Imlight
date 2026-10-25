@@ -1,0 +1,7 @@
+**/bin
+**/obj
+docs/
+.scratch/
+.git/
+.vscode/
+**/node_modules

@@ -361,3 +361,7 @@ src/Imlight.Director/cache
 spiraldb-cache/
 /.scratch
 /scratch
+
+# Operator-supplied generator inputs (client-derived; never commit)
+/deploy/generator-input/*
+!/deploy/generator-input/README.md
