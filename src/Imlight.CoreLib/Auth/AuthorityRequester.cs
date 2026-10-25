@@ -79,4 +79,38 @@ internal static class AuthorityRequester {
         }
     }
 
+    /// <summary>
+    /// Checks if the caller may act on the target account: the caller must outrank the target, except that an
+    /// Administrator may act on another Administrator.
+    /// </summary>
+    /// <param name="target">The account being acted on.</param>
+    /// <param name="caller">The account performing the action.</param>
+    /// <param name="reason">The reason for the authority request.</param>
+    /// <returns>True if the caller has authority over the target, false otherwise.</returns>
+    /// <remarks>
+    /// Automatically records and logs unauthorized access attempts as suspicious behavior.
+    /// </remarks>
+    internal static bool RequestAuthorityOver(Account target, Account caller, string reason = null) {
+        if (HasAuthorityOver(caller.AuthLevel, target.AuthLevel)) {
+            return true;
+        }
+
+        Logger.Warning("Account {Caller} attempted to act on account {Target} without authority over its auth level {TargetLevel} ({Reason}) "
+            + "This is considered suspicious behavior and will be logged.",
+            Logger.Args(caller.Username, target.Username, target.AuthLevel, reason ?? "No reason given"));
+
+        caller.AddInfraction(InfractionType.SuspiciousBehavior, "Attempted to use commands without auth level");
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if an account at the caller's auth level may act on an account at the target's auth level.
+    /// </summary>
+    /// <param name="caller">The auth level of the account performing the action.</param>
+    /// <param name="target">The auth level of the account being acted on.</param>
+    /// <returns>True if the caller outranks the target, or both are Administrator.</returns>
+    internal static bool HasAuthorityOver(AuthLevel caller, AuthLevel target)
+        => caller > target || (caller == AuthLevel.Administrator && target == AuthLevel.Administrator);
+
 }

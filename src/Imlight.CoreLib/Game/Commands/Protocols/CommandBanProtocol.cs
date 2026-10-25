@@ -18,6 +18,7 @@
 
 using System;
 using System.Text;
+using Imlight.CoreLib.Auth;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
@@ -36,6 +37,13 @@ internal class CommandBanProtocol : CommandProtocol {
         var account = AccountCollection.GetAccount(username);
         if (account == null) {
             InformSenderClient("Account not found");
+
+            return;
+        }
+
+        var authorityReason = $"{Context.Account.Username} wants to ban account {username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot ban an account with a higher auth level than you.");
 
             return;
         }

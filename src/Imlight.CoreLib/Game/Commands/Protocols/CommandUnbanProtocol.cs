@@ -16,6 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+using Imlight.CoreLib.Auth;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -32,6 +33,13 @@ internal class CommandUnbanProtocol : CommandProtocol {
         var account = AccountCollection.GetAccount(username);
         if (account is null) {
             InformSenderClient("Account not found.");
+
+            return;
+        }
+
+        var authorityReason = $"{Context.Account.Username} wants to unban account {username}.";
+        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
+            InformSenderClient("You cannot unban an account with a higher auth level than you.");
 
             return;
         }
