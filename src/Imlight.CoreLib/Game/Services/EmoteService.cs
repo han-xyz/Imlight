@@ -44,6 +44,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
@@ -52,6 +53,10 @@ using System;
 namespace Imlight.CoreLib.Game.Services;
 
 internal class EmoteService(SessionActor sessionActor) : MessageService(sessionActor) {
+
+    // A radial menu slot holds an emote or a chat phrase; no menu needs more slots than a player may own emotes.
+    private static readonly uint s_maxEmotes
+        = ConfigurationManager.Settings["Character.MaxEmotesAllowed"].AsUInt();
 
     private static readonly uint ResetStateId = StringHash.Compute("Unremarkable");
     private static readonly uint EmoteStateId = StringHash.Compute("ActionEmoting");
@@ -68,6 +73,10 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     /// </summary>
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_REQUESTPIIRADIALMENUPLAYEMOTE))]
     private void ReceiveRequestPIIRadialMenuPlayEmote(WIZARD3_56_PROTOCOL.MSG_REQUESTPIIRADIALMENUPLAYEMOTE message) {
+        if (!MayPlay(message.EmoteAnimationName)) {
+            return;
+        }
+
         _lastEmoteTime = DateTime.UtcNow;
         _lastEmoteAnimation = message.EmoteAnimationName;
 
@@ -92,6 +101,24 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
         BroadcastEmoteAnimation(wizard.GameObjectID, message.EmoteAnimationName, true);
     }
 
+    private bool MayPlay(string animation) {
+        if (!CrownShopHandler.TryGetSoldEmote(animation, out var emote) || Owns(emote)) {
+            return true;
+        }
+
+        Logger.Warning("[EmoteService] Character {Id} played emote {Anim} without owning it.",
+            Logger.Args(GetActiveWizard().CharId, animation));
+        return false;
+    }
+
+    private bool MayPlace(uint emoteTemplateId)
+        => !CrownShopHandler.TryGetSoldEmote(emoteTemplateId, out var emote) || Owns(emote);
+
+    private bool Owns(CustomEmoteBehaviorTemplate emote) {
+        var stats = GetActiveWizard().GameStats;
+        return CustomEmoteOwnership.Owns(emote, stats.m_purchasedCustomEmotes1, stats.m_purchasedCustomEmotes2, stats.m_purchasedCustomEmotes3);
+    }
+
     internal static string EmoteTextForBroadcast(string emoteText, bool isMuted)
         => isMuted || string.IsNullOrEmpty(emoteText) ? string.Empty : CleanChatText(emoteText);
 
@@ -101,6 +128,10 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     /// </summary>
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_CORE_PIIRADIALMENUEMOTE))]
     private void ReceiveCorePIIRadialMenuEmote(WIZARD3_56_PROTOCOL.MSG_CORE_PIIRADIALMENUEMOTE message) {
+        if (!MayPlay(message.EmoteAnimationName)) {
+            return;
+        }
+
         // Prevent duplicate broadcast if MSG_REQUESTPIIRADIALMENUPLAYEMOTE was just handled.
         if (string.Equals(_lastEmoteAnimation, message.EmoteAnimationName, StringComparison.Ordinal)
 && (DateTime.UtcNow - _lastEmoteTime) < TimeSpan.FromSeconds(1)) {
@@ -127,6 +158,9 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     /// </summary>
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_CORE_EMOTE))]
     private void ReceiveCoreEmote(GAME_5_PROTOCOL.MSG_CORE_EMOTE message) {
+        if (!MayPlay(message.Name)) {
+            return;
+        }
 
         _lastEmoteTime = DateTime.UtcNow;
         _lastEmoteAnimation = message.Name;
@@ -200,16 +234,10 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_PIIUPDATEEMOTESRADIALMENU))]
     private void ReceivePIIUpdateEmotesRadialMenu(WIZARD3_56_PROTOCOL.MSG_PIIUPDATEEMOTESRADIALMENU message) {
         var wizard = GetActiveWizard();
-        // Normalize empty or null blobs
-        var menu1 = message.RadialMenuData.IsEmpty ? RadialMenuData.Empty : message.RadialMenuData;
-        var menu2 = message.RadialMenu2Data.IsEmpty ? RadialMenuData.Empty : message.RadialMenu2Data;
-        var menu3 = message.RadialMenu3Data.IsEmpty ? RadialMenuData.Empty : message.RadialMenu3Data;
-
-        // Validate structure before saving to DB
-        if (!RadialMenuData.TryFromByteString(menu1, out _) ||
-            !RadialMenuData.TryFromByteString(menu2, out _) ||
-            !RadialMenuData.TryFromByteString(menu3, out _)) {
-            Logger.Warning("[EmoteService] Received invalid radial menu data from character {Id}",
+        if (!CustomEmoteOwnership.TryAcceptRadialMenu(message.RadialMenuData, (int) s_maxEmotes, MayPlace, out var menu1) ||
+            !CustomEmoteOwnership.TryAcceptRadialMenu(message.RadialMenu2Data, (int) s_maxEmotes, MayPlace, out var menu2) ||
+            !CustomEmoteOwnership.TryAcceptRadialMenu(message.RadialMenu3Data, (int) s_maxEmotes, MayPlace, out var menu3)) {
+            Logger.Warning("[EmoteService] Rejected radial menu data from character {Id}: malformed, too many slots, or an emote not owned.",
                 Logger.Args(wizard.CharId));
             return;
         }

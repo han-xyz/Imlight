@@ -499,6 +499,10 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             // Check if the item is an emote or teleport effect
             var customEmote = behaviors.OfType<CustomEmoteBehaviorTemplate>().FirstOrDefault();
             if (customEmote is { m_bitFieldNumber: >= 0 }) {
+                if (OwnsCustomEmote(wizard, customEmote)) {
+                    return s_errorPurchase;
+                }
+
                 if (customEmote.m_emoteType == CustomEmoteType.CE_Teleport) {
                     if(wizard.CountTeleportEffectsUnlocked() >= s_maxTeleportEffects) {
                         return s_errorMaxTeleportEffects;
@@ -513,7 +517,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
 
                     transaction.OnCommit(() => wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber));
                 }else {
-                    Logger.Error($"Unknown CustomEmoteType: {0}", Logger.Args(customEmote.m_emoteType));
+                    Logger.Error("Unknown CustomEmoteType: {0}", Logger.Args(customEmote.m_emoteType));
                 }
             }
         }
@@ -525,6 +529,13 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         return 0;
+    }
+
+    private static bool OwnsCustomEmote(Wizard wizard, CustomEmoteBehaviorTemplate emote) {
+        var stats = wizard.GameStats;
+        return emote.m_emoteType == CustomEmoteType.CE_Teleport
+            ? CustomEmoteOwnership.Owns(emote, stats.m_purchasedCustomTeleportEffects1, stats.m_purchasedCustomTeleportEffects2, stats.m_purchasedCustomTeleportEffects3)
+            : CustomEmoteOwnership.Owns(emote, stats.m_purchasedCustomEmotes1, stats.m_purchasedCustomEmotes2, stats.m_purchasedCustomEmotes3);
     }
 
     private bool MeetsEquipRequirements(Wizard wizard, WizItemTemplate itemTemplate) {

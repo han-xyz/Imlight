@@ -38,6 +38,7 @@ using Imcodec.IO;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Shared.Resources;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -63,7 +64,37 @@ public static class CrownShopHandler {
     private static DateTime s_lastReloadTime = DateTime.MinValue;
     private static readonly object s_reloadLock = new();
 
-    private sealed record Snapshot(CrownShopCatalogue Catalogue, ByteString SerializedData);
+    private sealed record Snapshot(CrownShopCatalogue Catalogue, ByteString SerializedData) {
+        // Loading every sold item's template is slow, so it waits for the first emote that needs it.
+        public Lazy<SoldEmotes> Emotes { get; } = new(() => SoldEmotes.From(Catalogue));
+    }
+
+    private sealed record SoldEmotes(
+        Dictionary<string, CustomEmoteBehaviorTemplate> ByAnimation,
+        Dictionary<ulong, CustomEmoteBehaviorTemplate> ByTemplateId) {
+
+        public static SoldEmotes From(CrownShopCatalogue catalogue) {
+            var byAnimation = new Dictionary<string, CustomEmoteBehaviorTemplate>(StringComparer.OrdinalIgnoreCase);
+            var byTemplateId = new Dictionary<ulong, CustomEmoteBehaviorTemplate>();
+            foreach (var item in catalogue.Items) {
+                var emote = CoreObjectFactory.GetCoreTemplate(item.m_itemTemplateId)?.m_behaviors?
+                    .OfType<CustomEmoteBehaviorTemplate>()
+                    .FirstOrDefault(b => b.m_emoteType == CustomEmoteType.CE_Emote);
+                if (emote is null) {
+                    continue;
+                }
+
+                byTemplateId[item.m_itemTemplateId] = emote;
+                foreach (var animation in new[] { emote.m_animation1.ToString(), emote.m_animation2.ToString() }) {
+                    if (!string.IsNullOrEmpty(animation)) {
+                        byAnimation[animation] = emote;
+                    }
+                }
+            }
+
+            return new SoldEmotes(byAnimation, byTemplateId);
+        }
+    }
 
     private static volatile Snapshot s_snapshot = new(CrownShopCatalogue.Empty, new());
 
@@ -189,6 +220,12 @@ public static class CrownShopHandler {
     public static List<CrownShopItem> GetCrownShopItems() => s_snapshot.Catalogue.Items.ToList();
     public static bool TryGetCrownShopItem(ulong id, out CrownShopItem item)
         => s_snapshot.Catalogue.TryGetItem(id, out item);
+
+    public static bool TryGetSoldEmote(string animation, out CustomEmoteBehaviorTemplate emote)
+        => s_snapshot.Emotes.Value.ByAnimation.TryGetValue(animation ?? string.Empty, out emote);
+
+    public static bool TryGetSoldEmote(ulong templateId, out CustomEmoteBehaviorTemplate emote)
+        => s_snapshot.Emotes.Value.ByTemplateId.TryGetValue(templateId, out emote);
 
     public static bool TryAcceptWishlist(ByteString raw, out ByteString canonical) {
         var accepted = s_snapshot.Catalogue.TryAcceptWishlist(raw, s_wishlistMaxSize, out var wishlist);
