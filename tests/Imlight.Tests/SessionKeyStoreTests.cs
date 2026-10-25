@@ -55,8 +55,13 @@ public class SessionKeyStoreTests {
         var first = store.IssueLoginKey(UserId, s_validity);
         var second = store.IssueLoginKey(UserId + 1, s_validity);
 
-        Assert.Equal(32, first.Length);
-        Assert.Equal(32, second.Length);
+        foreach (var key in new[] { first, second }) {
+            Assert.Equal(44, key.Length);
+            Assert.DoesNotContain((byte) 0, key);
+            Assert.All(key, b => Assert.True(b < 0x80));
+            Assert.Equal(32, Convert.FromBase64String(Encoding.ASCII.GetString(key)).Length);
+        }
+
         Assert.NotEqual(first, second);
     }
 

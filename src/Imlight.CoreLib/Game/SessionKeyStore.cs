@@ -58,7 +58,8 @@ public sealed class SessionKeyStore(TimeSpan transferKeyValidity) {
     }
 
     public byte[] IssueLoginKey(ulong userId, TimeSpan validity) {
-        var key = RandomNumberGenerator.GetBytes(LoginKeyLength);
+        // MSG_ATTACH.LoginKey is a STR, so the random bytes travel as Base64 text with no NUL.
+        var key = Encoding.ASCII.GetBytes(Convert.ToBase64String(RandomNumberGenerator.GetBytes(LoginKeyLength)));
         lock (_lock) {
             _loginKeys.Store(userId, [.. key], validity);
             _ = _transferKeys.Remove(userId);
