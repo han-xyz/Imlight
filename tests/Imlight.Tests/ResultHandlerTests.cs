@@ -79,17 +79,26 @@ public sealed class ResultHandlerTests : IDisposable {
 
         var loot = ResLootHandler.LootFor(lootTable);
 
-        Assert.InRange(loot.GoldAmount, 50, 140);
+        Assert.Equal(40, loot.GoldAmount);
         var item = Assert.Single(loot.Items);
         Assert.Equal(("77825", 2), (item.ItemId, item.Quantity));
     }
 
     [Fact]
     public void ResLoot_WithoutLootTable_GrantsChestGold() {
-        var loot = ResLootHandler.LootFor(null);
+        var loot = ResLootHandler.ChestGold();
 
         Assert.InRange(loot.GoldAmount, 10, 100);
         Assert.Empty(loot.Items);
+    }
+
+    [Fact]
+    public void ResLoot_WithoutLootTable_FromNamelessSource_SendsNothing() {
+        var player = StubPlayer(new Wizard { CharId = CharacterId });
+        var result = new ResLoot();
+
+        Assert.True(Execute<ResLootHandler>(result, new PlayerContext(player, result)));
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
     }
 
     [Fact]

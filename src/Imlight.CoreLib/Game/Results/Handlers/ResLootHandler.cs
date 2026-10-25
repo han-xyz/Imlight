@@ -29,7 +29,8 @@
  * NOTE:
  * The client data names a server-side loot table (field 0x975DE361) that
  * Imcodec does not decode, so m_lootTable is null for every chest in the
- * root wad, and the wooden chest gold roll is granted on top of any table.
+ * root wad. A zone object without a table grants the wooden chest gold roll;
+ * other sources without one grant nothing.
  * A named zone object or trigger grants once per character per zone instance.
  * 
  * TODO:
@@ -78,20 +79,34 @@ internal sealed class ResLootHandler : BaseResultHandler<ResLoot> {
             return true;
         }
 
-        if (Result.m_lootTable is null && Interlocked.Exchange(ref s_loggedGoldFallback, 1) == 0) {
-            Logger.Debug("ResLoot without a decoded loot table; gold fallback.");
+        DropTableResult loot;
+        if (Result.m_lootTable is not null) {
+            loot = LootFor(Result.m_lootTable);
+        } else if (!string.IsNullOrEmpty(sourceName)) {
+            if (Interlocked.Exchange(ref s_loggedGoldFallback, 1) == 0) {
+                Logger.Debug("ResLoot without a decoded loot table; gold fallback.");
+            }
+
+            loot = ChestGold();
+        } else {
+            Logger.Debug("ResLoot without a decoded loot table or a zone source; nothing granted.");
+
+            return true;
         }
 
-        LootGranter.GrantAndDisplay(context.GetPlayerRef(), wizard, LootFor(Result.m_lootTable), context.GetXpScale());
+        LootGranter.GrantAndDisplay(context.GetPlayerRef(), wizard, loot, context.GetXpScale());
 
         return true;
     }
 
+    internal static DropTableResult ChestGold()
+        => new() { GoldAmount = WoodenChestComponent.RollGold() };
+
     internal static DropTableResult LootFor(LootInfoList lootTable)
         => new() {
-            GoldAmount = WoodenChestComponent.RollGold() + (lootTable?.m_goldInfo?.m_goldAmount ?? 0),
-            ExperienceAmount = lootTable?.m_loot?.OfType<MagicXPLootInfo>().Sum(x => x.m_experience) ?? 0,
-            Items = lootTable?.m_loot?
+            GoldAmount = lootTable.m_goldInfo?.m_goldAmount ?? 0,
+            ExperienceAmount = lootTable.m_loot?.OfType<MagicXPLootInfo>().Sum(x => x.m_experience) ?? 0,
+            Items = lootTable.m_loot?
                 .OfType<ItemLootInfo>()
                 .Select(x => new DropItemResult {
                     ItemId = x.m_itemID.Full.ToString(CultureInfo.InvariantCulture),
