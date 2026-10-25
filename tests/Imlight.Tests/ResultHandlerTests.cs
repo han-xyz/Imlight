@@ -46,6 +46,7 @@ using Imlight.Common;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Game.Results.Handlers;
 using Imlight.CoreLib.Game.Zone.Core;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
@@ -149,6 +150,72 @@ public sealed class ResultHandlerTests : IDisposable {
 
         Assert.True(success);
         Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    public static TheoryData<Result> UnhandledQuestResults => [
+        new ResWizPlayMusic(),
+        new ResDownloadPackage(),
+        new ResDownloadElement(),
+        new ResMarkZoneNoWarn(),
+        new ResTimeStampEntry(),
+        new ResAddMissionDoor(),
+        new ResRemoveMissionDoor(),
+        new ResCinematic(),
+        new ResAddBadge(),
+        new ResAddTrainingPoints(),
+        new ResAddTreasureSpell(),
+        new ResAddEncounterXP(),
+        new ResReInteract(),
+        new ResSetGardeningLevel(),
+    ];
+
+    [Theory]
+    [MemberData(nameof(UnhandledQuestResults))]
+    public void UnhandledQuestResults_AllRegistered(Result result) {
+        var handler = ResultDispatcher.FindHandlerForResult(result.GetType(), new PlayerContext(_player.Receiver, result));
+
+        Assert.NotNull(handler);
+    }
+
+    [Fact]
+    public void ResWizPlayMusic_ForwardsToClient() {
+        var success = Execute<ResWizPlayMusicHandler>(new ResWizPlayMusic {
+            m_musicName = "WizardCity4M",
+            m_fadeTime = 3f,
+            m_startDelay = 1.5f,
+        });
+
+        Assert.True(success);
+        var playMusic = Assert.IsType<WIZARD_12_PROTOCOL.MSG_PLAYMUSIC>(_player.Receive(s_timeout));
+        Assert.Equal(("WizardCity4M", 3f, 1.5f), (playMusic.SoundFilename.ToString(), playMusic.FadeTime, playMusic.StartDelay));
+    }
+
+    [Fact]
+    public void ResAddBadge_WithoutBadgeStorage_Succeeds() {
+        Assert.True(Execute<ResAddBadgeHandler>(new ResAddBadge { m_badgeName = "FinishG14BarkinghamPalace" }));
+    }
+
+    [Fact]
+    public void ResAddTrainingPoints_AddsOnePoint() {
+        Assert.Equal(4, ResAddTrainingPointsHandler.TrainingPointsAfterGrant(3));
+    }
+
+    [Fact]
+    public void ResSetGardeningLevel_UnlocksGardening() {
+        var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) };
+        var result = new ResSetGardeningLevel();
+
+        Assert.True(Execute<ResSetGardeningLevelHandler>(result, new PlayerContext(StubPlayer(wizard), result)));
+        Assert.Equal(1, wizard.GameStats.m_gardeningLevel);
+    }
+
+    [Fact]
+    public void ResSetGardeningLevel_KeepsHigherLevel() {
+        var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) { m_gardeningLevel = 5 } };
+        var result = new ResSetGardeningLevel();
+
+        Assert.True(Execute<ResSetGardeningLevelHandler>(result, new PlayerContext(StubPlayer(wizard), result)));
+        Assert.Equal(5, wizard.GameStats.m_gardeningLevel);
     }
 
     private bool Execute<THandler>(Result result) where THandler : ActorBase
