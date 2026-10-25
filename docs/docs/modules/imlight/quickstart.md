@@ -129,7 +129,7 @@ A variable that starts with `IMLIGHT__` but does not have a section and a key is
 
 The server refuses to start when `AdminAccountPassword` in `[Database]` is empty or a known default: the old `compsci`, or a password that older builds hard-coded (the list is `AdminCredentialPolicy.KnownDefaultPasswords`). Set it in the ini or with `IMLIGHT__Database__AdminAccountPassword`. `AdminAccountUsername` defaults to `admin`.
 
-The admin account is created on first boot only. Changing the credentials later does not change an existing account, with one exception: when boot finds an Administrator that still has a known default password, it resets the account named in `AdminAccountUsername` to the configured password and refuses to start for any other such account. To clear a refused account, set `AdminAccountUsername` to it for one boot so it is reset, then rename again, or delete it from the player database.
+The admin account is created on first boot only. Changing the credentials later does not change an existing account, with one exception: when boot finds a staff account (any `AuthLevel` above `None`) that still has a known default password, it resets the account named in `AdminAccountUsername` to the configured password and refuses to start for any other such account. To clear a refused account, set `AdminAccountUsername` to it for one boot so it is reset, then rename again, or delete it from the player database.
 
 ### Player database
 

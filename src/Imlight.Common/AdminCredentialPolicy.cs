@@ -46,11 +46,13 @@ public static class AdminCredentialPolicy {
 
     /// <summary>
     /// Passwords boot rejects for the admin account: the old ini default "compsci", and the passwords hard-coded
-    /// for Administrator accounts in src/Director before commit 106c24fd, which are public in git history.
+    /// for staff accounts in src/Director before commit 106c24fd, which are public in git history.
     /// </summary>
     public static IReadOnlyList<string> KnownDefaultPasswords { get; } = [
         "compsci", "debug", "dev9999", "2034", "9090", "2342", "2109", "joji1", "jefffakename",
         "jootysocoollike", "Niduus", "gay", "is that guy even a dev?", "isthatguyevenadev?",
+        "7969", "7878", "8080", "hm9999", "1121", "0091", "1041", "2290", "9142", "6142", "1224", "8723",
+        "9871", "kcsd10", "4040", "7041", "1194", "0010", "4001", "9312",
     ];
 
     public static AdminCredentialVerdict Validate(string? username, string? password) {

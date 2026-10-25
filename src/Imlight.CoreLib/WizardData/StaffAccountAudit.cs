@@ -16,15 +16,15 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
  * ========================================================================
- * ADMIN ACCOUNT AUDIT
+ * STAFF ACCOUNT AUDIT
  * ========================================================================
  * 
  * PURPOSE:
- * Finds stored Administrator accounts that still carry a known default password hash
+ * Finds stored staff accounts (any AuthLevel above None) that still carry a known default password hash
  * and decides, per account, whether boot resets it to the configured password or refuses to start.
  * 
  * USAGE EXAMPLE:
- * AdminAccountAudit.Audit(administrators, "Database.AdminAccountUsername" value)
+ * StaffAccountAudit.Audit(staffAccounts, "Database.AdminAccountUsername" value)
  * 
  * NOTE:
  * Usernames compare case-insensitively, as the player database matches them.
@@ -42,34 +42,36 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Imlight.Common;
+using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.WizardData;
 
-public sealed record AdminAccountCredential(string Username, string PasswordHash);
+public sealed record StaffAccountCredential(string Username, string PasswordHash, AuthLevel AuthLevel);
 
-public enum AdminAccountAuditActionKind {
+public enum StaffAccountAuditActionKind {
 
     ResetToConfigured,
     RefuseStart
 
 }
 
-public sealed record AdminAccountAuditAction(string Username, AdminAccountAuditActionKind Kind);
+public sealed record StaffAccountAuditAction(string Username, AuthLevel AuthLevel, StaffAccountAuditActionKind Kind);
 
-public static class AdminAccountAudit {
+public static class StaffAccountAudit {
 
     private static readonly HashSet<string> s_knownDefaultPasswordHashes =
         [.. AdminCredentialPolicy.KnownDefaultPasswords.Select(DatabaseUtilities.CreateHashedPassword)];
 
-    public static IReadOnlyList<AdminAccountAuditAction> Audit(
-        IEnumerable<AdminAccountCredential> administrators, string configuredUsername) {
-        return administrators
-            .Where(admin => s_knownDefaultPasswordHashes.Contains(admin.PasswordHash))
-            .Select(admin => new AdminAccountAuditAction(
-                admin.Username,
-                string.Equals(admin.Username, configuredUsername, StringComparison.OrdinalIgnoreCase)
-                    ? AdminAccountAuditActionKind.ResetToConfigured
-                    : AdminAccountAuditActionKind.RefuseStart))
+    public static IReadOnlyList<StaffAccountAuditAction> Audit(
+        IEnumerable<StaffAccountCredential> staffAccounts, string configuredUsername) {
+        return staffAccounts
+            .Where(staff => s_knownDefaultPasswordHashes.Contains(staff.PasswordHash))
+            .Select(staff => new StaffAccountAuditAction(
+                staff.Username,
+                staff.AuthLevel,
+                string.Equals(staff.Username, configuredUsername, StringComparison.OrdinalIgnoreCase)
+                    ? StaffAccountAuditActionKind.ResetToConfigured
+                    : StaffAccountAuditActionKind.RefuseStart))
             .ToList();
     }
 

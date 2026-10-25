@@ -275,17 +275,17 @@ public static class AccountCollection {
     }
 
     /// <summary>
-    /// Gets the username and password hash of every Administrator account.
+    /// Gets the username, password hash and auth level of every staff account (any auth level above None).
     /// </summary>
-    public static List<AdminAccountCredential> GetAdministratorCredentials() {
+    public static List<StaffAccountCredential> GetStaffCredentials() {
         using var session = s_store.OpenSession();
 
         return session.Query<Account>(collectionName: CollectionName)
             .Customize(query => query.WaitForNonStaleResults())
-            .Where(account => account.AuthLevel == AuthLevel.Administrator)
-            .Select(account => new { account.Username, account.PasswordHash })
+            .Where(account => account.AuthLevel != AuthLevel.None)
+            .Select(account => new { account.Username, account.PasswordHash, account.AuthLevel })
             .ToList()
-            .Select(account => new AdminAccountCredential(account.Username, account.PasswordHash))
+            .Select(account => new StaffAccountCredential(account.Username, account.PasswordHash, account.AuthLevel))
             .ToList();
     }
 

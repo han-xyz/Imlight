@@ -170,7 +170,7 @@ internal static class Program {
 
         // Force load dragon database. Create the admin account if it does not exist yet, on any database.
         _ = PlayerDatabase.Instance.Store;
-        if (!ResetDefaultPasswordAdministrators()) {
+        if (!ResetDefaultPasswordStaffAccounts()) {
             Environment.ExitCode = 2;
 
             return;
@@ -270,40 +270,40 @@ internal static class Program {
         );
     }
 
-    private static bool ResetDefaultPasswordAdministrators() {
-        var actions = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername);
+    private static bool ResetDefaultPasswordStaffAccounts() {
+        var actions = StaffAccountAudit.Audit(AccountCollection.GetStaffCredentials(), s_adminAccountUsername);
 
-        foreach (var action in actions.Where(a => a.Kind == AdminAccountAuditActionKind.ResetToConfigured)) {
+        foreach (var action in actions.Where(a => a.Kind == StaffAccountAuditActionKind.ResetToConfigured)) {
             if (!AccountCollection.ChangePassword(action.Username, s_adminAccountPassword)) {
                 continue;
             }
 
-            Logger.Warning("Admin account {Username} still used the shipped default password; it has been reset to the configured one",
-                Logger.Args(action.Username));
+            Logger.Warning("Account {Username} ({AuthLevel}) still used a known default password; it has been reset to the configured one",
+                Logger.Args(action.Username, action.AuthLevel));
         }
 
-        var remaining = AdminAccountAudit.Audit(AccountCollection.GetAdministratorCredentials(), s_adminAccountUsername);
+        var remaining = StaffAccountAudit.Audit(AccountCollection.GetStaffCredentials(), s_adminAccountUsername);
         if (remaining.Count == 0) {
             return true;
         }
 
-        var resetFailedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.ResetToConfigured);
-        if (resetFailedUsernames.Length > 0) {
-            Logger.Fatal("Admin account(s) {Usernames} still use a known default password because the reset failed; check the player database. Boot refused.",
-                Logger.Args(resetFailedUsernames));
+        var resetFailedAccounts = AccountsOfKind(remaining, StaffAccountAuditActionKind.ResetToConfigured);
+        if (resetFailedAccounts.Length > 0) {
+            Logger.Fatal("Staff account(s) {Usernames} still use a known default password because the reset failed; check the player database. Boot refused.",
+                Logger.Args(resetFailedAccounts));
         }
 
-        var refusedUsernames = UsernamesOfKind(remaining, AdminAccountAuditActionKind.RefuseStart);
-        if (refusedUsernames.Length > 0) {
-            Logger.Fatal("Administrator account(s) {Usernames} still use a known default password. Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; (2) delete it from the player database. Boot refused.",
-                Logger.Args(refusedUsernames));
+        var refusedAccounts = AccountsOfKind(remaining, StaffAccountAuditActionKind.RefuseStart);
+        if (refusedAccounts.Length > 0) {
+            Logger.Fatal("Staff account(s) {Usernames} still use a known default password. Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; (2) delete it from the player database. Boot refused.",
+                Logger.Args(refusedAccounts));
         }
 
         return false;
     }
 
-    private static string UsernamesOfKind(IEnumerable<AdminAccountAuditAction> actions, AdminAccountAuditActionKind kind)
-        => string.Join(", ", actions.Where(a => a.Kind == kind).Select(a => a.Username));
+    private static string AccountsOfKind(IEnumerable<StaffAccountAuditAction> actions, StaffAccountAuditActionKind kind)
+        => string.Join(", ", actions.Where(a => a.Kind == kind).Select(a => $"{a.Username} ({a.AuthLevel})"));
 
     private static void CreateEmbeddedDatabaseAccounts() {
         // At least one account needs to exist.
