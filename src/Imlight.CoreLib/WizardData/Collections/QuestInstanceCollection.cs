@@ -69,10 +69,19 @@ public static class QuestInstanceCollection {
     public static bool RemoveQuestInstance(ulong charId, string questName) {
         using var session = s_store.OpenSession();
 
-        var questInstances = session.Query<QuestInstance>(collectionName: CollectionName)
-            .Customize(query => query.WaitForNonStaleResults())
-            .Where(q => q.OwnerCharId == charId && q.QuestName == questName)
-            .ToList();
+        List<QuestInstance> questInstances;
+        try {
+            questInstances = session.Query<QuestInstance>(collectionName: CollectionName)
+                .Customize(query => query.WaitForNonStaleResults(s_nonStaleWaitTimeout))
+                .Where(q => q.OwnerCharId == charId && q.QuestName == questName)
+                .ToList();
+        } catch (Exception ex) when (ex is TimeoutException or RavenTimeoutException) {
+            Logger.Warning("The QuestInstances index was still stale after {Seconds} s; quest {QuestName} of character {CharId} not removed.",
+                Logger.Args(s_nonStaleWaitTimeout.TotalSeconds, questName, charId));
+
+            return false;
+        }
+
         if (questInstances.Count == 0) {
             return false;
         }
