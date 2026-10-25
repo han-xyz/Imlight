@@ -41,6 +41,7 @@ using System.IO;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
+using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Game.Results.Handlers;
@@ -64,6 +65,28 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     public void Dispose() => _system.Terminate().Wait(s_timeout);
+
+    [Fact]
+    public void ResLoot_GrantsAndSendsLoot() {
+        var lootTable = new LootInfoList {
+            m_goldInfo = new GoldLootInfo { m_lootType = LOOT_TYPE.LOOT_TYPE_GOLD, m_goldAmount = 40 },
+            m_loot = [new ItemLootInfo { m_lootType = LOOT_TYPE.LOOT_TYPE_ITEM, m_itemID = new GID(77825), m_numItems = 2 }],
+        };
+
+        var loot = ResLootHandler.LootFor(lootTable);
+
+        Assert.Equal(40, loot.GoldAmount);
+        var item = Assert.Single(loot.Items);
+        Assert.Equal(("77825", 2), (item.ItemId, item.Quantity));
+    }
+
+    [Fact]
+    public void ResLoot_WithoutLootTable_GrantsChestGold() {
+        var loot = ResLootHandler.LootFor(null);
+
+        Assert.InRange(loot.GoldAmount, 10, 100);
+        Assert.Empty(loot.Items);
+    }
 
     [Fact]
     public void ResUnknown77D46519_ReturnsTrue() {
