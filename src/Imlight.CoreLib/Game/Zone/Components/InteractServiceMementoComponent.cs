@@ -175,6 +175,14 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         Logger.Debug("Player {0} interacted with NPC {1} using service {2} at index {3} (Reinteract: {4})",
             Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_globalID.Full, serviceName, serviceIndex, reinteract));
 
+        if (!_playersInInteractionRange.ContainsKey(playerId)) {
+            Logger.Debug("Ignoring interaction from {Player} with NPC {Npc}: out of interaction range",
+                Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_debugName));
+            _optionTable.Remove(playerId);
+
+            return;
+        }
+
         if (_serviceComponents.Count <= 0) {
             Logger.Warning("No service components found for NPC {0}",
                 Logger.Args(Entity.ActiveGameObject.m_debugName));
@@ -184,13 +192,6 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         // If this is a reinteract scenario, send service range messages first.
         if (reinteract == 2) {
-            if (!_playersInInteractionRange.ContainsKey(playerId)) {
-                Logger.Debug("Ignoring reinteract from {Player} with NPC {Npc}: out of interaction range",
-                    Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_debugName));
-
-                return;
-            }
-
             SendLeaveServiceRange(playerActor);
             SendActorServiceOptions(playerActor, playerId, reinteract);
         }
