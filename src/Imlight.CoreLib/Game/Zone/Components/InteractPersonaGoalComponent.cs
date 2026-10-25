@@ -40,7 +40,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
-using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.WizBang;
@@ -395,10 +394,6 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_STARTSEAMLESSTRANSITION))]
     private void HandleStartSeamlessTransition(ZONE_102_PROTOCOL.MSG_STARTSEAMLESSTRANSITION message) {
-        var playerActor = message.PlayerActor;
-        var playerCharacter = message.PlayerCharacter;
-        var playerObject = message.PlayerObject;
-
         var serviceMementoComponent = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         if (serviceMementoComponent == null) {
             Logger.Warning("Cannot trigger service re-evaluation: NPC {0} does not have InteractServiceMementoComponent",
@@ -407,19 +402,10 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return;
         }
 
-        var reinteractMsg = new QUEST_MESSAGES_52_PROTOCOL.MSG_INTERACTNPC {
-            GlobalID = Entity.ActiveGameObject.m_nMobileID,
-            ServiceName = "",
-            Reinteract = 2,
-            ServiceIndex = 0,
-            RequestedSigilMode = 0
-        };
-        playerActor.Tell(reinteractMsg);
-
         var delayedQuestOfferMsg = new ZONE_102_PROTOCOL.MSG_TRIGGERSEAMLESSTRANSITION {
-            PlayerActor = playerActor,
-            PlayerCharacter = playerCharacter,
-            PlayerObject = playerObject
+            PlayerActor = message.PlayerActor,
+            PlayerCharacter = message.PlayerCharacter,
+            PlayerObject = message.PlayerObject
         };
 
         Timers.StartSingleTimer(
@@ -433,6 +419,13 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         var serviceMementoComponent = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         if (serviceMementoComponent == null) {
             Logger.Warning("No service memento component found for delayed quest offer");
+
+            return;
+        }
+
+        if (message.PlayerObject is null || !serviceMementoComponent.IsInInteractionRange(message.PlayerObject)) {
+            Logger.Debug("Dropping delayed quest offer of NPC {Npc}: player left interaction range",
+                Logger.Args(Entity.ActiveGameObject.m_debugName));
 
             return;
         }

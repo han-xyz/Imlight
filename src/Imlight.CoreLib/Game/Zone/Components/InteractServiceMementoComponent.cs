@@ -165,6 +165,9 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         ? _serviceComponents.Min(c => c.DEFAULT_INTERACTION_RADIUS)
         : _interactionRadius;
 
+    internal bool IsInInteractionRange(CoreObject playerObject)
+        => IsInHorizontalRadius(playerObject, InteractionRadius);
+
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION))]
     private void PlayerInteraction(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION message) {
         var playerActor = message.PlayerActor;
@@ -186,7 +189,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         Logger.Debug("Player {0} interacted with NPC {1} using service {2} at index {3} (Reinteract: {4})",
             Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_globalID.Full, serviceName, serviceIndex, reinteract));
 
-        if (!IsInHorizontalRadius(playerObject, InteractionRadius)) {
+        if (!IsInInteractionRange(playerObject)) {
             Logger.Debug("Ignoring interaction from {Player} with NPC {Npc}: out of interaction range",
                 Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_debugName));
             _optionTable.Remove(playerId);
