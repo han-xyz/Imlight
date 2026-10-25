@@ -37,6 +37,7 @@
 using System;
 using System.IO;
 using Imlight.Common;
+using Serilog.Events;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -97,12 +98,26 @@ public sealed class ConfigurationManagerTests {
     [Fact]
     public void EnvOverride_MalformedIgnored() {
         var logPath = Path.Combine(Path.GetTempPath(), "imlight-tests", "log.txt");
-        var ini = $"[Logging]\nLogPath = {logPath}\nLogLevel = DEBUG\nLogFormat = {{Message:lj}}{{NewLine}}\nSeqSinkUrl = http://localhost:5341\n";
+        var iniFilePath = WriteIni($"[Logging]\nLogPath = {logPath}\nLogLevel = DEBUG\nLogFormat = {{Message:lj}}{{NewLine}}\nSeqSinkUrl = http://localhost:5341\n");
+        string[] malformedNames = ["IMLIGHT__Nope", "IMLIGHT__Nope1", "IMLIGHT__Nope2", "IMLIGHT__Nope3", "IMLIGHT__Nope4", "IMLIGHT__Nope5", "IMLIGHT__Nope6", "IMLIGHT__Nope7"];
+        try {
+            foreach (var name in malformedNames) {
+                Environment.SetEnvironmentVariable(name, "1");
+            }
+            Environment.SetEnvironmentVariable("IMLIGHT__Logging__LogLevel", "ERROR");
 
-        var value = ReadWithEnv(ini, "IMLIGHT__Nope", "1", "Logging.LogLevel");
+            ConfigurationManager.Initialize(iniFilePath);
 
-        Assert.Equal("DEBUG", value);
-        Assert.Equal(["Logging"], ConfigurationManager.GetSectionNames());
+            Assert.Equal(["Logging"], ConfigurationManager.GetSectionNames());
+            Assert.Equal("ERROR", (string) ConfigurationManager.Settings["Logging.LogLevel"]);
+            Assert.False(Logger.Log.IsEnabled(LogEventLevel.Debug));
+        } finally {
+            foreach (var name in malformedNames) {
+                Environment.SetEnvironmentVariable(name, null);
+            }
+            Environment.SetEnvironmentVariable("IMLIGHT__Logging__LogLevel", null);
+            File.Delete(iniFilePath);
+        }
     }
 
     [Theory]

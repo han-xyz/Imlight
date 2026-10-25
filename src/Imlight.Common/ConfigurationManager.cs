@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/25/2026
  */
 
 using System;
@@ -190,13 +190,14 @@ public static class ConfigurationManager {
     }
 
     private static void ApplyEnvironmentOverrides() {
+        var malformedNames = new List<string>();
         foreach (string name in Environment.GetEnvironmentVariables().Keys) {
             if (!name.StartsWith(OverridePrefix + OverrideSeparator, StringComparison.OrdinalIgnoreCase)) {
                 continue;
             }
 
             if (!TryParseOverrideName(name, out var section, out var key)) {
-                Logger.Warning("Ignoring malformed config override {Name}; expected IMLIGHT__Section__Key", Logger.Args(name));
+                malformedNames.Add(name);
                 continue;
             }
 
@@ -208,6 +209,11 @@ public static class ConfigurationManager {
 
             sectionSettings[key] = value;
             s_settings[$"{section}.{key}"] = value;
+        }
+
+        // Logged only after every override is applied: Logger's static init reads Logging.* once per process.
+        foreach (var name in malformedNames) {
+            Logger.Warning("Ignoring malformed config override {Name}; expected IMLIGHT__Section__Key", Logger.Args(name));
         }
     }
 
