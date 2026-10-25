@@ -59,8 +59,7 @@ using Imlight.CoreLib.WizardData.Models.Player;
 namespace Imlight.CoreLib.Game.Zone.Components;
 
 internal class PlayerQuestOfferState {
-    public bool HasAvailableQuest { get; set; }
-    public QuestTemplate AvailableQuest { get; set; }
+    public List<QuestTemplate> AvailableQuests { get; set; } = [];
     public DateTime LastUpdated { get; set; }
 }
 
@@ -123,17 +122,37 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         var state = GetOrUpdatePlayerState(wizard);
 
         // The memento wizbang tick reads this property; refresh it from live state.
-        WizBang = state.HasAvailableQuest ? WizBangs.StartQuest : WizBangs.None;
+        WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
 
-        if (!state.HasAvailableQuest || state.AvailableQuest == null) {
-            yield break;
+        foreach (var quest in state.AvailableQuests) {
+            yield return ToOfferOption(quest);
         }
+    }
 
-        yield return new PrepEntry {
-            m_displayKey = state.AvailableQuest.m_questTitle,
+    internal PrepEntry ToOfferOption(QuestTemplate quest)
+        => new() {
+            m_displayKey = quest.m_questTitle,
             m_iconKey = PREP_NPC_ICON,
             m_serviceName = ServiceName,
         };
+
+    /// <summary>
+    /// The quests of <paramref name="offeredQuests"/> the wizard can accept now, in quest name order;
+    /// option i of the offer list is quest i.
+    /// </summary>
+    internal static List<QuestTemplate> FindAvailableQuests(IEnumerable<QuestTemplate> offeredQuests, Wizard wizard)
+        => [.. offeredQuests
+            .Where(quest => IsAvailable(quest, wizard))
+            .OrderBy(quest => (string) quest.m_questName, StringComparer.Ordinal)];
+
+    private static bool IsAvailable(QuestTemplate quest, Wizard wizard) {
+        if (wizard.HasQuest(quest.m_questName) || wizard.HasCompletedQuest(quest.m_questName)) {
+            return false;
+        }
+
+        return quest.m_requirements == null || RequirementDispatcher.EvaluateRequirements(
+            requirements: quest.m_requirements,
+            context: new QuestRequirementContext(quest.m_requirements, null, null, wizard, quest.m_questName));
     }
 
     public override void OnStart() {
@@ -151,12 +170,12 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             var prepDialogEntry = dialogList.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Prep");
             var templateId = prepDialogEntry?.m_dialogEntries?.FirstOrDefault()?.m_actorTemplateID;
 
-            if (templateId == entity.ActiveGameObject.m_templateID) {
+            // A dungeon quest is granted by the instance on entry, never offered by an NPC.
+            if (templateId == entity.ActiveGameObject.m_templateID
+                && !DungeonQuestIndex.IsDungeonQuest(questTemplate.m_questName)) {
                 _givesQuests.Add(questTemplate);
             }
         }
-
-        _givesQuests.Sort((a, b) => string.Compare(a.m_questTitle, b.m_questTitle, StringComparison.Ordinal));
     }
 
     public override void OnPlayerJoin(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
@@ -167,7 +186,7 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         }
 
         var state = GetOrUpdatePlayerState(playerWizard, forceUpdate: true);
-        WizBang = state.HasAvailableQuest ? WizBangs.StartQuest : WizBangs.None;
+        WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
     }
 
     public override void OnPlayerMove(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
@@ -186,14 +205,19 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
 
         _lastWizBangUpdate[playerId] = now;
         var state = GetOrUpdatePlayerState(playerWizard, forceUpdate: true);
-        WizBang = state.HasAvailableQuest ? WizBangs.StartQuest : WizBangs.None;
+        WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
     }
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var state = GetOrUpdatePlayerState(playerCharacter);
-        if (state.HasAvailableQuest && state.AvailableQuest != null) {
-            HandleQuestOffer(playerActor, state.AvailableQuest, playerCharacter);
+        if (serviceOptionIndex >= state.AvailableQuests.Count) {
+            Logger.Debug("Quest offer option {OptionIndex} on NPC {Npc} no longer exists",
+                Logger.Args(serviceOptionIndex, Entity.ActiveGameObject.m_debugName));
+
+            return;
         }
+
+        HandleQuestOffer(playerActor, state.AvailableQuests[(int) serviceOptionIndex], playerCharacter);
     }
 
     private PlayerQuestOfferState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {
@@ -206,34 +230,10 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             }
         }
 
-        var state = new PlayerQuestOfferState { LastUpdated = now };
-
-        // Check if player has any available quests from this NPC.
-        foreach (var quest in _givesQuests) {
-            // A dungeon quest is granted by the instance on entry, never offered by an NPC.
-            if (DungeonQuestIndex.IsDungeonQuest(quest.m_questName)) {
-                continue;
-            }
-
-            var hasQuest = wizard.HasQuest(quest.m_questName);
-            var hasCompleted = wizard.HasCompletedQuest(quest.m_questName);
-
-            // Only show quest offer if player doesn't have it and hasn't completed it.
-            if (hasQuest || hasCompleted) {
-                continue;
-            }
-
-            var requirementsMet = quest.m_requirements == null || RequirementDispatcher.EvaluateRequirements(
-                requirements: quest.m_requirements,
-                context: new QuestRequirementContext(quest.m_requirements, null, null, wizard, quest.m_questName));
-
-            if (requirementsMet) {
-                state.HasAvailableQuest = true;
-                state.AvailableQuest = quest;
-
-                break; // Take the first available quest.
-            }
-        }
+        var state = new PlayerQuestOfferState {
+            AvailableQuests = FindAvailableQuests(_givesQuests, wizard),
+            LastUpdated = now,
+        };
 
         _cachedPlayerStates[playerId] = state;
 

@@ -54,8 +54,7 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 
 internal class PlayerQuestUnderwayState {
 
-    public bool HasUnderwayQuest { get; set; }
-    public QuestTemplate UnderwayQuest { get; set; }
+    public List<QuestTemplate> UnderwayQuests { get; set; } = [];
     public DateTime LastUpdated { get; set; }
 
 }
@@ -119,18 +118,28 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         var state = GetOrUpdatePlayerState(wizard);
 
         // The memento wizbang tick reads this property; refresh it from live state.
-        WizBang = state.HasUnderwayQuest ? WizBangs.UnfinishedQuest : WizBangs.None;
+        WizBang = state.UnderwayQuests.Count > 0 ? WizBangs.UnfinishedQuest : WizBangs.None;
 
-        if (!state.HasUnderwayQuest || state.UnderwayQuest == null) {
-            yield break;
+        foreach (var quest in state.UnderwayQuests) {
+            yield return ToUnderwayOption(quest);
         }
+    }
 
-        yield return new PrepEntry {
-            m_displayKey = state.UnderwayQuest.m_questTitle,
+    internal PrepEntry ToUnderwayOption(QuestTemplate quest)
+        => new() {
+            m_displayKey = quest.m_questTitle,
             m_iconKey = PREP_NPC_ICON,
             m_serviceName = ServiceName,
         };
-    }
+
+    /// <summary>
+    /// The quests of <paramref name="givesQuests"/> the wizard holds and has not completed, in quest
+    /// name order; option i of the underway list is quest i.
+    /// </summary>
+    internal static List<QuestTemplate> FindUnderwayQuests(IEnumerable<QuestTemplate> givesQuests, Wizard wizard)
+        => [.. givesQuests
+            .Where(quest => wizard.HasQuest(quest.m_questName) && !wizard.HasCompletedQuest(quest.m_questName))
+            .OrderBy(quest => (string) quest.m_questName, StringComparer.Ordinal)];
 
     public override void OnStart() {
         // Cache the quests this NPC can give during startup.
@@ -151,8 +160,6 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
                 _givesQuests.Add(questTemplate);
             }
         }
-
-        _givesQuests.Sort((a, b) => string.Compare(a.m_questTitle, b.m_questTitle, StringComparison.Ordinal));
     }
 
     public override void OnPlayerJoin(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
@@ -163,7 +170,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         }
 
         var state = GetOrUpdatePlayerState(playerWizard, forceUpdate: true);
-        WizBang = state.HasUnderwayQuest ? WizBangs.UnfinishedQuest : WizBangs.None;
+        WizBang = state.UnderwayQuests.Count > 0 ? WizBangs.UnfinishedQuest : WizBangs.None;
     }
 
     public override void OnPlayerMove(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
@@ -182,14 +189,19 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
 
         _lastWizBangUpdate[playerId] = now;
         var state = GetOrUpdatePlayerState(playerWizard, forceUpdate: true);
-        WizBang = state.HasUnderwayQuest ? WizBangs.UnfinishedQuest : WizBangs.None;
+        WizBang = state.UnderwayQuests.Count > 0 ? WizBangs.UnfinishedQuest : WizBangs.None;
     }
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var state = GetOrUpdatePlayerState(playerCharacter);
-        if (state.HasUnderwayQuest && state.UnderwayQuest != null) {
-            ShowQuestUnderwayDialog(playerActor, state.UnderwayQuest);
+        if (serviceOptionIndex >= state.UnderwayQuests.Count) {
+            Logger.Debug("Quest underway option {OptionIndex} on NPC {Npc} no longer exists",
+                Logger.Args(serviceOptionIndex, Entity.ActiveGameObject.m_debugName));
+
+            return;
         }
+
+        ShowQuestUnderwayDialog(playerActor, state.UnderwayQuests[(int) serviceOptionIndex]);
     }
 
     private PlayerQuestUnderwayState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {
@@ -202,21 +214,10 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
             }
         }
 
-        var state = new PlayerQuestUnderwayState { LastUpdated = now };
-
-        // Check if player has any active quests from this NPC.
-        foreach (var quest in _givesQuests) {
-            var hasQuest = wizard.HasQuest(quest.m_questName);
-            var hasCompleted = wizard.HasCompletedQuest(quest.m_questName);
-
-            // Only show underway wizbang if player has the quest but hasn't completed it.
-            if (hasQuest && !hasCompleted) {
-                state.HasUnderwayQuest = true;
-                state.UnderwayQuest = quest;
-
-                break; // Take the first underway quest.
-            }
-        }
+        var state = new PlayerQuestUnderwayState {
+            UnderwayQuests = FindUnderwayQuests(_givesQuests, wizard),
+            LastUpdated = now,
+        };
 
         _cachedPlayerStates[playerId] = state;
 

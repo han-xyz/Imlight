@@ -36,11 +36,13 @@
  */
 
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.CoreLib.Game.WizBang;
 using Imlight.CoreLib.Game.Zone.Components;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
@@ -102,6 +104,58 @@ public sealed class NpcInteractionTests {
     public void PersonaName_OtherNames_Unchanged() {
         Assert.Equal("WC-ST01-NPC03", PersonaName.Normalize("WC-ST01-NPC03"));
         Assert.Equal("WC-ST01-NPC03_PersonaX", PersonaName.Normalize("WC-ST01-NPC03_PersonaX"));
+    }
+
+    [Fact]
+    public void QuestOffer_TwoAvailableQuests_TwoOptionsRouteToEachQuest() {
+        var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };
+        var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
+        var offer = new InteractQuestOfferComponent(null!);
+        var table = new ServiceOptionTable();
+
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([beta, alpha], NewWizard());
+        var options = table.Build(FirstPlayer, [(offer, [.. quests.Select(offer.ToOfferOption)])]);
+
+        Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
+        Assert.True(table.TryRoute(FirstPlayer, 1, out var owner, out var localIndex));
+        Assert.Same(offer, owner);
+        Assert.Same(beta, quests[(int) localIndex]);
+    }
+
+    [Fact]
+    public void QuestOffer_HeldQuest_NotOffered() {
+        var held = new QuestTemplate { m_questName = "Held" };
+        var open = new QuestTemplate { m_questName = "Open" };
+
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([held, open], NewWizard("Held"));
+
+        Assert.Equal([open], quests);
+    }
+
+    [Fact]
+    public void QuestUnderway_TwoHeldQuests_TwoOptionsRouteToEachQuest() {
+        var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };
+        var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
+        var other = new QuestTemplate { m_questName = "NotHeld" };
+        var underway = new InteractQuestUnderwayComponent(null!);
+        var table = new ServiceOptionTable();
+
+        var quests = InteractQuestUnderwayComponent.FindUnderwayQuests([beta, other, alpha], NewWizard("Alpha", "Beta"));
+        var options = table.Build(FirstPlayer, [(underway, [.. quests.Select(underway.ToUnderwayOption)])]);
+
+        Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
+        Assert.True(table.TryRoute(FirstPlayer, 1, out var owner, out var localIndex));
+        Assert.Same(underway, owner);
+        Assert.Same(beta, quests[(int) localIndex]);
+    }
+
+    private static Wizard NewWizard(params string[] heldQuests) {
+        var questBehavior = new ServerQuestBehavior();
+        foreach (var questName in heldQuests) {
+            questBehavior.CurrentQuestInstances.Add(new QuestInstance { QuestName = questName });
+        }
+
+        return new Wizard { QuestBehavior = questBehavior };
     }
 
     private sealed class FakeService : IServiceComponent {
