@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using Akka.Actor;
@@ -55,6 +55,7 @@ using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -179,12 +180,12 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         foreach (var (qInstance, qTemplate) in toSend) {
-            SendQuestResumeMessage(qTemplate, qInstance);
-
-            // Cache the quest template so we can reference it later if needed.
+            // The goal messages read the patron icon from the cached template.
             if (!_cachedQuestTemplates.Contains(qTemplate)) {
                 _cachedQuestTemplates.Add(qTemplate);
             }
+
+            SendQuestResumeMessage(qTemplate, qInstance);
         }
     }
 
@@ -474,8 +475,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         wizard.IncrementQuestGoal(qInstance.QuestName, gTemplate.m_goalName);
 
-        var goalMax = gTemplate.m_tallyCounter?.m_count ?? 1;
-        if (gInstance.CurrentProgress >= goalMax) {
+        if (HasReachedGoalTotal(gTemplate, gInstance)) {
             CompleteGoal(qInstance, gTemplate, showCompletionDialogue: !message.SuppressCompletionDialog);
 
             return;
@@ -607,6 +607,14 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
+        var refusal = GetAcceptRefusal(quest, wizard.HasQuest, wizard.HasCompletedQuest, q => MeetsOfferRequirements(q, wizard));
+        if (refusal is not null) {
+            Logger.Warning("Player '{0}' cannot accept quest '{1}': {2}.",
+                Logger.Args(wizard.CharId, questName, refusal));
+
+            return;
+        }
+
         // Otherwise, we're good to start the quest. Send them the send quest message and send goal message(s)
         // for any of the starting goals the quest has.
         StartQuest(quest, wizard);
@@ -614,6 +622,27 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         // Remove it from the cached offers now that it's accepted.
         _cachedQuestOffers.RemoveAll(q => q.m_questName == quest.m_questName);
     }
+
+    internal static string GetAcceptRefusal(QuestTemplate quest,
+                                            Func<string, bool> isHeld,
+                                            Func<string, bool> isCompleted,
+                                            Func<QuestTemplate, bool> meetsRequirements) {
+        // todo: should a completed repeatable quest be accepted again?
+        if (isHeld(quest.m_questName)) {
+            return "the quest is already held";
+        }
+
+        if (isCompleted(quest.m_questName)) {
+            return "the quest is already completed";
+        }
+
+        return meetsRequirements(quest) ? null : "the quest requirements are not met";
+    }
+
+    private static bool MeetsOfferRequirements(QuestTemplate quest, Wizard wizard)
+        => quest.m_requirements is null || RequirementDispatcher.EvaluateRequirements(
+            requirements: quest.m_requirements,
+            context: new QuestRequirementContext(quest.m_requirements, null, null, wizard, quest.m_questName));
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND))]
     private void ReceiveQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
@@ -729,7 +758,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 state = "done";
             }
             else {
-                var total = gTemplate.m_tallyCounter?.m_count ?? 0;
+                var total = GetGoalTotal(gTemplate);
                 state = total > 0 ? $"active {gInstance.CurrentProgress}/{total}" : "active";
             }
 
@@ -844,19 +873,50 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             }
         }
 
-        StartQuest(template, wizard);
+        if (!StartQuest(template, wizard)) {
+            CommandReply($"Could not grant quest '{template.m_questName}'.");
+            return;
+        }
+
         CommandReply($"Granted quest '{template.m_questName}'{(force ? " (requirements skipped)" : "")}.");
     }
 
-    private void StartQuest(QuestTemplate quest, Wizard wizard) {
-        var questInstance = new QuestInstance(quest, wizard.CharId);
-        wizard.AddQuest(questInstance);
+    private bool StartQuest(QuestTemplate quest, Wizard wizard) {
+        var questInstance = StartQuestInstance(quest, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest);
+        if (questInstance is null) {
+            return false;
+        }
 
         if (!_cachedQuestTemplates.Contains(quest)) {
             _cachedQuestTemplates.Add(quest);
         }
 
         SendQuestStartingMessage(quest, questInstance);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Creates a quest instance with its rewards rolled and stored, and adds it through <paramref name="addQuest"/>.
+    /// Every quest start goes through here so the rewards shown and granted agree.
+    /// </summary>
+    /// <returns>The new instance, or null when <paramref name="addQuest"/> refused it.</returns>
+    internal static QuestInstance StartQuestInstance(QuestTemplate quest,
+                                                     Wizard wizard,
+                                                     IActorRef playerRef,
+                                                     CoreObject playerObj,
+                                                     Func<QuestInstance, bool> addQuest)
+        => StartQuestInstance(quest, wizard.CharId, q => RollQuestRewards(q, wizard, playerRef, playerObj), addQuest);
+
+    internal static QuestInstance StartQuestInstance(QuestTemplate quest,
+                                                     ulong charId,
+                                                     Func<QuestTemplate, DropTableResult> rollRewards,
+                                                     Func<QuestInstance, bool> addQuest) {
+        var questInstance = new QuestInstance(quest, charId) {
+            Rewards = rollRewards(quest),
+        };
+
+        return addQuest(questInstance) ? questInstance : null;
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_COMBATWIN))]
@@ -908,7 +968,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
-        var rewards = GetQuestRewardsFromTemplate(qTemplate, null, SessionActor.ActorRef, GetActiveWizard());
+        var rewards = GetQuestRewardLoot(qTemplate, questInstance, GetActiveWizard());
         if (!_goalSerializer.Serialize(rewards, 1, out var serializedRewards)) {
             Logger.Error("Failed to serialize rewards for quest {0}.",
                 Logger.Args(qTemplate.m_questName));
@@ -979,7 +1039,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
-        var rewards = GetQuestRewardsFromTemplate(qTemplate, null, SessionActor.ActorRef, GetActiveWizard());
+        var rewards = GetQuestRewardLoot(qTemplate, qInstance, GetActiveWizard());
         if (!_goalSerializer.Serialize(rewards, 1, out var serializedRewards)) {
             Logger.Error("Failed to serialize rewards for quest {0}.",
                 Logger.Args(qTemplate.m_questName));
@@ -1286,9 +1346,10 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         ShowQuestCompletionDialogue(qTemplate);
 
+        var (endResults, storedRewards) = PlanQuestCompletion(questInstance, qTemplate.m_endResults);
         ResultDispatcher.ExecuteResults(
             actorContext: Context,
-            results: qTemplate.m_endResults,
+            results: endResults,
             playerRef: SessionActor.ActorRef,
             playerObj: GetActiveGameObject(),
             zoneActor: SessionActor.GetZoneActor(),
@@ -1296,6 +1357,10 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             skipWorldEffects: !ClaimInstanceStep(InstanceQuestClaimKind.QuestComplete, questInstance.QuestName, ""),
             xpScale: xpScale
         );
+
+        if (storedRewards?.HasRewards == true) {
+            LootGranter.GrantAndDisplay(SessionActor.ActorRef, wizard, storedRewards, xpScale);
+        }
 
         // Fire the "you have learned a new spell!" cinematic for the spell rewards. Only the spells
         // go here; the gold/XP/item popup is already sent by the drop table handlers (MSG_LOOT).
@@ -1351,6 +1416,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         var patronIcon = GetPatronIconFromGoal(gTemplate);
+        var goalTotal = GetGoalTotal(gTemplate);
 
         // Determine the destination zone. Do not send it if the player is currently in that zone.
         var wizard = GetActiveWizard();
@@ -1376,10 +1442,10 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             GoalType = (byte) gTemplate.m_goalType,
             GoalStatus = 0,                      // *** ACTIVE on retail captures ***
             GoalCount = gInstance.CurrentProgress,
-            UseTally = (byte) (gTemplate.m_tallyCounter is not null ? 1 : 0),
-            GoalTotal = gTemplate.m_tallyCounter?.m_count ?? 0,
+            UseTally = (byte) (goalTotal > 1 ? 1 : 0),
+            GoalTotal = goalTotal,
             TallyText = gTemplate.m_tallyCounter?.m_descriptor ?? "",
-            SubscriberGoalTotal = gTemplate.m_tallyCounter?.m_count ?? 0,
+            SubscriberGoalTotal = goalTotal,
             SendType = sendType,                 // 0=resume/start-of-zone, 1=start, 2=progress
             GoalMadlibs = madLibData,
             ClientTags = clientTagData,
@@ -1428,7 +1494,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         var matchCount = defeatedMobAdjectives.Count(adjective => goalMobAdjectives.Contains(adjective));
 
         if (goalTemplate.m_goalType == GOAL_TYPE.GOAL_TYPE_BOUNTYCOLLECT) {
-            var chance = goalTemplate.m_tallyCounter?.m_percentChance ?? DEFAULT_KILL_COLLECT_CHANCE;
+            var chance = goalTemplate.m_tallyCounter is null
+                ? DEFAULT_KILL_COLLECT_CHANCE
+                : NormaliseCollectChance(goalTemplate.m_tallyCounter.m_percentChance);
             shouldIncrement = new Random().NextDouble() <= chance;
 
             // todo: live's bonus size is unknown; a group win gets one more roll at the same chance.
@@ -1443,10 +1511,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 wizard.IncrementQuestGoal(qInstance.QuestName, goalTemplate.m_goalName);
             }
 
-            var goalMax = goalTemplate.m_tallyCounter?.m_count ?? 0;
             var gInstance = qInstance.GoalProgress.FirstOrDefault(g => g.GoalName == goalTemplate.m_goalName);
 
-            if (gInstance != null && gInstance.CurrentProgress >= goalMax) {
+            if (gInstance != null && HasReachedGoalTotal(goalTemplate, gInstance)) {
                 CompleteGoal(qInstance, goalTemplate);
 
                 return;
@@ -1609,32 +1676,69 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             m_clientTags = [.. tags]
         };
 
-    private static LootInfoList GetQuestRewardsFromTemplate(QuestTemplate qTemplate,
-                                                            CoreObject playerObj,
-                                                            IActorRef playerActor,
-                                                            Wizard playerWizard) {
-        // Quest rewards are listed in drop tables by "ResDropTable" in the completion results.
-        var dropTableResults = qTemplate.m_endResults
-            .m_results
-            .Where(x => x is ResDropTable);
+    internal static int GetGoalTotal(GoalTemplate gTemplate) {
+        var tallyCount = gTemplate.m_tallyCounter?.m_count ?? 0;
+        if (tallyCount > 0) {
+            return tallyCount;
+        }
 
-        var dropTableNames = dropTableResults
-            .Select(x => (x as ResDropTable).m_tableName)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct()
+        return gTemplate is BountyGoalTemplate bountyGoal ? bountyGoal.m_bountyTotal : 0;
+    }
+
+    internal static bool HasReachedGoalTotal(GoalTemplate gTemplate, GoalInstance gInstance)
+        => gInstance.CurrentProgress >= GetGoalTotal(gTemplate);
+
+    internal static double NormaliseCollectChance(float percentChance) {
+        // The pack stores collect chances both as percentages (100, 75) and as fractions (1.0, 0.25).
+        double chance = percentChance > 1f ? percentChance / 100f : percentChance;
+
+        return Math.Clamp(chance, 0d, 1d);
+    }
+
+    internal static DropTableResult ResolveQuestRewards(QuestInstance qInstance,
+                                                        QuestTemplate qTemplate,
+                                                        Func<QuestTemplate, DropTableResult> rollRewards)
+        => qInstance.Rewards ?? rollRewards(qTemplate);
+
+    internal static (ResultList Results, DropTableResult Rewards) PlanQuestCompletion(QuestInstance qInstance,
+                                                                                      ResultList endResults) {
+        if (qInstance.Rewards is null || endResults?.m_results is null) {
+            return (endResults, qInstance.Rewards);
+        }
+
+        var resultsWithoutDropTables = new ResultList {
+            m_results = endResults.m_results.Where(r => r is not ResDropTable).ToList(),
+        };
+
+        return (resultsWithoutDropTables, qInstance.Rewards);
+    }
+
+    private static DropTableResult RollQuestRewards(QuestTemplate qTemplate,
+                                                    Wizard wizard,
+                                                    IActorRef playerRef,
+                                                    CoreObject playerObj) {
+        // Quest rewards are listed in drop tables by "ResDropTable" in the completion results.
+        var dropTableNames = (qTemplate.m_endResults?.m_results ?? [])
+            .OfType<ResDropTable>()
+            .Where(r => r.m_requirements is null
+                || RequirementDispatcher.EvaluateRequirements(r.m_requirements,
+                    new GenericRequirementContext(r.m_requirements, playerRef, playerObj, wizard)))
+            .Select(r => (string) r.m_tableName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray();
 
-        // "Roll" the drop tables to get the actual items.
-        var rollResult = DropTableRoller.Roll(dropTableNames, playerActor, playerObj, playerWizard);
+        return DropTableRoller.Roll(dropTableNames, playerRef, playerObj, wizard);
+    }
 
-        // Convert the result into something we can send over the network.
-        var convertedResults = DropTableConverter.ToLootInfoList(rollResult);
+    private LootInfoList GetQuestRewardLoot(QuestTemplate qTemplate, QuestInstance qInstance, Wizard wizard) {
+        var rewards = ResolveQuestRewards(qInstance, qTemplate, q => RollQuestRewards(q, wizard, SessionActor.ActorRef, GetActiveGameObject()));
+        var loot = DropTableConverter.ToLootInfoList(rewards);
 
         // Spell rewards live in the results, not the drop tables; surface the wizard's own school spell.
-        convertedResults.m_loot ??= [];
-        AppendSpellRewards(convertedResults.m_loot, qTemplate, playerWizard);
+        loot.m_loot ??= [];
+        AppendSpellRewards(loot.m_loot, qTemplate, wizard);
 
-        return convertedResults;
+        return loot;
     }
 
     /// <summary>
@@ -1643,7 +1747,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     /// own school's spell; without a wizard, gated results are skipped.
     /// </summary>
     internal static void AppendSpellRewards(List<LootInfo> loot, QuestTemplate qTemplate, Wizard playerWizard) {
-        foreach (var learnSpell in qTemplate.m_endResults.m_results.OfType<ResLearnSpell>()) {
+        foreach (var learnSpell in (qTemplate.m_endResults?.m_results ?? []).OfType<ResLearnSpell>()) {
             if (learnSpell.m_templateID == 0) {
                 continue;
             }
@@ -1845,8 +1949,8 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 continue;
             }
 
-            var questInstance = new QuestInstance(template, wizard.CharId);
-            if (!wizard.AddQuest(questInstance)) {
+            var questInstance = StartQuestInstance(template, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest);
+            if (questInstance is null) {
                 continue;
             }
 

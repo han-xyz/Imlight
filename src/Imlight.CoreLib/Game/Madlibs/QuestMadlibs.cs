@@ -32,10 +32,11 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 08/21/2026
+ * Last Updated: 10/26/2026
  */
 
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System;
@@ -219,11 +220,11 @@ internal static class QuestMadlibs {
                 },
                 new MadlibArgT_int {
                     m_madlibToken = "TOTAL",
-                    m_madlibArgument = gTemplate.m_tallyCounter?.m_count ?? 0
+                    m_madlibArgument = QuestService.GetGoalTotal(gTemplate)
                 },
                 new MadlibArgT_int {
                     m_madlibToken = "SUBSCRIBER_TOTAL",
-                    m_madlibArgument = gTemplate.m_tallyCounter?.m_count ?? 0
+                    m_madlibArgument = QuestService.GetGoalTotal(gTemplate)
                 }
             ],
             m_blockToken = "GOAL"

@@ -40,6 +40,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Madlibs;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Game.Spells;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Items;
@@ -217,8 +218,8 @@ internal static class LevelUpElixirHelper {
                     if (!string.IsNullOrWhiteSpace(questName) && !wizard.QuestBehavior.HasQuest(questName) && !wizard.QuestBehavior.HasCompletedQuest(questName)) {
                         var questTemplate = QuestTemplateCollection.GetQuestByName(questName);
                         if (questTemplate != null) {
-                            var newInstance = new QuestInstance(questTemplate, wizard.CharId);
-                            if (wizard.AddQuest(newInstance)) {
+                            var newInstance = QuestService.StartQuestInstance(questTemplate, wizard, null, null, wizard.AddQuest);
+                            if (newInstance is not null) {
                                 SendQuestStartingMessage(newInstance, questTemplate, sendToSocket);
                             }
                         }
