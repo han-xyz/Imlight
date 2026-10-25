@@ -181,6 +181,40 @@ public class ServerWizGameStats : IClientTypeProvider<WizGameStats> {
         this.m_baseMana = baseStats.m_mana;
         this.m_powerPipBase = baseStats.m_pipChance;
         this.m_energyMax = baseStats.m_petEnergy;
+
+        ResetEffectStats();
+    }
+
+    // Everything equipment effects add to, so recalculating twice does not count the gear twice.
+    private void ResetEffectStats() {
+        m_dmgBonusPercent = null;
+        m_dmgBonusFlat = null;
+        m_accBonusPercent = null;
+        m_dmgReducePercent = null;
+        m_dmgReduceFlat = null;
+        m_criticalHitRatingBySchool = null;
+        m_blockRatingBySchool = null;
+
+        m_dmgBonusPercentAll = 0;
+        m_dmgBonusFlatAll = 0;
+        m_accBonusPercentAll = 0;
+        m_dmgReducePercentAll = 0;
+        m_dmgReduceFlatAll = 0;
+        m_criticalHitRatingAll = 0;
+        m_blockRatingAll = 0;
+        m_powerPipBonusPercentAll = 0;
+        m_healBonusPercentAll = 0;
+        m_healIncBonusPercentAll = 0;
+        m_startingPips = 0;
+        m_startingPowerPips = 0;
+
+        m_balanceMastery = 0;
+        m_deathMastery = 0;
+        m_fireMastery = 0;
+        m_iceMastery = 0;
+        m_lifeMastery = 0;
+        m_mythMastery = 0;
+        m_stormMastery = 0;
     }
 
     /// <summary>
