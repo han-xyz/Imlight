@@ -286,8 +286,9 @@ internal static class Program {
             return true;
         }
 
-        Logger.Fatal("Administrator accounts {Usernames} still use the shipped default password. "
-            + "Delete them or give them a new password with the account commands from another Administrator.",
+        Logger.Fatal("Administrator account(s) {Usernames} still use the shipped default password. "
+            + "Fix one of: (1) set AdminAccountUsername to that account for one boot so it is reset to the configured password, then rename again; "
+            + "(2) delete it from the player database. Boot refused.",
             Logger.Args(string.Join(", ", refusedUsernames)));
 
         return false;
