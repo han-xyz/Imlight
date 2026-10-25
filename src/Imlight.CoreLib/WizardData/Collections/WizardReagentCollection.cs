@@ -34,19 +34,18 @@ internal sealed class WizardReagentCollection {
     }
 
     /// <summary>
-    /// Adds a reagent to reagent collection. Assumes that the caller has already
-    /// added this particular reagent to the player's inventory.
+    /// Saves a reagent stack the caller has already added to the player's reagent bag.
     /// </summary>
-    /// <param name="reagentItem">The reagent to add.</param>
+    /// <param name="reagentItem">The stack, holding its full in-bag quantity.</param>
     public static void AddReagent(ClientReagentItem reagentItem) {
         using var session = s_store.OpenSession();
 
-        // Check if the player already has this reagent. If so, increase the quantity.
+        // The in-bag stack already counts the added unit, so its quantity replaces the stored one.
         var existingReagent = session.Query<ClientReagentItem>(collectionName: CollectionName)
             .FirstOrDefault(x => x.m_characterId == reagentItem.m_characterId
                               && x.m_templateID == reagentItem.m_templateID);
         if (existingReagent != null) {
-            existingReagent.m_quantity += reagentItem.m_quantity;
+            existingReagent.m_quantity = reagentItem.m_quantity;
             session.SaveChanges();
 
             return;
@@ -62,14 +61,13 @@ internal sealed class WizardReagentCollection {
     }
 
     /// <summary>
-    /// Removes a reagent from the reagent collection. Assumes that the caller has already
-    /// removed this particular reagent from the player's inventory.
+    /// Saves a reagent stack the caller has already reduced in the player's reagent bag,
+    /// deleting it once empty.
     /// </summary>
-    /// <param name="reagentItem">The reagent to remove.</param>
+    /// <param name="reagentItem">The stack, holding its remaining in-bag quantity.</param>
     public static void RemoveReagent(ClientReagentItem reagentItem) {
         using var session = s_store.OpenSession();
 
-        // Check if the player has this reagent. If so, decrease the quantity.
         var existingReagent = session.Query<ClientReagentItem>(collectionName: CollectionName)
             .FirstOrDefault(x => x.m_characterId == reagentItem.m_characterId
                               && x.m_templateID == reagentItem.m_templateID);
@@ -77,7 +75,7 @@ internal sealed class WizardReagentCollection {
             return;
         }
 
-        existingReagent.m_quantity -= reagentItem.m_quantity;
+        existingReagent.m_quantity = reagentItem.m_quantity;
 
         if (existingReagent.m_quantity <= 0) {
             session.Delete(existingReagent);

@@ -32,11 +32,27 @@ public class ServerAlchemyBehavior : IClientBehaviorProvider<ClientAlchemyBehavi
 
     private static readonly int s_maxReagentStackAllowed = 999;
 
+    internal static int MaxReagentStack => s_maxReagentStackAllowed;
+
     public List<ulong> ReagentItemIds { get; set; }
 
     [JsonIgnore] public List<ClientReagentItem> Reagents { get; set; }
     [JsonIgnore] public List<CraftingSlot> CraftingSlots { get; set; }
     [JsonIgnore] public List<Recipe> Recipes { get; set; }
+
+    /// <summary>
+    /// Caps stacks loaded from the player database, which earlier saves could push past the stack limit.
+    /// </summary>
+    /// <returns>How many stacks were capped.</returns>
+    internal static int CapLoadedStacks(IEnumerable<ClientReagentItem> reagents) {
+        var capped = 0;
+        foreach (var reagent in reagents.Where(r => r.m_quantity > s_maxReagentStackAllowed)) {
+            reagent.m_quantity = s_maxReagentStackAllowed;
+            capped++;
+        }
+
+        return capped;
+    }
 
     /// <summary>
     /// Adds a reagent to the player's reagent bag.

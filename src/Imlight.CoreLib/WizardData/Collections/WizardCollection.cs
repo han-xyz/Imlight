@@ -24,6 +24,7 @@ using System.Linq;
 using Imcodec.Math;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -610,6 +611,10 @@ public static class WizardCollection {
         // Load the character's reagents.
         wizard.AlchemyBehavior ??= new();
         if (WizardReagentCollection.TryGetWizardReagentBag(wizard.CharId, out var reagents)) {
+            var capped = ServerAlchemyBehavior.CapLoadedStacks(reagents);
+            if (capped > 0) {
+                Logger.Warning("Capped {0} reagent stacks of character {1} at the stack limit.", Logger.Args(capped, wizard.CharId));
+            }
             wizard.AlchemyBehavior.Reagents = reagents;
         }
         else {
