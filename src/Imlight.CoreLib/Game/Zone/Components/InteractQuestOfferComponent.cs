@@ -203,6 +203,9 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
     }
 
+    public void ForgetPlayerState(Wizard playerCharacter)
+        => _cachedPlayerStates.Remove(playerCharacter.CharId);
+
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var memento = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         var playerId = playerObject.m_globalID.Full;

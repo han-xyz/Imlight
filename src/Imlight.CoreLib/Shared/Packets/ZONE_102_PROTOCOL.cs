@@ -1437,4 +1437,22 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
 
     }
 
+    /// <summary>
+    /// Broadcast to a <see cref="Zone"/>'s objects when a player's quests changed (a quest accepted or completed,
+    /// a goal completed): every NPC the player stands at re-sends that player's option list.
+    /// </summary>
+    public sealed class MSG_QUESTSTATECHANGED : IServerMessage {
+
+        public byte MessageOrder { get; } = 96;
+        public byte ServiceID { get; } = 102;
+
+        public ulong PlayerGlobalId;
+
+        /// <summary>
+        /// When set, only the NPC with this persona name refreshes (a ResReInteract result).
+        /// </summary>
+        public string PersonaName;
+
+    }
+
 }

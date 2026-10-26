@@ -896,6 +896,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         SendQuestStartingMessage(quest, questInstance);
+        RefreshNpcOptions();
 
         return true;
     }
@@ -1313,12 +1314,28 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 CompleteQuest(questInstance);
             }
 
+            RefreshNpcOptions();
             return;
         }
 
         foreach (var g in gTemplates) {
             StartGoal(questInstance, g);
         }
+
+        RefreshNpcOptions();
+    }
+
+    private void RefreshNpcOptions() {
+        var zoneActor = SessionActor.GetZoneActor();
+        var playerObject = GetActiveGameObject();
+        if (zoneActor is null || playerObject is null) {
+            return;
+        }
+
+        zoneActor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
+            Messages = [new ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED { PlayerGlobalId = playerObject.m_globalID.Full }],
+            Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Paths,
+        });
     }
 
     // Zone triggers listen for this event to react to a goal (an NPC walks to a new spot, a barricade falls).
@@ -1402,6 +1419,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         // Chain advance: completion stamps the "Complete" registry entry, which is the ReqHasEntry
         // prerequisite of the next quest in the dungeon's chain.
         TryGrantDungeonQuests(wizard);
+        RefreshNpcOptions();
     }
 
     private void SendGoalMessage(GoalTemplate gTemplate, QuestInstance qInstance, byte sendType = 0, bool forceSendDestZone = true) {

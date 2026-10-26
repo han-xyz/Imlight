@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -227,6 +227,20 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.Equal(5, wizard.GameStats.m_gardeningLevel);
     }
 
+    [Fact]
+    public void ResReInteract_TellsZoneToRefreshThePersona() {
+        var zone = Inbox.Create(_system);
+        var result = new ResReInteract { m_personaName = "GH2-HFJORD-NPC15_Persona" };
+        var playerObject = new CoreObject { m_globalID = new GID(42) };
+
+        Assert.True(Execute<ResReInteractHandler>(result,
+            new PlayerContext(_player.Receiver, result, zone: zone.Receiver, playerObject: playerObject)));
+
+        var broadcast = Assert.IsType<ZONE_102_PROTOCOL.MSG_ZONEBROADCAST>(zone.Receive(s_timeout));
+        var refresh = Assert.IsType<ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED>(Assert.Single(broadcast.Messages));
+        Assert.Equal((42ul, "GH2-HFJORD-NPC15_Persona"), (refresh.PlayerGlobalId, refresh.PersonaName));
+    }
+
     private bool Execute<THandler>(Result result) where THandler : ActorBase
         => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));
 
@@ -266,12 +280,12 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     private sealed class PlayerContext(IActorRef player, Result result, string? sourceName = null,
-        ZoneScriptState? zoneState = null) : IResultContext {
+        ZoneScriptState? zoneState = null, IActorRef? zone = null, CoreObject? playerObject = null) : IResultContext {
 
         public IEnumerable<Result> GetResults() => [result];
-        public IActorRef GetZoneActor() => ActorRefs.Nobody;
+        public IActorRef GetZoneActor() => zone ?? ActorRefs.Nobody;
         public IActorRef GetPlayerRef() => player;
-        public CoreObject GetPlayerObj() => null!;
+        public CoreObject GetPlayerObj() => playerObject!;
         public IActorRef GetReplyTo() => ActorRefs.Nobody;
         public string GetSourceName() => sourceName!;
         public ZoneScriptState GetZoneState() => zoneState!;

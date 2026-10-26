@@ -228,6 +228,9 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         WizBang = state.HasActiveGoal ? WizBangs.CompleteQuestGoal : WizBangs.None;
     }
 
+    public void ForgetPlayerState(Wizard playerCharacter)
+        => _cachedPlayerStates.Remove(playerCharacter.CharId);
+
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var state = GetOrUpdatePlayerState(playerCharacter);
         if (state.HasActiveGoal) {
