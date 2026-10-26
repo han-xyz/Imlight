@@ -470,34 +470,7 @@ public class CombatResolver(Duel duel, CombatDuelSubCircle[] actorSubCircles) {
         // Treasure cards are permanently consumed on successful cast.
         // Regular spells are discarded and return to the deck on reshuffle.
         if (action.m_spell.m_treasureCard) {
-            var consumedTemplateId = caster.ConsumeFromVault(action.m_spell);
-            if (consumedTemplateId != 0 && caster._wizard != null && !caster.IsSandboxed) {
-                // Persist the removal from the player's treasure card book.
-                caster._wizard.SpellbookBehavior.RemoveTreasureCard(consumedTemplateId);
-                WizardCollection.RemoveTreasureCard(caster._wizard, consumedTemplateId);
-
-                // Also remove from the equipped deck's spell list so it doesn't
-                // reappear when the player re-opens their deck after combat.
-                var deckSlot = caster._wizard.EquipmentBehavior.SlotList
-                    .FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck);
-                if (deckSlot?.ItemId != null) {
-                    caster._wizard.RemoveSpellFromDeck(consumedTemplateId, deckSlot.ItemId.Value);
-
-                    // Tell the client to remove the TC from the deck UI.
-                    var spellTemplate = CoreObjectFactory.GetCoreTemplate(consumedTemplateId) as SpellTemplate;
-                    if (spellTemplate != null) {
-                        var spellHash = StringHash.Compute(spellTemplate.m_name);
-                        caster.ParticipantActor.Tell(
-                            new WIZARD_12_PROTOCOL.MSG_REMOVETREASURESPELLFROMDECK {
-                                SpellID = (int) spellHash,
-                                EnchantmentID = 0,
-                                DeckID = deckSlot.ItemId.Value,
-                                Success = 1,
-                                Destroy = 0
-                            }, ActorRefs.NoSender);
-                    }
-                }
-            }
+            caster.ConsumeTreasureCard(action.m_spell);
         }
         else {
             caster.DiscardCard(action.m_spell);

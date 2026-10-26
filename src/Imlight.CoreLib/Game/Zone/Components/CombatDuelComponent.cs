@@ -1689,28 +1689,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
         // Consume enchantment card from hand and vault or deck
         if (enchantSpell.m_treasureCard) {
-            var consumedId = caster.ConsumeFromVault(enchantSpell);
-            if (consumedId != 0 && caster._wizard != null) {
-                caster._wizard.SpellbookBehavior?.RemoveTreasureCard(consumedId);
-                WizardCollection.RemoveTreasureCard(caster._wizard, consumedId);
-
-                var deckSlot = caster._wizard.EquipmentBehavior?.SlotList?
-                    .FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck);
-                if (deckSlot?.ItemId != null) {
-                    caster._wizard.RemoveSpellFromDeck(consumedId, deckSlot.ItemId.Value);
-                    if (enchantTemplate != null) {
-                        var spellHash = StringHash.Compute(enchantTemplate.m_name);
-                        caster.ParticipantActor?.Tell(
-                            new WIZARD_12_PROTOCOL.MSG_REMOVETREASURESPELLFROMDECK {
-                                SpellID = (int) spellHash,
-                                EnchantmentID = 0,
-                                DeckID = deckSlot.ItemId.Value,
-                                Success = 1,
-                                Destroy = 0
-                            }, ActorRefs.NoSender);
-                    }
-                }
-            }
+            caster.ConsumeTreasureCard(enchantSpell);
         }
         else {
             caster.ConsumeCard(enchantSpell);
