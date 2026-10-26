@@ -240,7 +240,7 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         switch (itemTemplate) {
             // Pack loot is rolled and cannot be taken back, so packs are the whole grant.
             case BoosterPackTemplate:
-                return TryOpenPacks(wizard, giftRedemption.m_itemId, count) ? 0 : RedeemFailed;
+                return TryOpenPacks(wizard, new Dictionary<ulong, int> { [giftRedemption.m_itemId] = count }) ? 0 : RedeemFailed;
 
             case GoldAmountTemplate goldItem:
                 var gold = goldItem.m_goldAmount * count;
@@ -289,10 +289,8 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                 }
 
                 // Pack loot cannot be taken back, so packs open after everything that can.
-                foreach (var (packId, packCount) in bundlePackCounts) {
-                    if (!TryOpenPacks(wizard, packId, packCount)) {
-                        return RedeemFailed;
-                    }
+                if (bundlePackCounts.Count > 0 && !TryOpenPacks(wizard, bundlePackCounts)) {
+                    return RedeemFailed;
                 }
                 return 0;
 
@@ -375,8 +373,8 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
     internal static IEnumerable<(ulong TemplateId, CoreTemplate Template, int Count)> BundleContents(ItemBundleTemplate bundle, int count)
         => bundle.m_bundleItems.Select(templateId => ((ulong) templateId, CoreObjectFactory.GetCoreTemplate(templateId), count));
 
-    private bool TryOpenPacks(Wizard wizard, ulong packTemplateId, int count) {
-        if (PackManager.OpenPack(SessionActor.ActorRef, wizard, packTemplateId, count)) {
+    private bool TryOpenPacks(Wizard wizard, IReadOnlyDictionary<ulong, int> packCounts) {
+        if (PackManager.OpenPacks(SessionActor.ActorRef, wizard, packCounts)) {
             return true;
         }
 

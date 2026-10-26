@@ -394,10 +394,8 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 }
 
                 // Pack loot cannot be taken back, so packs open after everything that can.
-                foreach (var (packId, packCount) in bundlePackCounts) {
-                    if (!PackManager.OpenPack(SessionActor.ActorRef, wizard, packId, packCount)) {
-                        return s_errorInvFull;
-                    }
+                if (bundlePackCounts.Count > 0 && !PackManager.OpenPacks(SessionActor.ActorRef, wizard, bundlePackCounts)) {
+                    return s_errorInvFull;
                 }
                 return 0;
 

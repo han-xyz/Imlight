@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.Cryptography;
@@ -38,6 +39,7 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -50,10 +52,67 @@ public static class PackManager {
     private static readonly ObjectSerializer s_objectSerializer = new(Versionable: false);
 
     /// <summary>
-    /// Opens one or more booster packs atomically, grants the drops to the player, and sends the client confirmations.
-    /// Returns <c>true</c> if all drops across all packs were successfully granted; otherwise, <c>false</c>.
+    /// Opens booster packs of one template; see <see cref="OpenPacks"/>.
     /// </summary>
-    public static bool OpenPack(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count = 1) {
+    public static bool OpenPack(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count = 1)
+        => OpenPacks(sessionActorRef, wizard, new Dictionary<ulong, int> { [packTemplateId] = count });
+
+    /// <summary>
+    /// Opens every listed pack as one grant: all packs are rolled, and their combined loot is checked against the backpack
+    /// and the reagent and snack bags, before any loot is granted. Returns <c>false</c>, with nothing granted, if any pack
+    /// cannot be rolled or the loot does not fit.
+    /// </summary>
+    /// <param name="packCounts">How many packs of each pack template to open.</param>
+    public static bool OpenPacks(IActorRef sessionActorRef, Wizard wizard, IReadOnlyDictionary<ulong, int> packCounts) {
+        var rolledPacks = new List<RolledPack>();
+        foreach (var (packTemplateId, count) in packCounts) {
+            if (!TryRollPacks(sessionActorRef, wizard, packTemplateId, count, rolledPacks)) {
+                return false;
+            }
+        }
+
+        var allDrops = rolledPacks.SelectMany(pack => pack.Drops).Select(drop => (drop.ItemTemplateId, drop.ItemTemplate));
+        if (!HasRoomFor(wizard, allDrops)) {
+            Logger.Warning("Booster packs {0} grant failed: the loot does not fit the backpack or bags.",
+                Logger.Args(string.Join(",", packCounts.Keys)));
+            return false;
+        }
+
+        foreach (var (packTemplateId, rolledDrops, serializedLoot) in rolledPacks) {
+            foreach (var (itemTemplateId, itemTemplate, tableName, itemName) in rolledDrops) {
+                GrantDroppedItem(sessionActorRef, wizard, itemTemplateId, itemTemplate);
+
+                Logger.Information("Granted {0} ({1}) from slot {2}",
+                    Logger.Args(itemName, itemTemplateId, tableName));
+            }
+
+            sessionActorRef.Tell(new WIZARD_12_PROTOCOL.MSG_CROWNSBUYCONFIRM {
+                Failure = 0,
+                WebFailure = 0,
+                Credits = wizard.Account.Crowns,
+                Data = serializedLoot,
+                TemplateID = packTemplateId
+            });
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the backpack takes every dropped item and the bags take every dropped reagent and snack, all at once.
+    /// </summary>
+    internal static bool HasRoomFor(Wizard wizard, IEnumerable<(uint ItemTemplateId, CoreTemplate ItemTemplate)> drops) {
+        var dropList = drops.ToList();
+        var inventorySlotsNeeded = dropList.Count(drop => drop.ItemTemplate is not (SpellTemplate or ReagentItemTemplate or PetSnackItemTemplate));
+        if (inventorySlotsNeeded > 0 && !wizard.InventoryBehavior.HasInventorySpace(inventorySlotsNeeded)) {
+            return false;
+        }
+
+        return GiftingService.CanHoldStacks(wizard, dropList.Select(drop => ((ulong) drop.ItemTemplateId, drop.ItemTemplate, 1)));
+    }
+
+    private static bool TryRollPacks(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count,
+                                     List<RolledPack> rolledPacks) {
         if (count < 1) {
             return false;
         }
@@ -69,12 +128,6 @@ public static class PackManager {
             return false;
         }
 
-        var rolledPacks = new List<(List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)> Drops, ByteString SerializedLoot)>(count);
-        var inventorySlotsNeeded = 0;
-        var reagentCounts = new Dictionary<ulong, int>();
-        var snackCounts = new Dictionary<ulong, int>();
-
-        // 1. Roll and serialize all packs in memory first without modifying player state.
         for (var i = 0; i < count; i++) {
             var rolledDrops = new List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)>();
             foreach (var tableName in lootTables) {
@@ -108,16 +161,6 @@ public static class PackManager {
             var lootRarities = new List<LootRarity>(rolledDrops.Count);
 
             foreach (var (itemTemplateId, itemTemplate, tableName, _) in rolledDrops) {
-                if (itemTemplate is ReagentItemTemplate) {
-                    reagentCounts[itemTemplateId] = reagentCounts.GetValueOrDefault(itemTemplateId) + 1;
-                }
-                else if (itemTemplate is PetSnackItemTemplate) {
-                    snackCounts[itemTemplateId] = snackCounts.GetValueOrDefault(itemTemplateId) + 1;
-                }
-                else if (itemTemplate is not SpellTemplate) {
-                    inventorySlotsNeeded++;
-                }
-
                 LootInfo lootInfo = itemTemplate switch {
                     SpellTemplate => new TreasureCardLootInfo {
                         m_lootType = LOOT_TYPE.LOOT_TYPE_TREASURE_CARD,
@@ -162,52 +205,16 @@ public static class PackManager {
                 return false;
             }
 
-            rolledPacks.Add((rolledDrops, serializedLoot));
-        }
-
-        // 2. Pre-validate aggregated capacity across all rolled packs before modifying player state.
-        if (inventorySlotsNeeded > 0 && !wizard.InventoryBehavior.HasInventorySpace(inventorySlotsNeeded)) {
-            Logger.Warning("Booster pack {0} grant failed: inventory full (needed {1} slots).",
-                Logger.Args(packTemplateId, inventorySlotsNeeded));
-            return false;
-        }
-
-        foreach (var (reagentId, needed) in reagentCounts) {
-            if (!(wizard.AlchemyBehavior?.HasReagentSpace(reagentId, needed) ?? false)) {
-                Logger.Warning("Booster pack {0} grant failed: reagent stack limit reached for {1}.",
-                    Logger.Args(packTemplateId, reagentId));
-                return false;
-            }
-        }
-
-        foreach (var (snackId, needed) in snackCounts) {
-            if (!(wizard.PetSnackBehavior?.HasSnackSpace(snackId, needed) ?? false)) {
-                Logger.Warning("Booster pack {0} grant failed: pet snack stack limit reached for {1}.",
-                    Logger.Args(packTemplateId, snackId));
-                return false;
-            }
-        }
-
-        // 3. Grant the rolled drops and dispatch confirmations now that capacity is guaranteed.
-        foreach (var (rolledDrops, serializedLoot) in rolledPacks) {
-            foreach (var (itemTemplateId, itemTemplate, tableName, itemName) in rolledDrops) {
-                GrantDroppedItem(sessionActorRef, wizard, itemTemplateId, itemTemplate);
-
-                Logger.Information("Granted {0} ({1}) from slot {2}",
-                    Logger.Args(itemName, itemTemplateId, tableName));
-            }
-
-            sessionActorRef.Tell(new WIZARD_12_PROTOCOL.MSG_CROWNSBUYCONFIRM {
-                Failure = 0,
-                WebFailure = 0,
-                Credits = wizard.Account.Crowns,
-                Data = serializedLoot,
-                TemplateID = packTemplateId
-            });
+            rolledPacks.Add(new RolledPack(packTemplateId, rolledDrops, serializedLoot));
         }
 
         return true;
     }
+
+    private sealed record RolledPack(
+        ulong PackTemplateId,
+        List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)> Drops,
+        ByteString SerializedLoot);
 
     private static void GrantDroppedItem(
         IActorRef sessionActorRef,
