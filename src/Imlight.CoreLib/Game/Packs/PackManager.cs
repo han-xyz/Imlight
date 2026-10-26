@@ -38,8 +38,8 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Pet;
-using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -108,7 +108,7 @@ public static class PackManager {
             return false;
         }
 
-        return GiftingService.CanHoldStacks(wizard, dropList.Select(drop => ((ulong) drop.ItemTemplateId, drop.ItemTemplate, 1)));
+        return StackRoom.CanHoldStacks(wizard, dropList.Select(drop => ((ulong) drop.ItemTemplateId, drop.ItemTemplate, 1)));
     }
 
     private static bool TryRollPacks(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count,

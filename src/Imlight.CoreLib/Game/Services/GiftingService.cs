@@ -43,6 +43,7 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Networking;
@@ -180,7 +181,7 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                 return;
             }
         }
-        else if (itemTemplate is ItemBundleTemplate bundlePrecheck && !CanHoldStacks(wizard, BundleContents(bundlePrecheck, itemCount))) {
+        else if (itemTemplate is ItemBundleTemplate bundlePrecheck && !StackRoom.CanHoldStacks(wizard, StackRoom.BundleContents(bundlePrecheck, itemCount))) {
             InformGameClient("Your reagent or pet snack bag cannot hold this bundle!");
             SendRedeemFailure(message.MailId);
             return;
@@ -350,28 +351,6 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
 
         return count;
     }
-
-    /// <summary>
-    /// Whether the reagent and pet snack bags can take every stack listed; other templates are ignored.
-    /// </summary>
-    internal static bool CanHoldStacks(Wizard wizard, IEnumerable<(ulong TemplateId, CoreTemplate Template, int Count)> items) {
-        var reagents = new Dictionary<ulong, int>();
-        var snacks = new Dictionary<ulong, int>();
-        foreach (var (templateId, template, count) in items) {
-            if (template is ReagentItemTemplate) {
-                reagents[templateId] = reagents.GetValueOrDefault(templateId) + count;
-            }
-            else if (template is PetSnackItemTemplate) {
-                snacks[templateId] = snacks.GetValueOrDefault(templateId) + count;
-            }
-        }
-
-        return reagents.All(reagent => wizard.AlchemyBehavior?.HasReagentSpace(reagent.Key, reagent.Value) ?? false)
-            && snacks.All(snack => wizard.PetSnackBehavior?.HasSnackSpace(snack.Key, snack.Value) ?? false);
-    }
-
-    internal static IEnumerable<(ulong TemplateId, CoreTemplate Template, int Count)> BundleContents(ItemBundleTemplate bundle, int count)
-        => bundle.m_bundleItems.Select(templateId => ((ulong) templateId, CoreObjectFactory.GetCoreTemplate(templateId), count));
 
     private bool TryOpenPacks(Wizard wizard, IReadOnlyDictionary<ulong, int> packCounts) {
         if (PackManager.OpenPacks(SessionActor.ActorRef, wizard, packCounts)) {

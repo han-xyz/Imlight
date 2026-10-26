@@ -49,6 +49,7 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Elixirs;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Pet;
@@ -367,8 +368,8 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 return s_errorPurchase;
 
             case ItemBundleTemplate itemBundle:
-                var bundleContents = GiftingService.BundleContents(itemBundle, (int) message.Count).ToList();
-                if (!GiftingService.CanHoldStacks(wizard, bundleContents)) {
+                var bundleContents = StackRoom.BundleContents(itemBundle, (int) message.Count).ToList();
+                if (!StackRoom.CanHoldStacks(wizard, bundleContents)) {
                     return s_errorInvFull;
                 }
 
