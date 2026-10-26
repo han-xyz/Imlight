@@ -87,6 +87,46 @@ public sealed class CrownShopTests : IDisposable {
         Assert.Equal(35000, item.m_goldCost);
     }
 
+    [CloneFact]
+    public void CrownShop_RealDataPackLayout_DefinesEveryReferencedCategoryOnce() {
+        var catalogue = CrownShopCatalogue.Load(Path.Combine(s_spiralDbClone!, "CrownShop"));
+        var categoryIds = catalogue.Categories.Select(c => c.CategoryId).ToList();
+        var tabIds = catalogue.Tabs.Select(t => t.TabId).ToHashSet();
+
+        Assert.Equal(categoryIds.Count, categoryIds.Distinct().Count());
+        Assert.All(catalogue.Tabs.SelectMany(t => t.CategoryIds), id => Assert.Contains(id, categoryIds));
+        Assert.All(catalogue.Tabs.SelectMany(t => t.Items).SelectMany(i => i.DisplayPriority),
+            id => Assert.Contains((int) id, categoryIds));
+        Assert.All(catalogue.Categories, c => Assert.Contains(c.ParentTabId, tabIds));
+        Assert.Equal(categoryIds, catalogue.RecommendedItems.m_categoryData.Select(c => c.m_id));
+    }
+
+    [Fact]
+    public void Load_CategoryDefinedInTwoTabs_IsListedOnceUnderTheFirstTab() {
+        WriteTab("Tab2.json", 38, "[]", categoryId: 26);
+        WriteTab("Tab4.json", 40, "[]", categoryId: 26);
+
+        var catalogue = CrownShopCatalogue.Load(_directory);
+
+        var category = Assert.Single(catalogue.Categories);
+        Assert.Equal(26, category.CategoryId);
+        Assert.Equal(38, category.ParentTabId);
+    }
+
+    [Fact]
+    public void RecommendedItems_ListEveryCategoryWithItsItemsOnce() {
+        WriteTab("Tab0.json", 36, "[]");
+        WriteTab("Tab2.json", 38, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10, "displayPriority": [38] }]""");
+        WriteTab("Tab4.json", 40, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10, "displayPriority": [38] }]""");
+
+        var recommended = CrownShopCatalogue.Load(_directory).RecommendedItems.m_categoryData;
+
+        Assert.Equal([36, 38, 40], recommended.Select(c => c.m_id));
+        Assert.Empty(recommended[0].m_items);
+        Assert.Equal([(int) GoldItemId], recommended[1].m_items.Select(i => i.m_templateID));
+        Assert.Empty(recommended[2].m_items);
+    }
+
     [Fact]
     public void SoldEmotes_SkipsItemWhoseTemplateThrows() {
         InitializeQuietLogging();
@@ -291,7 +331,7 @@ public sealed class CrownShopTests : IDisposable {
         return CrownShopCatalogue.Load(_directory);
     }
 
-    private void WriteTab(string fileName, int tabId, string itemsJson) {
+    private void WriteTab(string fileName, int tabId, string itemsJson, int? categoryId = null) {
         var json = $$"""
             {
               "tabId": {{tabId}},
@@ -302,7 +342,7 @@ public sealed class CrownShopTests : IDisposable {
               "description": "Tab {{tabId}}",
               "categories": [
                 {
-                  "categoryId": {{tabId}},
+                  "categoryId": {{categoryId ?? tabId}},
                   "parentTabId": {{tabId}},
                   "name": "CrownShopSWF_Category{{tabId}}",
                   "icon": "GUI/CrownShopIcons/Categories/Sale_Items.dds",
