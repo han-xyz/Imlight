@@ -228,11 +228,12 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         // A member travelling on from one of their run's zones is sent to the run owner's container; GameWorld still
         // places a public destination in its public copy.
         var traveller = GetActiveWizard();
-        var runOwnerCharId = message.SendToClient && message.HouseEntry is null && !message.IsPrivate
-            ? DungeonRunBook.Shared.RouteTransfer(traveller.CharId, traveller.Zone)
-            : 0;
-        if (runOwnerCharId != 0) {
-            message.OwnerCharId = runOwnerCharId;
+        var runTransfer = message.SendToClient && message.HouseEntry is null && !message.IsPrivate
+            ? DungeonRunBook.Shared.RouteTransfer(traveller.CharId, traveller.Zone, message.DestinationZone)
+            : null;
+        if (runTransfer is not null) {
+            message.OwnerCharId = runTransfer.OwnerCharId;
+            message.ResetInstance = runTransfer.ResetInstance;
         }
 
         // Sending the server transfer request to the server will allocate and load the zone.
@@ -260,7 +261,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         DungeonRunBook.Shared.Arrived(traveller.CharId, message.DestinationZone, zoneDetails.IsInstance,
-            fromRunZone: runOwnerCharId != 0);
+            fromRunZone: runTransfer is not null);
 
         // Check if the destination zone is the same as the current zone. If so, just teleport the player.
         var wizard = GetActiveWizard();

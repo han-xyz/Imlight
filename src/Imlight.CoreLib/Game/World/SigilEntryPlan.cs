@@ -43,11 +43,11 @@ using Imlight.CoreLib.Game.Groups;
 namespace Imlight.CoreLib.Game.World;
 
 /// <summary>
-/// The instance a sigil entrant is sent to.
+/// The instance a dungeon entry or a teleport inside a dungeon run is sent to.
 /// </summary>
 /// <param name="OwnerCharId">The owner of the instance container the entrant joins.</param>
-/// <param name="ResetInstance">Whether the entry drops the loaded copy and starts a fresh run.</param>
-internal sealed record SigilEntry(ulong OwnerCharId, bool ResetInstance);
+/// <param name="ResetInstance">Whether the transfer drops the loaded copy of the destination and builds a fresh one.</param>
+internal sealed record InstanceEntry(ulong OwnerCharId, bool ResetInstance);
 
 internal static class SigilEntryPlan {
 

@@ -99,12 +99,12 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     /// <param name="charId">The wizard whose countdown ended.</param>
     /// <param name="zoneName">The zone the sigil leads to.</param>
     /// <param name="padZoneName">The zone the pad stands in, where a member returns once the run has ended.</param>
-    internal SigilEntry Enter(ulong charId, string zoneName, string padZoneName) {
+    internal InstanceEntry Enter(ulong charId, string zoneName, string padZoneName) {
         lock (_lock) {
             var occupants = RemoveWaiting(charId, zoneName);
             var group = findGroup(charId);
             if (group is null) {
-                return new SigilEntry(charId, ResetInstance: true);
+                return new InstanceEntry(charId, ResetInstance: true);
             }
 
             var run = LiveRuns().FirstOrDefault(r => r.GroupId == group.GroupId);
@@ -117,15 +117,27 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             run.Members.Add(charId);
             _endedRunsByMember.Remove(charId);
 
-            return new SigilEntry(run.OwnerCharId, ResetInstance: run.Zones.Add(zoneName));
+            return new InstanceEntry(run.OwnerCharId, ResetInstance: run.Zones.Add(zoneName));
         }
     }
 
     /// <summary>
-    /// Gets the owner whose container a transfer leaving <paramref name="sourceZoneName"/> is sent to: the run's owner when
-    /// the wizard belongs to a live run that has reached that zone, otherwise 0.
+    /// Routes a transfer that leaves <paramref name="sourceZoneName"/> into the run owner's container, when the wizard
+    /// belongs to a live run that has reached that zone; otherwise null. The first transfer to a zone new to the run
+    /// resets it, so a copy left by an earlier run of the same owner is not reused.
     /// </summary>
-    internal ulong RouteTransfer(ulong charId, string sourceZoneName) => RunOwnerOf(charId, sourceZoneName);
+    internal InstanceEntry RouteTransfer(ulong charId, string sourceZoneName, string destinationZoneName) {
+        lock (_lock) {
+            var run = FindRunOf(charId);
+            if (run is null || !run.Zones.Contains(sourceZoneName)) {
+                return null;
+            }
+
+            var isFirstArrival = !run.Zones.Contains(destinationZoneName) && run.ClaimedZones.Add(destinationZoneName);
+
+            return new InstanceEntry(run.OwnerCharId, ResetInstance: isFirstArrival);
+        }
+    }
 
     /// <summary>
     /// Gets the owner whose copy of <paramref name="zoneName"/> the wizard attaches to, or 0 when no live run of theirs
@@ -149,6 +161,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
                 return;
             }
 
+            run.ClaimedZones.Remove(zoneName);
             if (isInstance && fromRunZone) {
                 run.Zones.Add(zoneName);
             }
@@ -244,6 +257,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
         public string PadZoneName { get; } = padZoneName;
         public HashSet<ulong> Members { get; } = [ownerCharId];
         public HashSet<string> Zones { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ClaimedZones { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<ulong> Inside { get; } = [];
         public DateTimeOffset? EmptySince { get; set; } = createdAt;
 
