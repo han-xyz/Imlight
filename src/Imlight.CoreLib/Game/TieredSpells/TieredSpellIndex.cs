@@ -92,9 +92,18 @@ internal sealed class TieredSpellIndex : RootSingleResourceSingleton<TieredSpell
             .Select((group, index) => new IndexedTieredSpellGroup(
                 group.m_tierOneSpell.ToString(),
                 group.m_shardType.Full,
-                [.. spellsByGroup[index]]))
+                [.. spellsByGroup[index]],
+                group.m_returnRate,
+                group.m_goldResetNonSubscribers,
+                group.m_crownsResetNonSubscribers))
             .ToList();
     }
+
+    /// <summary>
+    /// Whether two spells are tiers of the same group.
+    /// </summary>
+    internal bool AreSameGroup(string spellName, string otherSpellName)
+        => Groups.Any(group => group.Spells.Contains(spellName) && group.Spells.Contains(otherSpellName));
 
     public void DisposeStream() => Stream.Dispose();
 

@@ -26,6 +26,7 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Bank;
 using Imlight.CoreLib.Game.Cantrips;
+using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Packets;
@@ -309,6 +310,26 @@ internal class CommandModifyProtocol : CommandProtocol {
         Context.SessionActor.Tell(updateMessage, null);
 
         InformSenderClient($"Added reagent {reagentObj.m_debugName} to reagent bag.");
+    }
+
+    [Command("addreagents")]
+    [AuthRequired(AuthLevel.QualityAssurance)]
+    private void AddReagentsCommand(string templateId, string count) {
+        if (!ulong.TryParse(templateId, out var templateIdLong)
+            || CoreObjectFactory.GetCoreTemplate(templateIdLong) is not ReagentItemTemplate) {
+            InformSenderClient("Invalid reagent id.");
+
+            return;
+        }
+
+        if (!int.TryParse(count, out var countInt) || countInt <= 0) {
+            InformSenderClient("Invalid count.");
+
+            return;
+        }
+
+        var granted = LootGranter.GrantReagent(Context.SessionActor, Context.Character, templateIdLong, countInt);
+        InformSenderClient($"Added {granted} of {countInt} reagents {templateIdLong} to reagent bag.");
     }
 
     [Command("name")]

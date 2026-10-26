@@ -45,4 +45,12 @@ namespace Imlight.CoreLib.Game.TieredSpells;
 /// <param name="TierOneSpell">The name of the group's tier-one spell.</param>
 /// <param name="ShardTemplateId">The template id of the group's shard reagent.</param>
 /// <param name="Spells">The names of every spell of the group, the tier-one spell included.</param>
-internal sealed record IndexedTieredSpellGroup(string TierOneSpell, ulong ShardTemplateId, IReadOnlyList<string> Spells);
+/// <param name="ReturnRate">The percentage of the shards paid that a refund returns.</param>
+/// <param name="GoldResetCost">The gold a paid reset costs a wizard without a subscription.</param>
+/// <param name="CrownsResetCost">The crowns a paid reset costs a wizard without a subscription.</param>
+internal sealed record IndexedTieredSpellGroup(string TierOneSpell, ulong ShardTemplateId, IReadOnlyList<string> Spells,
+    uint ReturnRate = IndexedTieredSpellGroup.FullReturnRate, uint GoldResetCost = 0, uint CrownsResetCost = 0) {
+
+    internal const uint FullReturnRate = 100;
+
+}

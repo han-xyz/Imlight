@@ -30,7 +30,7 @@
  * A group is visible when the wizard has trained one of its spells or owns its shard.
  * 
  * TODO:
- * - Upgrades and multiple paths: canUpgrade and doPrep stay 0 until then.
+ * - Multiple paths: doPrep stays 0.
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -62,12 +62,14 @@ internal static class TieredSpellVisibility {
     /// <param name="groups">The groups in file order.</param>
     /// <param name="trainedSpells">The names of the spells the wizard has trained.</param>
     /// <param name="ownsReagent">Whether the wizard owns a reagent of a template id.</param>
-    /// <returns>The visibility, with nothing upgradable and nothing prepared for multiple paths.</returns>
+    /// <param name="canUpgrade">Whether the wizard can upgrade a group now; null when nothing is upgradable.</param>
+    /// <returns>The visibility, with nothing prepared for multiple paths.</returns>
     internal static TieredSpellGroupVisibility For(IReadOnlyList<IndexedTieredSpellGroup> groups,
-        IReadOnlySet<string> trainedSpells, Func<ulong, bool> ownsReagent)
+        IReadOnlySet<string> trainedSpells, Func<ulong, bool> ownsReagent,
+        Func<IndexedTieredSpellGroup, bool> canUpgrade = null)
         => new() {
             m_visibilityList = [.. groups.Select(group => IsVisible(group, trainedSpells, ownsReagent) ? Visible : Hidden)],
-            m_canUpgradeList = [.. groups.Select(_ => 0)],
+            m_canUpgradeList = [.. groups.Select(group => canUpgrade?.Invoke(group) == true ? 1 : 0)],
             m_doPrepTieredSpellForMPList = [.. groups.Select(_ => Hidden)],
         };
 
