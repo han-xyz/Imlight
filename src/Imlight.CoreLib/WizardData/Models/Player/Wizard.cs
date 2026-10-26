@@ -28,6 +28,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
+using Imlight.CoreLib.Game.Housing.Items;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Character;
@@ -722,18 +723,23 @@ public class Wizard {
             return false;
         }
 
-        InventoryBehavior.RemoveItem(item);
-        if (!StorageBehavior.AddItem(item)) {
-            InventoryBehavior.AddItem(item);
+        lock (HousingItems.BackpackLock(this)) {
+            if (!InventoryBehavior.RemoveItem(item)) {
+                return false;
+            }
 
-            return false;
+            if (!StorageBehavior.AddItem(item)) {
+                InventoryBehavior.AddItem(item);
+
+                return false;
+            }
+
+            // Persistent save.
+            return SaveItemsOrRollBack(() => {
+                StorageBehavior.RemoveItem(item);
+                InventoryBehavior.AddItem(item);
+            });
         }
-
-        // Persistent save.
-        return SaveItemsOrRollBack(() => {
-            StorageBehavior.RemoveItem(item);
-            InventoryBehavior.AddItem(item);
-        });
     }
 
     /// <summary>
