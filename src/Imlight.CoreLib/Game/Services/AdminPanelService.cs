@@ -17,7 +17,6 @@
  */
 
 using System;
-using System.Linq;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
@@ -25,7 +24,6 @@ using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.Minigames;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
-using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Services;
@@ -44,7 +42,6 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
     // Minigame jobs use random IDs below 0x80000000, so these cannot collide with them.
     private const uint FirstJobId = 0xAD000000;
     private const string ClientScript = "AdminPanel/Client.lua";
-    private static readonly TimeSpan s_onlineAdjustTimeout = TimeSpan.FromSeconds(5);
 
     private uint? _jobId;
     private uint _nextJobId = FirstJobId;
@@ -114,7 +111,7 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
                 break;
             case not null when action.StartsWith(PlayersPage.Prefix):
                 PlayersPage.Handle(account, wizard, action[PlayersPage.Prefix.Length..], fields[1..], Reply,
-                    AdjustOnlineCrowns);
+                    (accountId, change) => AccountAdministration.AdjustOnlineCrowns(Context, accountId, change));
                 break;
             default:
                 Reply(["status", "error", $"Unknown request '{action}'."]);
@@ -130,32 +127,6 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
 
         _jobId = null;
         Logger.Information("Admin panel: the client ended the script (job {0:X8}).", Logger.Args(message.JobID));
-    }
-
-    // An online player's Crowns are cached by their session, which saves the cached balance after each purchase,
-    // so the change must be made there; that session's Crown Shop also tells their client. Returns null when the
-    // account is not online.
-    private CrownChange AdjustOnlineCrowns(ulong accountId, int change) {
-        var player = OnlinePlayerCollection.GetOnlinePlayers()
-            .FirstOrDefault(x => x.AccountId == accountId && !string.IsNullOrEmpty(x.ActorPath));
-        if (player is null) {
-            return null;
-        }
-
-        try {
-            var reply = Context.ActorSelection(player.ActorPath)
-                .Ask<ACCOUNT_104_PROTOCOL.MSG_CROWNSADJUSTED>(new ACCOUNT_104_PROTOCOL.MSG_ADJUSTCROWNS { Change = change },
-                    s_onlineAdjustTimeout)
-                .Result;
-
-            return new(reply.Applied, reply.Before, reply.After);
-        }
-        catch (Exception ex) {
-            Logger.Warning("Admin panel: the session of account {0} did not answer a Crowns change: {1}",
-                Logger.Args(accountId, ex.InnerException?.Message ?? ex.Message));
-
-            return new(false, 0, 0, "The player's session did not answer, so the change may not have applied. Look the account up again before retrying.");
-        }
     }
 
     // Tabs separate the fields, so any inside a value become spaces.

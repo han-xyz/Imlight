@@ -18,8 +18,11 @@
 
 using System;
 using System.Globalization;
+using System.Linq;
+using Akka.Actor;
 using Imlight.Common;
 using Imlight.CoreLib.Auth;
+using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
@@ -35,7 +38,7 @@ internal sealed record AdminActionResult(bool Succeeded, string Message);
 internal sealed record CrownChange(bool Applied, int Before, int After, string Problem = null);
 
 /// <summary>
-/// The staff account actions shared by the admin panel and the chat commands.
+/// The staff account actions shared by the admin panel, the chat commands and the server console.
 /// </summary>
 /// <remarks>
 /// Each action checks the acting account itself, so callers need no checks of their own. Lacking the level for an
@@ -44,6 +47,8 @@ internal sealed record CrownChange(bool Applied, int Before, int After, string P
 /// do. Every change is written to the admin audit log.
 /// </remarks>
 internal static class AccountAdministration {
+
+    private static readonly TimeSpan s_onlineAdjustTimeout = TimeSpan.FromSeconds(5);
 
     internal static AdminActionResult CreateAccount(Account actor, Wizard character, string username, string password) {
         if (!CanAct(actor, AuthLevel.HallMonitor, out var refusal)) {
@@ -179,6 +184,36 @@ internal static class AccountAdministration {
             $"{target.Username}: {balance.Before} -> {balance.After} ({signedChange})");
 
         return new(true, $"{target.Username} now has {FormatCrowns(balance.After)} Crowns ({signedChange}).");
+    }
+
+    /// <summary>
+    /// Applies a Crowns change through an online account's session. Returns null when the account is not online.
+    /// </summary>
+    /// <remarks>
+    /// An online player's Crowns are cached by their session, which saves the cached balance after each purchase,
+    /// so the change must be made there; that session's Crown Shop also tells their client.
+    /// </remarks>
+    internal static CrownChange AdjustOnlineCrowns(IActorRefFactory actors, ulong accountId, int change) {
+        var player = OnlinePlayerCollection.GetOnlinePlayers()
+            .FirstOrDefault(x => x.AccountId == accountId && !string.IsNullOrEmpty(x.ActorPath));
+        if (player is null) {
+            return null;
+        }
+
+        try {
+            var reply = actors.ActorSelection(player.ActorPath)
+                .Ask<ACCOUNT_104_PROTOCOL.MSG_CROWNSADJUSTED>(new ACCOUNT_104_PROTOCOL.MSG_ADJUSTCROWNS { Change = change },
+                    s_onlineAdjustTimeout)
+                .Result;
+
+            return new(reply.Applied, reply.Before, reply.After);
+        }
+        catch (Exception ex) {
+            Logger.Warning("Admin panel: the session of account {0} did not answer a Crowns change: {1}",
+                Logger.Args(accountId, ex.InnerException?.Message ?? ex.Message));
+
+            return new(false, 0, 0, "The player's session did not answer, so the change may not have applied. Look the account up again before retrying.");
+        }
     }
 
     /// <summary>

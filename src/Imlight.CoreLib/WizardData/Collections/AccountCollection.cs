@@ -299,6 +299,21 @@ public static class AccountCollection {
     }
 
     /// <summary>
+    /// Gets the username, auth level and lock of every account, ordered by username.
+    /// </summary>
+    public static List<(string Username, AuthLevel AuthLevel, bool IsLocked)> GetAccountSummaries() {
+        using var session = s_store.OpenSession();
+
+        return session.Query<Account>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .Select(account => new { account.Username, account.AuthLevel, account.IsLocked })
+            .ToList()
+            .Select(account => (account.Username, account.AuthLevel, account.IsLocked))
+            .OrderBy(account => account.Username, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
     /// Locks the specified account by setting its IsLocked property to true.
     /// </summary>
     /// <param name="account">The account to be locked.</param>
