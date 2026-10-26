@@ -1836,16 +1836,18 @@ public class Wizard {
         }
 
         // The default pet must be created through the pet factory. 
-        var defaultPet = kit.PetTemplateId == 0 ? null : PetFactory.CreateHatchedPet(CharId, kit.PetTemplateId);
-        if (defaultPet is null && kit.PetTemplateId != 0) {
-            Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
-                Logger.Args(kit.PetTemplateId, CharId));
-        }
-        else if (defaultPet is not null) {
-            // Add pet to inventory.
-            itemsToAdd.Add(defaultPet);
-            InventoryBehavior.InventoryItemIds.Add(defaultPet.m_globalID);
-            InventoryBehavior.Items.Add(defaultPet);
+        if (kit.PetTemplateId != 0) {
+            var defaultPet = PetFactory.CreateHatchedPet(CharId, kit.PetTemplateId);
+            if (defaultPet is null) {
+                Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
+                    Logger.Args(kit.PetTemplateId, CharId));
+            }
+            else {
+                // Add pet to inventory.
+                itemsToAdd.Add(defaultPet);
+                InventoryBehavior.InventoryItemIds.Add(defaultPet.m_globalID);
+                InventoryBehavior.Items.Add(defaultPet);
+            }
         }
 
         // This is a different method that bulk uploads items to the database.
