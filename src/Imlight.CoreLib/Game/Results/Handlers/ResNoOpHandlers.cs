@@ -22,7 +22,7 @@
  * PURPOSE:
  * Accepts the results the server does not act on, so the rest of a result
  * list runs: client-only ones (package downloads, zone warnings, mission
- * doors, cinematics), untracked ones, and ones whose data is missing.
+ * doors, cinematics) and untracked ones.
  * 
  * USAGE EXAMPLE:
  * Runs from quest, goal and zone result lists.
@@ -106,26 +106,6 @@ internal sealed class ResCinematicHandler : BaseResultHandler<ResCinematic> {
 
     public override bool Execute(IResultContext context) {
         Logger.Debug("Cinematic {CinematicName} not played.", Logger.Args(Result.m_cinematicName));
-
-        return true;
-    }
-
-}
-
-internal sealed class ResAddTreasureSpellHandler : BaseResultHandler<ResAddTreasureSpell> {
-
-    public override bool Execute(IResultContext context) {
-        Logger.Information("Treasure card not granted: ResAddTreasureSpell names no card.");
-
-        return true;
-    }
-
-}
-
-internal sealed class ResAddEncounterXPHandler : BaseResultHandler<ResAddEncounterXP> {
-
-    public override bool Execute(IResultContext context) {
-        Logger.Information("Encounter experience not granted: ResAddEncounterXP carries no amount.");
 
         return true;
     }

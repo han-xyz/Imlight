@@ -210,6 +210,34 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
+    public void ResAddEncounterXP_SendsTheExperienceToTheSession() {
+        Assert.True(Execute<ResAddEncounterXPHandler>(new ResAddEncounterXP { m_experience = 25 }));
+
+        var gainXp = Assert.IsType<CHARACTER_103_PROTOCOL.MSG_GAINXP>(_player.Receive(s_timeout));
+        Assert.Equal(25, gainXp.XP);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("No Such Card")]
+    public void ResAddTreasureSpell_UnresolvedCard_GrantsNothing(string spellName) {
+        var result = new ResAddTreasureSpell { m_spellName = spellName };
+        var player = StubPlayer(new Wizard { CharId = CharacterId });
+
+        Assert.True(Execute<ResAddTreasureSpellHandler>(result, new PlayerContext(player, result)));
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    [Fact]
+    public void ResGiveSpell_TemplateId_NamesTheRecipient() {
+        Assert.True(Execute<ResGiveSpellHandler>(new ResGiveSpell { m_templateID = 35528, m_spellID = 2064457962 }));
+
+        var rebuild = Assert.IsType<TUTORIAL_108_PROTOCOL.MSG_TUTORIALREBUILDDUELHAND>(_player.Receive(s_timeout));
+        Assert.Equal([2064457962u], rebuild.SpellIdsToGrant);
+        Assert.Equal(35528UL, rebuild.RecipientTemplateId);
+    }
+
+    [Fact]
     public void ResSetGardeningLevel_UnlocksGardening() {
         var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) };
         var result = new ResSetGardeningLevel();
