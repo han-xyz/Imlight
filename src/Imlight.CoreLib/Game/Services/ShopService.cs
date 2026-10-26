@@ -51,6 +51,7 @@ using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.Game.Badges;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Game.Zone.Components;
@@ -64,6 +65,7 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
     private const float DYED_ITEM_COST_MULTIPLIER = 1.225f;
     // Public equipment carries each dye layer in 5 bits.
     private const int MaxDye = 31;
+    private const int PURCHASE_FAILED = 1;
     private const PropertyFlags EquippedItemMask = PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit;
 
     private static readonly CoreObjectSerializer s_itemSerializer = new(
@@ -463,25 +465,15 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
 
     private void ProcessSuccessfulPurchase(Wizard playerWizard, WizClientObjectItem item, uint itemTemplateID, int goldCost,
                                            bool isPet) {
-        var added = isPet ? playerWizard.AddPetToInventory(item) : playerWizard.AddItemToInventory(item);
-        if (!added) {
-            Logger.Warning("Could not add purchased item {0} to the inventory of {1}.",
-                Logger.Args(itemTemplateID, playerWizard.CharId));
+        var error = GrantTransaction.Run(
+            reserve: () => TryDebitGold(playerWizard, goldCost),
+            release: () => playerWizard.AddGold(goldCost),
+            grant: _ => TryGrantPurchasedItem(playerWizard, item, itemTemplateID, isPet));
+        if (error != 0) {
             SendShopDenyMessage();
 
             return;
         }
-
-        // Inform the game client that a new item has been added to the player's inventory.
-        if (!ItemSync.SendAdded(SessionActor.ActorRef, playerWizard, item)) {
-            playerWizard.RemoveItemFromInventory(item.m_globalID);
-            WizardItemCollection.RemoveItem(playerWizard.CharId, item.m_globalID);
-            SendShopDenyMessage();
-
-            return;
-        }
-
-        playerWizard.RemoveGold(goldCost);
 
         // Inform the game client that the player has acquired a new item.
         var itemAcqMsg = new WIZARD2_53_PROTOCOL.MSG_ITEMACQUISITION {
@@ -501,6 +493,35 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
         // Inform the game client that the purchase was successful.
         var shopConfirmMsg = new WIZARD_12_PROTOCOL.MSG_SHOPBUYCONFIRM();
         SendToSocket(shopConfirmMsg);
+    }
+
+    private static int TryDebitGold(Wizard wizard, int goldCost) {
+        if (wizard.GameStats.m_currentGold < goldCost) {
+            return PURCHASE_FAILED;
+        }
+
+        wizard.RemoveGold(goldCost);
+        return 0;
+    }
+
+    private int TryGrantPurchasedItem(Wizard playerWizard, WizClientObjectItem item, uint itemTemplateID, bool isPet) {
+        var added = isPet ? playerWizard.AddPetToInventory(item) : playerWizard.AddItemToInventory(item);
+        if (!added) {
+            Logger.Warning("Could not add purchased item {0} to the inventory of {1}.",
+                Logger.Args(itemTemplateID, playerWizard.CharId));
+
+            return PURCHASE_FAILED;
+        }
+
+        // Inform the game client that a new item has been added to the player's inventory.
+        if (!ItemSync.SendAdded(SessionActor.ActorRef, playerWizard, item)) {
+            playerWizard.RemoveItemFromInventory(item.m_globalID);
+            WizardItemCollection.RemoveItem(playerWizard.CharId, item.m_globalID);
+
+            return PURCHASE_FAILED;
+        }
+
+        return 0;
     }
 
     private void HandleIllegalPurchaseAttempt(uint itemTemplateID, ulong interactedObjectGID) {
