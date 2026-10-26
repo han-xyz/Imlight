@@ -47,7 +47,7 @@ namespace Imlight.CoreLib.Game.CrownShop;
 
 internal sealed class CrownShopCatalogue {
 
-    public static CrownShopCatalogue Empty { get; } = new([], [], []);
+    public static CrownShopCatalogue Empty { get; } = new([], [], [], []);
 
     private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() {
         PropertyNameCaseInsensitive = true,
@@ -67,11 +67,17 @@ internal sealed class CrownShopCatalogue {
 
     public IReadOnlyList<CrownShopTabConfig> Tabs { get; }
 
+    public IReadOnlyList<CrownShopCategoryConfig> Categories { get; }
+
+    public LevelData RecommendedItems { get; }
+
     public IReadOnlyCollection<CrownShopItem> Items => _items.Values;
 
-    private CrownShopCatalogue(IReadOnlyList<CrownShopTabConfig> tabs, Dictionary<ulong, CrownShopItem> items,
-                               HashSet<ulong> henchmen) {
+    private CrownShopCatalogue(IReadOnlyList<CrownShopTabConfig> tabs, IReadOnlyList<CrownShopCategoryConfig> categories,
+                               Dictionary<ulong, CrownShopItem> items, HashSet<ulong> henchmen) {
         Tabs = tabs;
+        Categories = categories;
+        RecommendedItems = RecommendItems(categories, tabs.SelectMany(t => t.Items));
         _items = items;
         _henchmen = henchmen;
     }
@@ -102,7 +108,8 @@ internal sealed class CrownShopCatalogue {
             items[item.TemplateId] = ToCrownShopItem(item, henchmen.Contains(item.TemplateId));
         }
 
-        return new CrownShopCatalogue(tabs, items, henchmen);
+        var categories = tabs.SelectMany(t => t.Categories).DistinctBy(c => c.CategoryId).ToList();
+        return new CrownShopCatalogue(tabs, categories, items, henchmen);
     }
 
     public bool TryGetItem(ulong templateId, out CrownShopItem item)
@@ -147,7 +154,30 @@ internal sealed class CrownShopCatalogue {
             throw new InvalidDataException($"Crown shop tab {path} gives item {negativelyPriced.TemplateId} a negative price.");
         }
 
+        var outOfRange = tab.Items.FirstOrDefault(i => i.TemplateId > int.MaxValue);
+        if (outOfRange is not null) {
+            throw new InvalidDataException($"Crown shop tab {path} lists item {outOfRange.TemplateId}, beyond the recommendation list's 32-bit template id.");
+        }
+
         return tab;
+    }
+
+    private static LevelData RecommendItems(IReadOnlyList<CrownShopCategoryConfig> categories,
+                                            IEnumerable<CrownShopItemConfig> items) {
+        var itemsByCategory = items
+            .SelectMany(item => item.DisplayPriority.Select(categoryId => (CategoryId: (int) categoryId, item.TemplateId)))
+            .Distinct()
+            .ToLookup(entry => entry.CategoryId, entry => entry.TemplateId);
+
+        return new LevelData() {
+            m_level = 0,
+            m_categoryData = categories.Select(category => new CategoryData() {
+                m_id = category.CategoryId,
+                m_items = itemsByCategory[category.CategoryId]
+                    .Select((templateId, rank) => new RecoItemData() { m_templateID = (int) templateId, m_rank = rank })
+                    .ToList()
+            }).ToList()
+        };
     }
 
     private static bool HasSamePrices(CrownShopItem listed, CrownShopItemConfig item)

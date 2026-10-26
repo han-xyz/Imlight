@@ -146,7 +146,7 @@ public static class CrownShopHandler {
                 m_description = tab.Description
             }).ToList();
 
-            var layoutCategories = catalogue.Tabs.SelectMany(t => t.Categories).Select(category => new CrownShopCategory() {
+            var layoutCategories = catalogue.Categories.Select(category => new CrownShopCategory() {
                 m_ID = category.CategoryId,
                 m_parentTabID = category.ParentTabId,
                 m_name = category.Name,
@@ -173,8 +173,7 @@ public static class CrownShopHandler {
                 m_wishlistSBExpansionSize = (int) s_wishlistSBExpansionSize,
                 // Probably has something todo with MSG_PCS_SEGDATA_RESPONSE
                 m_crownShopSegReqsSummary = new(),
-                // todo: recommended items?
-                m_recomendedItems = new LevelData()
+                m_recomendedItems = catalogue.RecommendedItems
             };
 
             var serializer = new ObjectSerializer(
