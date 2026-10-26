@@ -280,7 +280,7 @@ public class Wizard {
         if (levelAtXp > MagicSchoolBehavior.Level) {
             var levelUpSuccess = SetLevel(levelAtXp);
             if (!levelUpSuccess) {
-                Logger.Warning("Could not level up player {0} to level {1}.",
+                Logger.Warning("Could not level up {Wizard} to level {Level}.",
                     Logger.Args(PlayerNameBehavior.GetWizardName(), levelAtXp));
 
                 return;
@@ -302,7 +302,7 @@ public class Wizard {
         if (levelAtXp < MagicSchoolBehavior.Level) {
             var levelDownSuccess = SetLevel(levelAtXp);
             if (!levelDownSuccess) {
-                Logger.Warning("Could not level down player {0} to level {1}.",
+                Logger.Warning("Could not level down {Wizard} to level {Level}.",
                     Logger.Args(PlayerNameBehavior.GetWizardName(), levelAtXp));
 
                 return;
@@ -456,7 +456,8 @@ public class Wizard {
         // The template may be a spell, a missing template or anything else that is not an item.
         item = CoreObjectFactory.FinalizeCoreObject(templateId) as WizClientObjectItem;
         if (item is null) {
-            Logger.Warning("Cannot create item from template {0} because it is not an item.", Logger.Args(templateId));
+            Logger.Warning("Template {TemplateId} is not an item, so no item was created for {Wizard} (ID {CharId}).",
+                Logger.Args(templateId, PlayerNameBehavior.GetWizardName(), CharId));
 
             return false;
         }
@@ -479,7 +480,8 @@ public class Wizard {
 
     public bool AddItemToInventory(WizClientObjectItem item) {
         if (item is null) {
-            Logger.Warning("Cannot add item to inventory because that item does not exist.");
+            Logger.Warning("An item for {Wizard} (ID {CharId}) could not be created, so it was not added to their inventory.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), CharId));
 
             return false;
         }
@@ -491,7 +493,8 @@ public class Wizard {
 
     public bool AddInitializedItemToInventory(WizClientObjectItem item) {
         if (item is null) {
-            Logger.Warning("Cannot add item to inventory because that item does not exist.");
+            Logger.Warning("An item for {Wizard} (ID {CharId}) could not be created, so it was not added to their inventory.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), CharId));
 
             return false;
         }
@@ -501,7 +504,7 @@ public class Wizard {
 
         var success = InventoryBehavior.AddItem(item);
         if (!success) {
-            Logger.Warning("Could not add item {0} to player {1}'s inventory.",
+            Logger.Warning("Could not add item {ItemId} to the inventory of {Wizard}.",
                 Logger.Args(item.m_globalID.Value, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -524,7 +527,7 @@ public class Wizard {
 
     public bool AddPetToInventory(WizClientObjectItem pet) {
         if (!InventoryBehavior.AddItem(pet)) {
-            Logger.Warning("Could not add pet {0} to player {1}'s inventory.",
+            Logger.Warning("Could not add pet {ItemId} to the inventory of {Wizard}.",
                 Logger.Args(pet.m_globalID, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -537,7 +540,7 @@ public class Wizard {
     public bool RemoveItemFromInventory(ulong itemId) {
         var success = InventoryBehavior.RemoveItem(itemId, out var item);
         if (!success) {
-            Logger.Warning("Could not remove item {0} from player {1}'s inventory.",
+            Logger.Warning("Could not remove item {ItemId} from the inventory of {Wizard}.",
                 Logger.Args(itemId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -556,7 +559,7 @@ public class Wizard {
 
         // Remove the item from the inventory.
         if (!InventoryBehavior.RemoveItem(itemId, out var inventoryItem)) {
-            Logger.Warning("Tried to equip item with global id {0} that does not exist in player inventory.", Logger.Args(itemId));
+            Logger.Warning("{Wizard} tried to equip item {ItemId}, which is not in their inventory.", Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
             return false;
         }
 
@@ -576,7 +579,7 @@ public class Wizard {
         if (replacedItem != null) {
             if (!EquipmentToInventoryTransfer(replacedItem.m_globalID, out unequipEffects)) {
                 InventoryBehavior.AddItem(inventoryItem);
-                Logger.Warning("Could not replace item {0} from slot {1}.",
+                Logger.Warning("Could not take item {ItemId} out of slot {Slot}.",
                     Logger.Args(replacedItem.m_globalID, slot.SlotType));
 
                 return false;
@@ -587,8 +590,8 @@ public class Wizard {
         var equipResult = EquipmentBehavior.EquipItem(inventoryItem, slot.SlotType);
         if (!equipResult) {
             InventoryBehavior.AddItem(inventoryItem);
-            Logger.Warning("Tried to equip item with global id {0} that is already equipped.",
-                Logger.Args(itemId));
+            Logger.Warning("{Wizard} tried to equip item {ItemId}, which is already equipped.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
 
             return false;
         }
@@ -614,7 +617,7 @@ public class Wizard {
         WizardCollection.UpdateCharacterItems(this);
 
         // Debug log.
-        Logger.Debug("{0} equips item {1}", Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
+        Logger.Debug("{Wizard} equips item {ItemId}.", Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
 
         equipEffects = CharacterEffectHelper.AddEffectsToWizard(this, template);
 
@@ -639,8 +642,8 @@ public class Wizard {
         // Remove the item from the equipment.
         var unequipResult = EquipmentBehavior.UnequipItem(itemId);
         if (!unequipResult) {
-            Logger.Warning("Tried to unequip item with global id {0} that is not equipped.",
-                Logger.Args(itemId));
+            Logger.Warning("{Wizard} tried to unequip item {ItemId}, which is not equipped.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
 
             return false;
         }
@@ -648,8 +651,8 @@ public class Wizard {
         // Add the item to the inventory.
         var invAddResult = InventoryBehavior.AddItem(item);
         if (!invAddResult) {
-            Logger.Warning("Tried to add item with global id {0} to inventory, but it already exists.",
-                Logger.Args(itemId));
+            Logger.Warning("Item {ItemId} was unequipped from {Wizard}, but their inventory already holds it.",
+                Logger.Args(itemId, PlayerNameBehavior.GetWizardName()));
 
             return false;
         }
@@ -660,7 +663,7 @@ public class Wizard {
         WizardCollection.UpdateCharacterItems(this);
 
         // Debug log.
-        Logger.Debug("{0} unequips item {1}",
+        Logger.Debug("{Wizard} unequips item {ItemId}.",
             Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
 
         return true;
@@ -870,7 +873,8 @@ public class Wizard {
 
     public bool AddSnack(ClientPetSnackItem snack) {
         if (snack is null) {
-            Logger.Warning("Cannot add snack to snack bag because that snack does not exist.");
+            Logger.Warning("A snack for {Wizard} (ID {CharId}) could not be created, so it was not added to their snack bag.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), CharId));
             return false;
         }
 
@@ -881,7 +885,7 @@ public class Wizard {
 
         var success = PetSnackBehavior.AddSnack(snack);
         if (!success) {
-            Logger.Warning("Could not add snack {0} to player {1}'s snackbag.",
+            Logger.Warning("Could not add snack {ItemId} to the snack bag of {Wizard}.",
                 Logger.Args(snack.m_globalID, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -904,7 +908,7 @@ public class Wizard {
 
     public bool RemoveSnack(ulong globalId, out ClientPetSnackItem snack) {
         if (!PetSnackBehavior.RemoveSnack(globalId, out snack)) {
-            Logger.Warning("Could not remove snack with global ID {0} from player {1}'s snackbag.",
+            Logger.Warning("Could not remove snack {ItemId} from the snack bag of {Wizard}.",
                 Logger.Args(globalId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -940,7 +944,8 @@ public class Wizard {
 
     public bool AddReagent(ClientReagentItem reagent) {
         if (reagent is null) {
-            Logger.Warning("Cannot add reagent to reagent bag because that reagent does not exist.");
+            Logger.Warning("A reagent for {Wizard} (ID {CharId}) could not be created, so it was not added to their reagent bag.",
+                Logger.Args(PlayerNameBehavior.GetWizardName(), CharId));
 
             return false;
         }
@@ -950,7 +955,7 @@ public class Wizard {
 
         var success = AlchemyBehavior.AddReagent(reagent);
         if (!success) {
-            Logger.Warning("Could not add reagent {0} to player {1}'s reagent bag.",
+            Logger.Warning("Could not add reagent {ItemId} to the reagent bag of {Wizard}.",
                 Logger.Args(reagent.m_globalID, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -965,7 +970,7 @@ public class Wizard {
 
     public bool RemoveReagent(ulong globalId, out ClientReagentItem reagent) {
         if (!AlchemyBehavior.RemoveReagent(globalId, out reagent)) {
-            Logger.Warning("Could not remove reagent with global ID {0} from player {1}'s reagent bag.",
+            Logger.Warning("Could not remove reagent {ItemId} from the reagent bag of {Wizard}.",
                 Logger.Args(globalId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1045,7 +1050,7 @@ public class Wizard {
 
     public bool LearnSpell(Spell spell) {
         if (SpellbookBehavior.LearnedSpellTemplateIds.Contains(spell.m_templateID)) {
-            Logger.Warning("{0} Tried to learn spell with template ID {1} that is already known.",
+            Logger.Warning("{Wizard} tried to learn spell {SpellId}, which they already know.",
                 Logger.Args(PlayerNameBehavior.GetWizardName(), spell.m_templateID));
 
             return false;
@@ -1061,7 +1066,7 @@ public class Wizard {
 
     public bool UnlearnSpell(uint spellTemplateId) {
         if (!SpellbookBehavior.LearnedSpellTemplateIds.Contains(spellTemplateId)) {
-            Logger.Warning("{0} Tried to unlearn spell with template ID {1} that is not known.",
+            Logger.Warning("{Wizard} tried to unlearn spell {SpellId}, which they do not know.",
                 Logger.Args(PlayerNameBehavior.GetWizardName(), spellTemplateId));
 
             return false;
@@ -1090,7 +1095,7 @@ public class Wizard {
             // The item may be equipped instead.
             item = EquipmentBehavior.EquippedItems.FirstOrDefault(i => i.m_globalID == deckId);
             if (item is null) {
-                Logger.Warning("Could not find item with global ID {0} in player {1}'s inventory or equipment.",
+                Logger.Warning("Deck {DeckId} is not in the inventory or equipment of {Wizard}.",
                     Logger.Args(deckId, PlayerNameBehavior.GetWizardName()));
 
                 return false;
@@ -1099,7 +1104,7 @@ public class Wizard {
             // If the item is equipped, we'll also want to update the spellbook behavior.
             var addedSuccess = SpellbookBehavior.AddSpellToDeck(spellTemplateId);
             if (!addedSuccess) {
-                Logger.Debug("Could not add spell with template ID {0} to player {1}'s deck.",
+                Logger.Debug("Could not add spell {SpellId} to the deck of {Wizard}.",
                     Logger.Args(spellTemplateId, PlayerNameBehavior.GetWizardName()));
 
                 return false;
@@ -1112,8 +1117,8 @@ public class Wizard {
 
         // Regardless, we'll want to add this spell to the deck item's DeckBehavior.
         if (!CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(item, out var deckBehavior)) {
-            Logger.Error("Could not find deck behavior for item with global ID {0}.",
-                Logger.Args(spellTemplateId));
+            Logger.Error("Item {DeckId} of {Wizard} is not a deck.",
+                Logger.Args(deckId, PlayerNameBehavior.GetWizardName()));
 
             return false;
         }
@@ -1146,7 +1151,7 @@ public class Wizard {
             // The item may be equipped instead.
             item = EquipmentBehavior.EquippedItems.FirstOrDefault(i => i.m_globalID == deckId);
             if (item is null) {
-                Logger.Warning("Could not find item with global ID {0} in player {1}'s inventory or equipment.",
+                Logger.Warning("Deck {DeckId} is not in the inventory or equipment of {Wizard}.",
                     Logger.Args(deckId, PlayerNameBehavior.GetWizardName()));
 
                 return false;
@@ -1155,7 +1160,7 @@ public class Wizard {
             // If the item is equipped, we'll also want to update the spellbook behavior.
             var removedSuccess = SpellbookBehavior.RemoveSpellFromDeck(spellTemplateId);
             if (!removedSuccess) {
-                Logger.Warning("Could not remove spell with template ID {0} from player {1}'s deck.",
+                Logger.Warning("Could not remove spell {SpellId} from the deck of {Wizard}.",
                     Logger.Args(spellTemplateId, PlayerNameBehavior.GetWizardName()));
 
                 return false;
@@ -1168,8 +1173,8 @@ public class Wizard {
 
         // Regardless, we'll want to remove this spell from the deck item's DeckBehavior.
         if (!CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(item, out var deckBehavior)) {
-            Logger.Error("Could not find deck behavior for item with global ID {0}.",
-                Logger.Args(spellTemplateId));
+            Logger.Error("Item {DeckId} of {Wizard} is not a deck.",
+                Logger.Args(deckId, PlayerNameBehavior.GetWizardName()));
 
             return false;
         }
@@ -1177,7 +1182,7 @@ public class Wizard {
         var spellList = deckBehavior.m_spellList ?? [];
         var spellDeckData = spellList.FirstOrDefault(s => s.m_templateID == spellTemplateId);
         if (spellDeckData is null) {
-            Logger.Warning("Could not find spell with template ID {0} in player {1}'s deck.",
+            Logger.Warning("Spell {SpellId} is not in the deck of {Wizard}.",
                 Logger.Args(spellTemplateId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1206,7 +1211,7 @@ public class Wizard {
         // Verify the player owns this treasure card.
         var ownedCount = SpellbookBehavior.TreasureCardCount(spellTemplateId);
         if (ownedCount <= 0) {
-            Logger.Warning("Player {0} tried to add treasure card {1} to deck but owns none.",
+            Logger.Warning("{Wizard} tried to add treasure card {SpellId} to a deck but owns none.",
                 Logger.Args(PlayerNameBehavior.GetWizardName(), spellTemplateId));
 
             return false;
@@ -1264,7 +1269,7 @@ public class Wizard {
         var addSuccess = DynamodSet.AddDynamod(dynamod);
 
         if (!addSuccess) {
-            Logger.Warning("Could not add Dynamod to player {0}'s DynamodSet.",
+            Logger.Warning("Could not add a zone modifier to {Wizard}.",
                 Logger.Args(PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1296,7 +1301,7 @@ public class Wizard {
     public bool AddPendingFriendRequest(ulong characterId) {
         var addSuccess = FriendsBehavior.AddPendingFriendRequest(characterId);
         if (!addSuccess) {
-            Logger.Warning("Could not add pending friend request ({0}) for player {1}.",
+            Logger.Warning("Could not add a pending friend request from character {CharId} for {Wizard}.",
                 Logger.Args(characterId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1319,14 +1324,14 @@ public class Wizard {
         // If the relationship epoch is different, this is a restored relationship.
         if (newRelationship.RelationshipEpochInSeconds != newOrExistingRelationship.RelationshipEpochInSeconds) {
             // This is an existing relationship that has now been restored.
-            Logger.Debug("Player {0} has restored a relationship with player {1}.",
+            Logger.Debug("{Wizard} has restored a friendship with character {CharId}.",
                 Logger.Args(PlayerNameBehavior.GetWizardName(), newFriendId));
 
             FriendsBehavior.AddOrUpdateRelationship(newOrExistingRelationship);
         }
         else {
             // Otherwise, this is a new relationship.
-            Logger.Debug("Player {0} has added player {1} as a friend.",
+            Logger.Debug("{Wizard} has added character {CharId} as a friend.",
                 Logger.Args(PlayerNameBehavior.GetWizardName(), newFriendId));
 
             FriendsBehavior.AddOrUpdateRelationship(newRelationship);
@@ -1344,7 +1349,7 @@ public class Wizard {
     public bool RemovePendingFriendRequest(ulong friendId) {
         var removeSuccess = FriendsBehavior.RemovePendingFriendRequest(friendId);
         if (!removeSuccess) {
-            Logger.Warning("Could not remove pending friend request ({0}) for player {1}.",
+            Logger.Warning("Could not remove the pending friend request from character {CharId} for {Wizard}.",
                 Logger.Args(friendId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1356,7 +1361,7 @@ public class Wizard {
     public bool RemoveFriend(ulong friendId) {
         var relationship = FriendsBehavior.Breakup(friendId);
         if (relationship is null) {
-            Logger.Warning("Could not remove friend ({0}) for player {1}.",
+            Logger.Warning("Could not remove friend {CharId} for {Wizard}.",
                 Logger.Args(friendId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1371,7 +1376,7 @@ public class Wizard {
     public bool IgnorePlayer(ulong playerId) {
         var relationship = FriendsBehavior.Ignore(this.CharId, playerId);
         if (relationship is null) {
-            Logger.Warning("Could not ignore player ({0}) for player {1}.",
+            Logger.Warning("Could not ignore character {CharId} for {Wizard}.",
                 Logger.Args(playerId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1387,7 +1392,7 @@ public class Wizard {
     public bool UnignorePlayer(ulong playerId) {
         var relationship = FriendsBehavior.Unignore(playerId);
         if (relationship is null) {
-            Logger.Warning("Could not unignore player ({0}) for player {1}.",
+            Logger.Warning("Could not unignore character {CharId} for {Wizard}.",
                 Logger.Args(playerId, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1402,7 +1407,7 @@ public class Wizard {
     public bool AddQuest(QuestInstance quest) {
         var addSuccess = QuestBehavior.AddQuest(quest);
         if (!addSuccess) {
-            Logger.Warning("Could not add quest {0} for player {1}.",
+            Logger.Warning("Could not add quest {Quest} for {Wizard}.",
                 Logger.Args(quest.QuestName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1418,7 +1423,7 @@ public class Wizard {
     public bool RemoveQuest(string questName) {
         var removeSuccess = QuestBehavior.RemoveQuest(questName);
         if (!removeSuccess) {
-            Logger.Warning("Could not remove quest {0} for player {1}.",
+            Logger.Warning("Could not remove quest {Quest} for {Wizard}.",
                 Logger.Args(questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1440,7 +1445,7 @@ public class Wizard {
     public bool CompleteQuest(string questName) {
         var questStatus = QuestBehavior.CompleteQuest(questName);
         if (!questStatus) {
-            Logger.Warning("Could not mark quest {0} as completed for player {1}.",
+            Logger.Warning("Could not mark quest {Quest} as completed for {Wizard}.",
                 Logger.Args(questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1456,7 +1461,7 @@ public class Wizard {
     public bool StartQuestGoal(string questName, string goalName) {
         var startSuccess = QuestBehavior.StartQuestGoal(questName, goalName);
         if (!startSuccess) {
-            Logger.Warning("Could not start quest goal {0} for quest {1} for player {2}.",
+            Logger.Warning("Could not start goal {Goal} of quest {Quest} for {Wizard}.",
                 Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1465,7 +1470,7 @@ public class Wizard {
         var questId = QuestBehavior.CurrentQuestInstances
             .FirstOrDefault(q => q is not null && q.QuestName == questName).ID;
         if (questId is 0) {
-            Logger.Error("Could not find quest ID for quest {0} for player {1}.",
+            Logger.Error("Quest {Quest} has no quest id for {Wizard}.",
                 Logger.Args(questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1484,7 +1489,7 @@ public class Wizard {
     public bool IncrementQuestGoal(string questName, string goalName) {
         var incrementSuccess = QuestBehavior.IncrementQuestGoal(questName, goalName);
         if (!incrementSuccess) {
-            Logger.Warning("Could not increment quest goal {0} for quest {1} for player {2}.",
+            Logger.Warning("Could not advance goal {Goal} of quest {Quest} for {Wizard}.",
                 Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1493,7 +1498,7 @@ public class Wizard {
         var questId = QuestBehavior.CurrentQuestInstances
             .FirstOrDefault(q => q is not null && q.QuestName == questName).ID;
         if (questId is 0) {
-            Logger.Error("Could not find quest ID for quest {0} for player {1}.",
+            Logger.Error("Quest {Quest} has no quest id for {Wizard}.",
                 Logger.Args(questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1512,7 +1517,7 @@ public class Wizard {
     public bool CompleteQuestGoal(string questName, string goalName) {
         var completeSuccess = QuestBehavior.CompleteQuestGoal(questName, goalName);
         if (!completeSuccess) {
-            Logger.Warning("Could not complete quest goal {0} for quest {1} for player {2}.",
+            Logger.Warning("Could not complete goal {Goal} of quest {Quest} for {Wizard}.",
                 Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1521,7 +1526,7 @@ public class Wizard {
         var questId = QuestBehavior.CurrentQuestInstances
             .FirstOrDefault(q => q is not null && q.QuestName == questName).ID;
         if (questId is 0) {
-            Logger.Error("Could not find quest ID for quest {0} for player {1}.",
+            Logger.Error("Quest {Quest} has no quest id for {Wizard}.",
                 Logger.Args(questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1582,7 +1587,7 @@ public class Wizard {
     public bool SetRegistryValue(string key, ulong value) {
         var setSuccess = QuestBehavior.SetRegistryValue(key, value);
         if (!setSuccess) {
-            Logger.Warning("Could not set registry value {0} for player {1}.",
+            Logger.Warning("Could not set registry value {Key} for {Wizard}.",
                 Logger.Args(key, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1597,7 +1602,37 @@ public class Wizard {
     public bool SetQuestRegistryValue(string questName, string key, ulong value) {
         var setSuccess = QuestBehavior.SetQuestRegistryValue(questName, key, value);
         if (!setSuccess) {
-            Logger.Warning("Could not set quest registry value {0} for quest {1} for player {2}.",
+            Logger.Warning("Could not set registry value {Key} of quest {Quest} for {Wizard}.",
+                Logger.Args(key, questName, PlayerNameBehavior.GetWizardName()));
+
+            return false;
+        }
+
+        // Persistent save.
+        WizardCollection.UpdateCharacterQuestBehavior(this);
+
+        return true;
+    }
+
+    public bool IncrementRegistryValue(string key) {
+        var incrementSuccess = QuestBehavior.IncrementRegistryValue(key);
+        if (!incrementSuccess) {
+            Logger.Warning("Could not increment registry value {Key} for player {PlayerName}.",
+                Logger.Args(key, PlayerNameBehavior.GetWizardName()));
+
+            return false;
+        }
+
+        // Persistent save.
+        WizardCollection.UpdateCharacterQuestBehavior(this);
+
+        return true;
+    }
+
+    public bool IncrementQuestRegistryValue(string questName, string key) {
+        var incrementSuccess = QuestBehavior.IncrementQuestRegistryValue(questName, key);
+        if (!incrementSuccess) {
+            Logger.Warning("Could not increment quest registry value {Key} for quest {QuestName} for player {PlayerName}.",
                 Logger.Args(key, questName, PlayerNameBehavior.GetWizardName()));
 
             return false;
@@ -1716,7 +1751,7 @@ public class Wizard {
     private void EquipMount(WizItemTemplate template, WizClientObjectItem item) {
         var mountEquipSuccess = MountOwnerBehavior.EquipMount(template, item);
         if (!mountEquipSuccess) {
-            Logger.Warning("Could not equip mount {0} to player {1}.",
+            Logger.Warning("Could not equip mount {Mount} on {Wizard}.",
                 Logger.Args(template.m_objectName, PlayerNameBehavior.GetWizardName()));
 
             return;
@@ -1782,7 +1817,7 @@ public class Wizard {
         // Get the actual item from equipment.
         var deckItem = EquipmentBehavior.EquippedItems.FirstOrDefault(i => i.m_globalID == deckGlobalId);
         if (deckItem is null) {
-            Logger.Error("Could not find deck item with global ID {0}.",
+            Logger.Error("Deck {DeckId} is not equipped.",
                 Logger.Args(deckGlobalId));
 
             return;
@@ -1790,7 +1825,7 @@ public class Wizard {
 
         // Get the deck behavior.
         if (!CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deckItem, out var deckBehavior)) {
-            Logger.Error("Could not find deck behavior for item with global ID {0}.",
+            Logger.Error("Item {DeckId} is not a deck.",
                 Logger.Args(deckGlobalId));
 
             return;
@@ -1798,7 +1833,7 @@ public class Wizard {
 
         var deckEquipSuccess = SpellbookBehavior.EquipDeck(template, deckBehavior);
         if (!deckEquipSuccess) {
-            Logger.Warning("Could not equip deck {0} to player {1}.",
+            Logger.Warning("Could not equip deck {Deck} on {Wizard}.",
                 Logger.Args(template.m_objectName, PlayerNameBehavior.GetWizardName()));
 
             return;
@@ -1839,7 +1874,7 @@ public class Wizard {
         if (kit.PetTemplateId != 0) {
             var defaultPet = PetFactory.CreateHatchedPet(CharId, kit.PetTemplateId);
             if (defaultPet is null) {
-                Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
+                Logger.Error("Could not create the starting pet (template {TemplateId}) for character {CharId}.",
                     Logger.Args(kit.PetTemplateId, CharId));
             }
             else {
@@ -1853,7 +1888,7 @@ public class Wizard {
         // This is a different method that bulk uploads items to the database.
         var success = WizardItemCollection.AddDefaultItems(itemsToAdd);
         if (!success) {
-            Logger.Error("Could not add default items for Wizard {0} to database.",
+            Logger.Error("Could not save the starting items of character {CharId} to the database.",
                 Logger.Args(CharId));
         }
 
@@ -1927,7 +1962,7 @@ public class Wizard {
         // Get the actual item.
         var deckItem = EquipmentBehavior.EquippedItems.FirstOrDefault(i => i.m_globalID == idInSlot);
         if (deckItem is null) {
-            Logger.Error("Could not find deck item with global ID {0}.",
+            Logger.Error("Deck {DeckId} is not equipped.",
                 Logger.Args(idInSlot));
 
             return;
@@ -1935,7 +1970,7 @@ public class Wizard {
 
         // Get the deck behavior.
         if (!CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deckItem, out var deckBehavior)) {
-            Logger.Error("Could not find deck behavior for item with global ID {0}.",
+            Logger.Error("Item {DeckId} is not a deck.",
                 Logger.Args(idInSlot));
 
             return;
@@ -1944,7 +1979,7 @@ public class Wizard {
         // Get the template. This gives us information like the max instance count, what school the deck is, etc.
         var deckTemplate = CoreObjectFactory.GetCoreTemplate(deckItem.m_templateID);
         if (deckTemplate is null) {
-            Logger.Error("Could not find deck template with global ID {0}.",
+            Logger.Error("Deck {DeckId} has no template.",
                 Logger.Args(idInSlot));
 
             return;
@@ -1952,7 +1987,7 @@ public class Wizard {
 
         // Get the DeckBehaviorTemplate within the deck template.
         if (deckTemplate.m_behaviors.FirstOrDefault(b => b is DeckBehaviorTemplate) is not DeckBehaviorTemplate deckBehaviorTemplate) {
-            Logger.Error("Could not find deck behavior template within deck template with global ID {0}.",
+            Logger.Error("The template of deck {DeckId} is not a deck template.",
                 Logger.Args(idInSlot));
 
             return;
@@ -1978,7 +2013,7 @@ public class Wizard {
         // Get the actual item.
         var mountItem = EquipmentBehavior.EquippedItems.FirstOrDefault(i => i.m_globalID == idInSlot);
         if (mountItem is null) {
-            Logger.Error("Could not find mount item with global ID {0}.",
+            Logger.Error("Mount {ItemId} is not equipped.",
                 Logger.Args(idInSlot));
 
             return;
@@ -2080,7 +2115,7 @@ public class Wizard {
         foreach (var quest in QuestBehavior.CurrentQuestInstances.ToList()) {
             // Remove duplicate quests.
             if (uniqueQuests.Any(q => q.QuestName == quest.QuestName)) {
-                Logger.Warning("Found duplicate quest instance {0} for player {1}. Removing duplicate.",
+                Logger.Warning("Quest {Quest} appears twice for {Wizard}, so the copy is removed.",
                     Logger.Args(quest.QuestName, PlayerNameBehavior.GetWizardName()));
 
                 QuestBehavior.CurrentQuestInstances.Remove(quest);

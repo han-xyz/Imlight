@@ -220,8 +220,10 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
                     return handler.Ask<T>(msg, timeout: s_askTimeout).Result;
                 }
                 catch (Exception ex) {
-                    Logger.Error("SessionActor service attempted to ask another service with {0}, but the timeout " +
-                              "was exceeded. {1}", Logger.Args(msg.GetType(), ex.Message));
+                    var serviceName = _services.TryGetValue(handler, out var service) ? service.GetType().Name : handler.Path.Name;
+                    Logger.Error("Session {Id}: {Service} did not answer {Message} within {Timeout}s. {Reason}",
+                        Logger.Args(SessionID, serviceName, msg.GetType().Name, s_askTimeout.TotalSeconds,
+                            ex.InnerException?.Message ?? ex.Message));
                 }
             }
         }
@@ -335,20 +337,21 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
             localOnlyDecider: ex => {
                 switch (ex) {
                     case ServiceRetryException tex: {
-                            Logger.Error("SessionActor {Sid} service {Class} L:{LineNumber} threw restart exception: " +
-                                      "{Message}", Logger.Args(SessionID, tex.CallingClass, tex.LineNumber, tex.Message));
+                            Logger.Warning("Session {Id}: a service hit a problem and is restarting: {Message} " +
+                                           "({Class} L:{LineNumber})",
+                                Logger.Args(SessionID, tex.Message, tex.CallingClass, tex.LineNumber));
                             return Directive.Restart;
                         }
                     case SessionFatalException tex: {
-                            Logger.Error("SessionActor {Sid} service {Class} L:{LineNumber} threw fatal exception: " +
-                                      "{Message}", Logger.Args(SessionID, tex.CallingClass, tex.LineNumber, tex.Message));
+                            Logger.Error("Session {Id}: a service failed and the session is closing: {Message} " +
+                                         "({Class} L:{LineNumber})",
+                                Logger.Args(SessionID, tex.Message, tex.CallingClass, tex.LineNumber));
                             _stoppedByStrategy = true;
                             return Directive.Stop;
                         }
                     default:
-                        Logger.Error("SessionActor {Sid} service {Class} L:{LineNumber} threw unknown exception: " +
-                                     "{Message}. Exception details: {Exception}. Inner exception: {InnerException}",
-                                     Logger.Args(SessionID, ex.TargetSite?.DeclaringType, ex.TargetSite?.Name, ex.Message, ex, ex.InnerException));
+                        Logger.Error("Session {Id}: {Class}.{Method} failed and the message was skipped: {Message} {Exception}",
+                            Logger.Args(SessionID, ex.TargetSite?.DeclaringType?.Name, ex.TargetSite?.Name, ex.Message, ex));
                         return Directive.Resume;
                 }
             }
@@ -396,8 +399,8 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
             return;
         }
 
-        Logger.Verbose("SessionActor {Id} received unhandled message of type {Type}.",
-            Logger.Args(SessionID, message.GetType()));
+        Logger.Verbose("SessionActor {Id} received unhandled message {MessageName}.",
+            Logger.Args(SessionID, message.GetType().Name));
     }
 
     private void ConfigureReceivers() {
@@ -559,5 +562,5 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
             // A service that failed or timed out must not keep the others from being disposed.
         }
     }
-    
+
 }

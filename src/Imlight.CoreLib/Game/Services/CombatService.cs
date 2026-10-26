@@ -393,7 +393,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             // Send a message to the client to assure them that the server does not have the item equipped.
             SendUnequipItem("Mount", slot, _cachedMountId);
 
-            Logger.Warning("Equip failed on item {0}", Logger.Args(_cachedMountId));
+            Logger.Warning("Mount {ItemId} of {Wizard} could not be equipped again after combat.", Logger.Args(_cachedMountId, wizard.PlayerNameBehavior.GetWizardName()));
             return;
         }
 
@@ -420,7 +420,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         if (!wizard.InventoryToEquipmentTransfer(_cachedMountId, out var addedEffects, out var _)) {
-            Logger.Warning("Equip failed on item {0}", Logger.Args(_cachedMountId));
+            Logger.Warning("Mount {ItemId} of {Wizard} could not be equipped again after combat.", Logger.Args(_cachedMountId, wizard.PlayerNameBehavior.GetWizardName()));
             return;
         }
 
@@ -459,7 +459,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             // Send a message to the client to assure them that the server does not have the item equipped.
             SendUnequipItem("Mount", slot, _cachedMountId);
 
-            Logger.Warning("Unequip failed on item {0}", Logger.Args(_cachedMountId));
+            Logger.Warning("Mount {ItemId} of {Wizard} could not be put away for combat.", Logger.Args(_cachedMountId, wizard.PlayerNameBehavior.GetWizardName()));
             return;
         }
 
@@ -473,7 +473,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         var pubItem = ItemHelper.GetPublicItem(item);
 
         if (!_itemSerializer.Serialize(pubItem, PropertyFlags.Prop_Transmit, out var data)) {
-            Logger.Error("Failed to serialize item {0}", Logger.Args(item.m_globalID.Full));
+            Logger.Error("Item {ItemId} could not be serialized, so other players do not see it equipped.", Logger.Args(item.m_globalID.Full));
 
             return;
         }
@@ -512,7 +512,8 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             wizardObj = GetActiveWizard()?.GetInitializedGameObject();
 
             if (wizardObj is null) {
-                Logger.Error("Failed to get wizard object for adding effects.");
+                Logger.Warning("Session {SessionId} has no character in the zone yet, so its equipment effects are not sent.",
+                    Logger.Args(SessionActor.SessionID));
                 return;
             }
         }
@@ -522,7 +523,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         foreach (var effect in effects) {
             var flags = PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit;
             if (!_effectSerializer.Serialize(effect, flags, out var effectSerializedData)) {
-                Logger.Error("Failed to serialize effect {0}", Logger.Args(effect.m_effectNameID));
+                Logger.Error("Effect {Effect} could not be serialized, so the client does not get it.", Logger.Args(effect.m_effectNameID));
 
                 continue;
             }
@@ -570,7 +571,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         wizard.IsInCombatGrace = true;
 
         if (!_effectSerializer.Serialize(effect, PropertyFlags.Prop_Transmit, out var effectSerializedData)) {
-            Logger.Error("Failed to serialize effect {0}", Logger.Args(effect.m_effectNameID));
+            Logger.Error("Effect {Effect} could not be serialized, so the client does not get it.", Logger.Args(effect.m_effectNameID));
 
             return;
         }

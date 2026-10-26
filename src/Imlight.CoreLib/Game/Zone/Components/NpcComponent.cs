@@ -98,8 +98,8 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
         var parsedSchool = MagicSchool.Balance;
         if (    _npcBehaviorTemplate.m_schoolOfFocus != "" 
             && !Enum.TryParse(_npcBehaviorTemplate.m_schoolOfFocus, out parsedSchool)) {
-            Logger.Error("Failed to parse magic school {0} for creature {1}.",
-                Logger.Args(_npcBehaviorTemplate.m_schoolOfFocus, Entity.ActiveGameObject.m_globalID));
+            Logger.Warning("Creature {Creature} has an unknown magic school {School}.",
+                Logger.Args(Entity.ActiveGameObject.m_debugName, _npcBehaviorTemplate.m_schoolOfFocus));
 
             return;
         }
@@ -112,7 +112,7 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
         // All NPCs have game stats.
         _statsComponent = Entity.GetComponentOfType<StatsComponent>();
         if (_statsComponent is null) {
-            Logger.Error("NPC {0} does not have a StatsComponent.", Logger.Args(Entity.ActiveGameObject.m_globalID));
+            Logger.Error("NPC {Npc} has no stats, so it cannot fight.", Logger.Args(Entity.ActiveGameObject.m_debugName));
 
             return;
         }
@@ -131,7 +131,7 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
         if (IsMonster) {
             _deckComponent = Entity.GetComponentOfType<CombatCreatureDeckComponent>();
             if (_deckComponent is null) {
-                Logger.Error("NPC {0} does not have a CombatDeckComponent.", 
+                Logger.Error("Monster {Npc} has no combat deck, so it cannot cast.",
                     Logger.Args(Entity.ActiveGameObject.m_debugName));
 
                 return;

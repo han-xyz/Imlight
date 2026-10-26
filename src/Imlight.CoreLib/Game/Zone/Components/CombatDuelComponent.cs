@@ -810,7 +810,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void ReceiveDeferredMinionSummon(ZONE_102_PROTOCOL.MSG_DEFERREDMINIONSUMMON message) {
         // Drop if the duel ended or restarted during the summon animation.
         if (!_isActive || message.Caster is null || Array.IndexOf(SubCircles, message.Caster) < 0) {
-            Logger.Information("Duel {0} | deferred minion summon (tid {1}) dropped, duel no longer active.",
+            Logger.Debug("Duel {DuelId} | deferred minion summon (tid {CreatureTid}) dropped, duel no longer active.",
                 Logger.Args(Duel.m_duelID.Full, message.CreatureTid));
 
             return;
@@ -1150,9 +1150,16 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     }
 
     private CombatDuelSubCircle SpawnAndAssignMinion(uint creatureTid, CombatDuelSubCircle caster) {
+        if (HasLivingMinion(caster)) {
+            Logger.Debug("Duel {DuelId} | minion summon (tid {CreatureTid}) refused, slot {Owner} already has a minion.",
+                Logger.Args(Duel.m_duelID.Full, creatureTid, caster.SlotIndex));
+
+            return null;
+        }
+
         var slot = FreeMinionSlot(caster);
         if (slot is null) {
-            Logger.Information("Duel {0} | minion summon (tid {1}) skipped, no free slot on the side of the caster.",
+            Logger.Debug("Duel {DuelId} | minion summon (tid {CreatureTid}) skipped, no free slot on the side of the caster.",
                 Logger.Args(Duel.m_duelID.Full, creatureTid));
 
             return null;
@@ -1198,10 +1205,16 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return null;
         }
 
-        Logger.Information("Duel {0} | summoned minion tid {1} into player-team slot {2} (caught up next round).",
+        Logger.Debug("Duel {DuelId} | summoned minion tid {CreatureTid} into player-team slot {Slot} (caught up next round).",
             Logger.Args(Duel.m_duelID.Full, creatureTid, slot.SlotIndex));
 
         return slot;
+    }
+
+    private bool HasLivingMinion(CombatDuelSubCircle owner) {
+        // The client finds a minion by its owner's sub-circle and takes the first, so a wizard has at most one.
+        return SubCircles.Any(x => x.Occupied && x.IsSummonedMinion && x.IsAlive
+                                   && x.CombatParticipant.m_minionSubCircle == owner.SlotIndex);
     }
 
     private void AddParticipant(CoreObject participantObject, IActorRef participantActor) {
