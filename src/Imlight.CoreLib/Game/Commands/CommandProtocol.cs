@@ -76,8 +76,11 @@ internal abstract class CommandProtocol {
         }
 #endif
 
-        if (!AuthorityRequester.RequestAuthority(actualAuthLevel, context.Account, $"Command {commandName}")) {
-            InformSenderClient(PermissionDeniedMessage);
+        var requireAdminMode = method.GetCustomAttribute<WithoutAdminModeAttribute>() is null;
+        if (!AuthorityRequester.RequestAuthority(actualAuthLevel, context.Account, $"Command {commandName}", requireAdminMode)) {
+            InformSenderClient(context.Account.AuthLevel >= actualAuthLevel
+                ? "Admin mode is off. Type .admin on to enable it."
+                : PermissionDeniedMessage);
             return true;
         }
 

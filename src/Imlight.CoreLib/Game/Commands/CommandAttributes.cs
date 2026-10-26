@@ -46,3 +46,11 @@ internal sealed class AuthRequiredAttribute(AuthLevel level) : Attribute {
 internal class RemainderAttribute : Attribute {
 
 }
+
+/// <summary>
+/// Lets a staff command run while admin mode is off. The command still needs its <see cref="AuthRequiredAttribute"/> level.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, Inherited = false, AllowMultiple = false)]
+internal sealed class WithoutAdminModeAttribute : Attribute {
+
+}

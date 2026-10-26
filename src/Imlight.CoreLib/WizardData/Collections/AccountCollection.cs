@@ -92,10 +92,13 @@ public static class AccountCollection {
         });
     }
 
+    // Only staff actions look accounts up by name to change them, and they often follow a write (create, then set
+    // the level), so this waits for the index to include it.
     private static ulong? GetAccountId(string username) {
         using var session = s_store.OpenSession();
 
         return session.Query<Account>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .Where(account => account.Username == username)
             .Select(account => (ulong?) account.AccountId)
             .FirstOrDefault();
@@ -211,12 +214,18 @@ public static class AccountCollection {
     /// Gets an account from the database by its username.
     /// </summary>
     /// <param name="username"></param>
+    /// <param name="waitForIndex">Whether to wait until the index includes recent writes, for reads that must see
+    /// an account just created or changed. Login reads don't wait.</param>
     /// <returns></returns>
-    public static Account GetAccount(string username) {
+    public static Account GetAccount(string username, bool waitForIndex = false) {
         using var session = s_store.OpenSession();
 
-        var account = session.Query<Account>(collectionName: CollectionName)
-            .FirstOrDefault(a => a.Username == username);
+        var query = session.Query<Account>(collectionName: CollectionName);
+        if (waitForIndex) {
+            query = query.Customize(options => options.WaitForNonStaleResults());
+        }
+
+        var account = query.FirstOrDefault(a => a.Username == username);
 
         return account is null
             ? null
