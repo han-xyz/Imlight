@@ -44,6 +44,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Results;
+using Imlight.CoreLib.Game.Results.Contexts;
 using Imlight.CoreLib.Game.Results.Handlers;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Behaviors;
@@ -244,6 +245,33 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.IsType<WIZARD_12_PROTOCOL.MSG_ACTORDIALOG>(_player.Receive(s_timeout));
         Assert.IsType<CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN>(_player.Receive(s_timeout));
     }
+
+    [Fact]
+    public void ResTeleport_FromQuestGoal_SendsZoneTransferToDestination() {
+        var result = new ResTeleport {
+            m_destinationZone = "WizardCity/Interiors/WC_SchoolStorm",
+            m_destinationLoc = "-85.74344,6.126312,0.5001201,-1.578804",
+        };
+
+        Assert.True(Execute<ResTeleportHandler>(result, QuestGoalContext(result)));
+
+        var transfer = Assert.IsType<ZONE_102_PROTOCOL.MSG_ZONETRANSFER>(_player.Receive(s_timeout));
+        Assert.Equal(("WizardCity/Interiors/WC_SchoolStorm", true, CharacterId),
+            (transfer.DestinationZone, transfer.SendToClient, transfer.OwnerCharId));
+    }
+
+    [Fact]
+    public void ResTeleport_FromQuestGoal_WithoutDestination_FailsAndSendsNothing() {
+        var result = new ResTeleport { m_destinationZone = "" };
+
+        Assert.False(Execute<ResTeleportHandler>(result, QuestGoalContext(result)));
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    private GenericResultContext QuestGoalContext(Result result)
+        => new(new ResultList { m_results = [result] }, _player.Receiver,
+            new WizClientObject { m_characterId = CharacterId },
+            questName: "WC-COMMONS-MAIN-002-STORM", goalName: "Goal 1");
 
     private bool Execute<THandler>(Result result) where THandler : ActorBase
         => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));
