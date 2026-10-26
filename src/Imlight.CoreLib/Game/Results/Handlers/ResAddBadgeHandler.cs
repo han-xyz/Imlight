@@ -16,35 +16,44 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
  * ========================================================================
- * RESULT HANDLERS
+ * ADD BADGE RESULT HANDLER
  * ========================================================================
- * 
+ *
  * PURPOSE:
- * Accepts a badge grant; the wizard has no badge storage yet, so the
- * grant is logged and the rest of the result list runs.
- * 
+ * Awards the badge a ResAddBadge result names, for example when a quest completes.
+ *
  * USAGE EXAMPLE:
- * Runs from a quest's end results (MB-BARK-C06-001).
- * 
+ * Found by reflection in ResultDispatcher; runs for every result list that holds a ResAddBadge.
+ *
  * NOTE:
- * 
+ * Results run off the session thread, so the handler only tells the player's session; BadgeService writes the badge.
+ *
  * TODO:
- * 
- * Created by: Han
+ *
+ * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/14/2026
  */
 
+using Akka.Actor;
+using Imcodec.Cryptography;
 using Imcodec.ObjectProperty.TypeCache;
-using Imlight.Common;
+using Imlight.CoreLib.Shared.Packets;
 
 namespace Imlight.CoreLib.Game.Results.Handlers;
 
 internal sealed class ResAddBadgeHandler : BaseResultHandler<ResAddBadge> {
 
     public override bool Execute(IResultContext context) {
-        Logger.Information("Badge {BadgeName} not granted: badges are not stored on the wizard.",
-            Logger.Args(Result.m_badgeName));
+        var playerRef = context.GetPlayerRef();
+        if (playerRef is null || Result is null || string.IsNullOrEmpty(Result.m_badgeName)) {
+            return false;
+        }
+
+        playerRef.Tell(new CHARACTER_103_PROTOCOL.MSG_BADGEEVENT {
+            Kind = BadgeEventKind.Award,
+            BadgeId = StringHash.Compute(Result.m_badgeName)
+        }, ActorRefs.NoSender);
 
         return true;
     }

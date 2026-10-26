@@ -178,6 +178,7 @@ internal static class Program {
         CreateEmbeddedDatabaseAccounts();
 
         OnlinePlayerCollection.Clear();
+        TradeEscrowCollection.RecoverAll();
         LoginWarmup.Run();
 
         // The login and game servers accept no connection until everything above is done.

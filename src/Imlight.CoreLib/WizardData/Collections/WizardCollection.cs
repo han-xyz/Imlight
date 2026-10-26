@@ -84,7 +84,22 @@ public static class WizardCollection {
         }
     }
 
-    private static bool UpdateCharacter(ulong charId, Action<Wizard> update) {
+    private static bool UpdateCharacter(ulong charId, Action<Wizard> update)
+        => UpdateCharacterWithSession(charId, (_, existingCharacter) => {
+            update(existingCharacter);
+            return true;
+        });
+
+    /// <summary>
+    /// Runs <paramref name="work"/> against the stored character in a single session, so any other
+    /// document the callback stores or deletes commits together with the character.
+    /// </summary>
+    /// <param name="charId">The character to load.</param>
+    /// <param name="work">
+    /// Receives the open session and the loaded character; returns <c>true</c> to save the session.
+    /// </param>
+    /// <returns><c>false</c> when the character is missing or <paramref name="work"/> returned <c>false</c>.</returns>
+    internal static bool UpdateCharacterWithSession(ulong charId, Func<IDocumentSession, Wizard, bool> work) {
         return WithWriteLane(charId, () => {
             using var session = s_store.OpenSession();
             var existingCharacter = LoadCharacterByDocumentId(session, charId)
@@ -93,7 +108,10 @@ public static class WizardCollection {
                 return false;
             }
 
-            update(existingCharacter);
+            if (!work(session, existingCharacter)) {
+                return false;
+            }
+
             session.SaveChanges();
             return true;
         });
@@ -384,6 +402,34 @@ public static class WizardCollection {
     }
 
     /// <summary>
+    /// Updates the character badge behavior for a wizard; persists counters, earned badges and the selected badge.
+    /// </summary>
+    /// <param name="wizard">The wizard whose badge behavior should be persisted.</param>
+    /// <returns>True if the update was successful; otherwise, false.</returns>
+    public static bool UpdateCharacterBadgeBehavior(Wizard wizard) {
+        if (wizard is null || wizard.BadgeBehavior is null) {
+            return false;
+        }
+
+        return UpdateCharacter(wizard.CharId, existingCharacter =>
+            existingCharacter.BadgeBehavior = wizard.BadgeBehavior);
+    }
+
+    /// <summary>
+    /// Updates the PvP ratings of a wizard.
+    /// </summary>
+    /// <param name="wizard">The wizard whose PvP rating records should be persisted.</param>
+    /// <returns>True if the update was successful; otherwise, false.</returns>
+    public static bool UpdateCharacterPvPEloBehavior(Wizard wizard) {
+        if (wizard is null || wizard.PvPEloBehavior is null) {
+            return false;
+        }
+
+        return UpdateCharacter(wizard.CharId, existingCharacter =>
+            existingCharacter.PvPEloBehavior = wizard.PvPEloBehavior);
+    }
+
+    /// <summary>
     /// Updates the character spellbook behavior for a wizard; persists the
     /// excluded item spell list and other spellbook state to the database.
     /// </summary>
@@ -400,6 +446,15 @@ public static class WizardCollection {
     public static void UpdateCharacterGameStats(Wizard wizard) {
         UpdateCharacter(wizard.CharId, existingCharacter =>
             existingCharacter.GameStats = wizard.GameStats);
+    }
+
+    /// <summary>
+    /// Updates the privacy options of a wizard.
+    /// </summary>
+    /// <param name="wizard">The wizard whose privacy options should be persisted.</param>
+    public static void UpdateCharacterPrivacyOptions(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, existingCharacter =>
+            existingCharacter.PrivacyOptions = wizard.PrivacyOptions);
     }
 
     /// <summary>

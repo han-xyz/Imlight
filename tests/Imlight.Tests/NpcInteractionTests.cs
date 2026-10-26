@@ -70,6 +70,23 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
+    public void OptionTable_Build_SetsEchoedIndexToFlatPosition() {
+        var quest = new FakeService();
+        var vendor = new FakeService();
+        var table = new ServiceOptionTable();
+        var questOption = new EquipmentShopOption();
+        var vendorOption = new EquipmentShopOption();
+
+        table.Build(FirstPlayer, [(quest, [questOption]), (vendor, [vendorOption])]);
+
+        Assert.Equal(0u, questOption.m_serviceIndex);
+        Assert.Equal(1u, vendorOption.m_serviceIndex);
+        Assert.True(table.TryRoute(FirstPlayer, vendorOption.m_serviceIndex, out var owner, out var localIndex));
+        Assert.Same(vendor, owner);
+        Assert.Equal(0u, localIndex);
+    }
+
+    [Fact]
     public void OptionTable_PlayerLeave_Evicts() {
         var table = new ServiceOptionTable();
         table.Build(FirstPlayer, [(new FakeService(), [new EquipmentShopOption()])]);

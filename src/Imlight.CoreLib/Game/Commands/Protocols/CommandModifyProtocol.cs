@@ -17,8 +17,9 @@
  */
 
 using System;
-using Akka.Actor;
+using System.Globalization;
 using System.Linq;
+using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
@@ -331,10 +332,11 @@ internal class CommandModifyProtocol : CommandProtocol {
     [Command("badge")]
     [AuthRequired(AuthLevel.QualityAssurance)]
     private void SetBadgeCommand([Remainder] string badge) {
-        // Set the badge of the character.
-        Context.Character.SetBadgeOverride(badge);
-
-        InformSenderClient($"Set badge to {badge}. Relog to see changes.");
+        // The badge service sets the title and tells the zone, so nobody has to relog.
+        Context.SessionActor.Tell(new CHARACTER_103_PROTOCOL.MSG_BADGECOMMAND {
+            Action = "title",
+            Argument = badge,
+        }, null);
     }
 
     [Command("maxgold")]
@@ -749,12 +751,17 @@ internal class CommandModifyProtocol : CommandProtocol {
     [Alias("crowns")]
     [AuthRequired(AuthLevel.QualityAssurance)]
     private void SetCrownsCommand(string crowns) {
-        if (!int.TryParse(crowns, out var crownsAmount) || crownsAmount < 0) {
+        if (!int.TryParse(crowns, NumberStyles.Integer, CultureInfo.InvariantCulture, out var crownsAmount) || crownsAmount < 0) {
             InformSenderClient("Invalid Crowns amount.");
+
             return;
         }
 
-        Context.Account.SetCrowns(crownsAmount);
+        if (!Context.Account.SetCrowns(crownsAmount)) {
+            InformSenderClient("The Crowns could not be saved.");
+
+            return;
+        }
 
         // CacheBalanceForCSSegmentation Updates the internal Crown Shop cache so the client uses this balance
         // for Crown Shop segment checks and affordability calculation

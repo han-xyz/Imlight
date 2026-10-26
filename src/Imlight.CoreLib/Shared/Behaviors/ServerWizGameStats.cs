@@ -174,6 +174,18 @@ public class ServerWizGameStats : IClientTypeProvider<WizGameStats> {
         m_baseEventCurrency1Pouch = ConfigurationManager.Settings["Character.BaseLunariPouch"].AsInt();
     }
 
+    /// <summary>
+    /// Copies the stats of the wizard with full health and mana. A duel that must not change the wizard fights with
+    /// the copy.
+    /// </summary>
+    internal ServerWizGameStats CopyForDuel() {
+        var copy = (ServerWizGameStats) MemberwiseClone();
+        copy.m_currentHitpoints = m_baseHitpoints;
+        copy.m_currentMana = m_baseMana;
+
+        return copy;
+    }
+
     internal void SetBaseStats() {
         var baseStats = MagicLevelsConfig.GetPlayerLevelInfo(MagicSchool, Level);
 

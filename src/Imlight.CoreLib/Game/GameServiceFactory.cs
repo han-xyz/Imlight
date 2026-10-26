@@ -15,10 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- * ========================================================================
+ * ======================================================================== 
  * GAME SERVICE FACTORY 
- * ========================================================================
- * 
+ * ======================================================================== 
+ *
  * PURPOSE:
  * Defines and registers the service types required for game operations,
  * providing a centralized factory for creating game-related services.
@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/14/2026
  */
 
 using System;
@@ -78,7 +78,13 @@ public class GameServiceFactory : ServiceFactory {
         typeof(TreasureShopService),
         typeof(CrownShopService),
         typeof(GiftingService),
-        typeof(EmoteService)
+        typeof(EmoteService),
+        typeof(PvPService),
+        typeof(PvPRatingService),
+        typeof(PrivacyOptionsService),
+        typeof(TradeService),
+        typeof(SeamstressService),
+        typeof(BadgeService),
     ];
 
     public static Props Props() 

@@ -126,12 +126,12 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
     protected static void LogChatMessage(string name, string message, string zoneName)
         => Logger.Information("[{0}] {1}: {2}", Logger.Args(zoneName, name, message));
 
-    protected static void SaveChatLog(string message, CoreObject charObj, Wizard character) 
+    protected static void SaveChatLog(string message, Wizard wizard)
         => ChatLogCollection.AddChatLog(new ChatLog() {
             TimeStamp = DateTime.UtcNow,
-            ZoneName = character.Zone,
-            CharacterId = character.CharId,
-            AccountId = character.AccountId,
+            ZoneName = wizard.Zone,
+            CharacterId = wizard.CharId,
+            AccountId = wizard.AccountId,
             Message = message,
         });
 
@@ -192,7 +192,7 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
     /// </summary>
     protected void ZoneBroadcast(IMessage originalMessage,
                                  bool isSelfless = true,
-                                 ZoneBroadcastTarget targets = ZoneBroadcastTarget.All) {
+                                 ZoneBroadcastTarget targets = ZoneBroadcastTarget.Players) {
         if (SessionActor is null) {
             throw new ActorKilledException($"{GetType()} attempted to send message to undefined SessionActor.");
         }
@@ -324,6 +324,13 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
 
         var msg = new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD();
         var response = AskOtherService<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(msg);
+
+        if (response?.Wizard is null) {
+            Logger.Warning("{0} found no active wizard; skipping the cache.", Logger.Args(GetType().Name));
+
+            return;
+        }
+
         _cachedWizard = response.Wizard;
         _cachedWizardGameObject = response.WizardGameObject;
     }
@@ -487,6 +494,9 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
     [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_DISPOSE))]
     public void ReceiveDispose(SERVICE_101_PROTOCOL.MSG_DISPOSE message) {
         OnDispose();
+
+        // The session waits for this before it stops, so a stop never drops a service's dispose.
+        Sender.Tell(message);
     }
 
     #endregion

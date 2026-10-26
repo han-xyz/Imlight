@@ -47,6 +47,20 @@ public class GenericResultContext(ResultList results,
     public bool PlayerSpawned { get; set; }
 
     public ZoneScriptState ScriptState { get; init; }
+    /// <summary>
+    /// The zone entity whose interact option runs the results, if any.
+    /// </summary>
+    public IActorRef SourceRef { get; init; }
+
+    /// <summary>
+    /// The template id of that entity.
+    /// </summary>
+    public ulong SourceTemplateId { get; init; }
+
+    /// <summary>
+    /// Whether that entity lives in an instance.
+    /// </summary>
+    public bool SourceIsInstance { get; init; }
 
     public IActorRef PlayerRef { get; } = playerRef;
     public CoreObject PlayerObj { get; } = playerObj;
@@ -87,6 +101,15 @@ public class GenericResultContext(ResultList results,
 
     public void EndPlayerSpawn()
         => PlayerSpawned = false;
+
+    public IActorRef GetSourceRef()
+        => SourceRef;
+
+    public ulong GetSourceTemplateId()
+        => SourceTemplateId;
+
+    public bool IsSourceInstance()
+        => SourceIsInstance;
 
     public bool IsQuestContext => !string.IsNullOrEmpty(QuestName);
     public bool IsGoalContext => !string.IsNullOrEmpty(GoalName);

@@ -27,6 +27,8 @@ internal sealed class ResTeleportHandler : BaseResultHandler<ResTeleport> {
 
     public override bool Execute(IResultContext context) {
         if (context.GetPlayerObj() is not WizClientObject playerObj) {
+            Logger.Warning("Teleport result skipped: the player object is not a client object.");
+
             return false;
         }
 

@@ -16,9 +16,10 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-using Imcodec.ObjectProperty.TypeCache;
-using Imlight.CoreLib.Shared.Networking;
 using System.Collections.Generic;
+using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Minigames;
+using Imlight.CoreLib.Shared.Networking;
 
 namespace Imlight.CoreLib.Shared.Packets;
 
@@ -233,12 +234,25 @@ internal sealed class SERVICE_101_PROTOCOL : IServerProtocol {
         public byte ServiceID { get; } = 101;
 
     }
-  
+
+    /// <summary>
+    /// Sent by ResMinigameHandler to the session of the player who opened it, asking the minigame service to take
+    /// the player into the chest game described by <see cref="Context"/>.
+    /// </summary>
+    public class MSG_START_CHEST_MINIGAME : IServerMessage {
+
+        public byte MessageOrder { get; } = 21;
+        public byte ServiceID { get; } = 101;
+
+        public ChestGameContext Context;
+
+    }
+
     /// <summary>
     /// Internal message dispatched to a player's session when they receive a gift while online.
     /// </summary>
     public class MSG_DELIVER_GIFT : IServerMessage {
-        public byte MessageOrder { get; } = 21;
+        public byte MessageOrder { get; } = 22;
         public byte ServiceID { get; } = 101;
         public Mail Mail;
     }

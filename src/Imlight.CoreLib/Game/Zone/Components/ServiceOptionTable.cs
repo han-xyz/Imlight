@@ -54,6 +54,8 @@ internal sealed class ServiceOptionTable {
         var routes = new List<(IServiceComponent Owner, uint LocalIndex, ServiceOptionBase Option)>();
         foreach (var (component, options) in componentOptions) {
             for (var i = 0; i < options.Count; i++) {
+                // The client echoes m_serviceIndex on a click, so it has to be the flat index routed below.
+                options[i].m_serviceIndex = (uint) allOptions.Count;
                 routes.Add((component, (uint) i, options[i]));
                 allOptions.Add(options[i]);
             }

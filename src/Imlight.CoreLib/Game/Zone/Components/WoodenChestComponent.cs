@@ -26,6 +26,9 @@
  * USAGE EXAMPLE:
  * 
  * NOTE:
+ * The chest offers exactly one option, and InteractObjectStateComponent stays off these templates even though
+ * their interact option names the Open state: with one option the client opens the chest at once, with two it
+ * shows the service menu.
  * 
  * TODO:
  * 
@@ -75,22 +78,20 @@ internal sealed class WoodenChestComponent(ZoneEntity entity) : ZoneEntityCompon
 
     private bool _hasInteracted = false;
 
-    public static bool ShouldAttachToEntity(CoreTemplate template) =>
-        template is GameObjectTemplate goTemplate
-        && s_treasureChestTemplateIDs.Contains(goTemplate.m_templateID);
+    public static bool ShouldAttachToEntity(CoreTemplate template)
+        => template is GameObjectTemplate goTemplate && IsTreasureChest(goTemplate);
+
+    /// <summary>
+    /// True for the wooden treasure chest templates this component owns. The client opens an object at once only
+    /// when it offers exactly one option, so no other press-X component may attach to these.
+    /// </summary>
+    internal static bool IsTreasureChest(GameObjectTemplate template)
+        => s_treasureChestTemplateIDs.Contains(template.m_templateID);
 
     internal static int RollGold() => Random.Shared.Next(MinGold, MaxGold + 1);
 
     public IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard _)
-        => [
-            new ServiceOptionBase() {
-                m_displayKey = DisplayKey,
-                m_forceInteract = false,
-                m_iconKey = NpcIcon,
-                m_serviceName = ServiceName,
-                m_serviceIndex = 0
-            }
-         ];
+        => [new InteractableOption { m_serviceName = ServiceName }];
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         if (_hasInteracted) {

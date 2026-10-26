@@ -97,7 +97,7 @@ internal class EmoteService(SessionActor sessionActor) : MessageService(sessionA
         else {
             // The text is chat, so it takes the chat path: logged, and hidden from players who blocked the sender.
             LogChatMessage(wizard.PlayerNameBehavior.GetWizardName(), emoteText, wizard.Zone);
-            SaveChatLog(emoteText, GetActiveGameObject(), wizard);
+            SaveChatLog(emoteText, wizard);
             SendFilteredZoneMessage(broadcastMsg, wizard.CharId, wizard.Zone);
         }
 

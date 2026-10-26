@@ -104,8 +104,8 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             .Any(quest => {
                 var dialogList = quest.m_dialogList as ActorDialogList;
                 var prepDialogEntry = dialogList.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Prep");
-                var templateId = prepDialogEntry?.m_dialogEntries?.FirstOrDefault()?.m_actorTemplateID;
-                return templateId == goTemplate.m_templateID;
+
+                return DialogSpeakers.IsSpokenBy(prepDialogEntry?.m_dialogEntries?.FirstOrDefault(), goTemplate);
             });
     }
 
@@ -164,10 +164,9 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             }
 
             var prepDialogEntry = dialogList.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Prep");
-            var templateId = prepDialogEntry?.m_dialogEntries?.FirstOrDefault()?.m_actorTemplateID;
 
             // A dungeon quest is granted by the instance on entry, never offered by an NPC.
-            if (templateId == entity.ActiveGameObject.m_templateID
+            if (DialogSpeakers.IsSpokenBy(prepDialogEntry?.m_dialogEntries?.FirstOrDefault(), Entity.Template)
                 && !DungeonQuestIndex.IsDungeonQuest(questTemplate.m_questName)) {
                 _givesQuests.Add(questTemplate);
             }
@@ -270,7 +269,7 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
 
     private void SendActorDialog(IActorRef playerActor, ActorDialog dialogEntry, string completionType, ulong questId = 0, ulong goalId = 0) {
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(dialogEntry, 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry), 16, out var serializedData)) {
             Logger.Error("Failed to serialize '{0}' dialog.",
                 Logger.Args(completionType));
 
