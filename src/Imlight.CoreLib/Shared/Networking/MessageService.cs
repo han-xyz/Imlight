@@ -38,7 +38,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -144,17 +144,8 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
         var blockedBy = BuddyRelationshipCollection.GetCharactersWhoBlocked(senderCharId);
         var playersInZone = OnlinePlayerCollection.GetPlayersInZone(zoneName);
 
-        foreach (var player in playersInZone) {
-            // Skip the sender (they see their own message client-side).
-            if (player.CharacterId == senderCharId) {
-                continue;
-            }
-
-            // Skip players who have blocked the sender.
-            if (blockedBy.Contains(player.CharacterId)) {
-                continue;
-            }
-
+        // The sender sees their own message client-side.
+        foreach (var player in ZoneChatRecipients.Select(playersInZone, senderCharId, blockedBy)) {
             Context.ActorSelection(player.ActorPath).Tell(msg);
         }
     }
