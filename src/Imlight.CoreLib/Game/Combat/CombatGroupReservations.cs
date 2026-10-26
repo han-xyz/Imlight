@@ -39,7 +39,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/26/2026
  */
 
 using System.Collections.Generic;
@@ -86,6 +86,9 @@ internal sealed class CombatGroupReservations {
 
         return playerCircles.FirstOrDefault(circle => !circle.Occupied && !IsHeldForSomeoneElse(circle, charId));
     }
+
+    public CombatDuelSubCircle FreeUnreservedPlayerCircle(IReadOnlyList<CombatDuelSubCircle> subCircles)
+        => GetPlayerCircles(subCircles).FirstOrDefault(IsFree);
 
     /// <summary>
     /// Reserves free circles for the group mates of <paramref name="fighterCharId"/> who are in

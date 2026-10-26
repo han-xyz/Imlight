@@ -36,9 +36,13 @@
  */
 
 using System.Collections.Generic;
+using System.Linq;
+using Akka.Actor;
 using Imcodec.Cryptography;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Combat;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Game.Zone.Components;
 using Xunit;
 
@@ -181,6 +185,27 @@ public sealed class HenchmanPurchaseTests {
 
         Assert.Equal(1, refunds);
         Assert.False(flow.IsPending);
+    }
+
+    [Fact]
+    public void MinionSlot_SkipsACircleReservedForAGroupMate() {
+        const ulong fighter = 9_100_001;
+        const ulong groupMate = 9_100_002;
+        const ulong channel = 9_100_003;
+        var circles = Enumerable.Range(0, 8).Select(index => new CombatDuelSubCircle(null, 0, 0, default, index)).ToList();
+        var reservations = new CombatGroupReservations();
+        GroupRegistry.Publish(new GroupSnapshot(channel, channel, fighter, [
+            new GroupMemberSnapshot(fighter, "", ActorRefs.Nobody, ActorRefs.Nobody, 0),
+            new GroupMemberSnapshot(groupMate, "", ActorRefs.Nobody, ActorRefs.Nobody, 1),
+        ], 0, 0), []);
+        try {
+            reservations.ReserveForGroupOf(fighter, ActorRefs.Nobody, circles);
+
+            Assert.Equal(4, circles.First(c => !c.Occupied && c.SlotIndex >= 4).SlotIndex);
+            Assert.Equal(5, reservations.FreeUnreservedPlayerCircle(circles)?.SlotIndex);
+        } finally {
+            GroupRegistry.Withdraw(channel, [fighter, groupMate]);
+        }
     }
 
     [Theory]

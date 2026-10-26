@@ -1129,7 +1129,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
     // A PvE minion fights for the wizards whoever summoned it; in PvP it fights for its summoner.
     private CombatDuelSubCircle FreeMinionSlot(CombatDuelSubCircle caster)
-        => Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : GetAvailableSubCircleTeamPlayer();
+        => Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : _groupReservations.FreeUnreservedPlayerCircle(SubCircles);
 
     private CombatDuelSubCircle SpawnAndAssignMinion(uint creatureTid, CombatDuelSubCircle caster) {
         var slot = FreeMinionSlot(caster);
