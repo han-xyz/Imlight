@@ -387,7 +387,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         SnapPlayerToSigilFace(message);
-        StartSigilCountdown(message);
 
         StartSigilTimer(message);
 
