@@ -99,6 +99,8 @@ internal sealed class CombatCreatureAIComponent(ZoneEntity entity) : ZoneEntityC
     private bool _sentFinalKill;
     private bool _isInDuel;
 
+    internal bool IsDefeated => _sentFinalKill;
+
     public static bool ShouldAttachToEntity(CoreTemplate template)
         => template is GameObjectTemplate gameObjectTemplate
         && gameObjectTemplate.m_behaviors.Any(x => x is NPCBehaviorTemplate)

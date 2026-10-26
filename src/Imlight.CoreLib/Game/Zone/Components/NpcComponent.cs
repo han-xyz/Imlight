@@ -159,6 +159,10 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
         m_wsNameOverride = NameOverride,
     };
 
+    internal static bool MayStartDuel(bool isMonster, bool isDefeated) => isMonster && !isDefeated;
+
+    private bool IsDefeated => Entity.GetComponentOfType<CombatCreatureAIComponent>()?.IsDefeated == true;
+
     private void OnProximityEnter(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
         // Bug fix: There is an off chance the player spawns in the middle of our proximity radius,
         // before the wizard even has time to load themselves into the world.
@@ -166,7 +170,7 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
             return;
         }
 
-        if (!IsMonster || playerWizard.IsInCombatGrace || playerWizard.IsInDuel) {
+        if (!MayStartDuel(IsMonster, IsDefeated) || playerWizard.IsInCombatGrace || playerWizard.IsInDuel) {
             return;
         }
 
@@ -202,7 +206,7 @@ internal sealed class NpcComponent : ZoneEntityComponent, IComponentFactory, ICl
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_QUERYNEARESTDUELTARGET))]
     private void ReceiveQueryNearestDuelTarget(ZONE_102_PROTOCOL.MSG_QUERYNEARESTDUELTARGET message) {
         // Only dueling creatures whose aggro radius covers the player answer this query.
-        if (!IsMonster || message.PlayerGameObject is null || !IsInRadius(message.PlayerGameObject, Proximity)) {
+        if (!MayStartDuel(IsMonster, IsDefeated) || message.PlayerGameObject is null || !IsInRadius(message.PlayerGameObject, Proximity)) {
             return;
         }
 
