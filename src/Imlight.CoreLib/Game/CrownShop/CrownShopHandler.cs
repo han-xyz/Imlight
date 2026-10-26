@@ -31,7 +31,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using Imcodec.IO;
@@ -233,6 +233,8 @@ public static class CrownShopHandler {
     public static List<CrownShopItem> GetCrownShopItems() => s_snapshot.Catalogue.Items.ToList();
     public static bool TryGetCrownShopItem(ulong id, out CrownShopItem item)
         => s_snapshot.Catalogue.TryGetItem(id, out item);
+
+    public static bool IsHenchman(ulong id) => s_snapshot.Catalogue.IsHenchman(id);
 
     public static bool TryGetSoldEmote(string animation, out CustomEmoteBehaviorTemplate emote)
         => s_snapshot.Emotes.Value.ByAnimation.TryGetValue(animation ?? string.Empty, out emote);

@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -50,6 +50,7 @@ public sealed class CrownShopTests : IDisposable {
 
     private const ulong GoldItemId = 1001;
     private const ulong CrownsOnlyItemId = 1002;
+    private const ulong HenchmanItemId = 1582001;
 
     private static readonly string? s_spiralDbClone = Environment.GetEnvironmentVariable("SPIRALDB_CLONE");
 
@@ -128,6 +129,22 @@ public sealed class CrownShopTests : IDisposable {
 
         Assert.True(catalogue.TryGetItem(GoldItemId, out var item));
         Assert.Equal("", item.m_displayPriority);
+    }
+
+    [Fact]
+    public void Load_HenchmanCategoryItem_IsCombatOnlyHenchman() {
+        WriteTab("Tab9.json", 45, $$"""[{ "templateId": {{HenchmanItemId}}, "crownsCost": 400, "displayPriority": [18] }]""");
+        WriteTab("Tab0.json", 38, TwoItems);
+
+        var catalogue = CrownShopCatalogue.Load(_directory);
+
+        Assert.True(catalogue.TryGetItem(HenchmanItemId, out var henchman));
+        Assert.True(henchman.m_combatOnly);
+        Assert.True(henchman.m_noGift);
+        Assert.True(catalogue.IsHenchman(HenchmanItemId));
+        Assert.True(catalogue.TryGetItem(CrownsOnlyItemId, out var other));
+        Assert.False(other.m_combatOnly);
+        Assert.False(catalogue.IsHenchman(CrownsOnlyItemId));
     }
 
     [Fact]
