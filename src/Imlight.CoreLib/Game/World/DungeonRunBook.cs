@@ -107,12 +107,14 @@ internal sealed partial class DungeonRunBook(Func<ulong, GroupSnapshot> findGrou
     internal InstanceEntry Enter(ulong charId, string zoneName, string padZoneName) {
         lock (_lock) {
             var occupants = RemoveWaiting(charId, zoneName);
+            var liveRuns = LiveRuns();
+            _endedRunsByMember.Remove(charId);
             var group = findGroup(charId);
             if (group is null) {
                 return new InstanceEntry(charId, ResetInstance: true);
             }
 
-            var run = LiveRuns().FirstOrDefault(r => r.GroupId == group.GroupId);
+            var run = liveRuns.FirstOrDefault(r => r.GroupId == group.GroupId);
             if (run is null) {
                 var ownerCharId = SigilEntryPlan.ChooseOwner(charId, group, occupants);
                 run = new DungeonRun(ownerCharId, group.GroupId, padZoneName, clock());
@@ -120,7 +122,6 @@ internal sealed partial class DungeonRunBook(Func<ulong, GroupSnapshot> findGrou
             }
 
             run.Members.Add(charId);
-            _endedRunsByMember.Remove(charId);
 
             var isNewToRun = run.Zones.Add(zoneName);
 
@@ -187,6 +188,7 @@ internal sealed partial class DungeonRunBook(Func<ulong, GroupSnapshot> findGrou
 
             if (run.Zones.Contains(zoneName)) {
                 _copiesByWizard[charId] = (run.OwnerCharId, zoneName);
+                _endedRunsByMember.Remove(charId);
                 run.Inside.Add(charId);
                 run.EmptySince = null;
 

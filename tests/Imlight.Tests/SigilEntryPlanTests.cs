@@ -262,6 +262,18 @@ public sealed class DungeonRunBookTests {
     }
 
     [Fact]
+    public void TryTakeReturn_AfterEnteringTheSameDungeonSolo_DoesNotSendTheWizardBack() {
+        EnterTogether();
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+        _book.Arrived(Member, Street, isInstance: false, fromRunZone: true);
+        _now += TimeSpan.FromMinutes(31);
+        _groups.Remove(Member);
+        _book.Enter(Member, Floor1, Street);
+
+        Assert.False(_book.TryTakeReturn(Member, Floor1, out _));
+    }
+
+    [Fact]
     public void TryTakeReturn_WhileTheRunIsLive_KeepsTheMemberInside() {
         EnterTogether();
 
