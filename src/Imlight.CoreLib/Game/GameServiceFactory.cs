@@ -73,6 +73,7 @@ public class GameServiceFactory : ServiceFactory {
         typeof(GroupService),
         typeof(TutorialService),
         typeof(QuestService),
+        typeof(HiddenQuestsService),
         typeof(CinematicService),
         typeof(PotionService),
         typeof(TreasureShopService),

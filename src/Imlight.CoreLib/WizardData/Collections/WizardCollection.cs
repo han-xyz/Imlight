@@ -555,6 +555,12 @@ public static class WizardCollection {
         );
     }
 
+    public static void UpdateCharacterHiddenQuests(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character =>
+            character.HiddenQuestsData = wizard.HiddenQuestsData
+        );
+    }
+
     /// <summary>
     /// Updates the training points of a wizard.
     /// </summary>
