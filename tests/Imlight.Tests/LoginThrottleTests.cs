@@ -35,6 +35,7 @@
  */
 
 using System;
+using System.Linq;
 using Imlight.CoreLib.Auth;
 using Xunit;
 
@@ -53,7 +54,7 @@ public class LoginThrottleTests {
 
         Fail(throttle, Address, Limit - 1, s_start);
 
-        Assert.False(throttle.IsThrottled(Address, s_start));
+        Assert.False(IsThrottled(throttle, Address, s_start));
     }
 
     [Fact]
@@ -62,7 +63,7 @@ public class LoginThrottleTests {
 
         Fail(throttle, Address, Limit, s_start);
 
-        Assert.True(throttle.IsThrottled(Address, s_start));
+        Assert.True(IsThrottled(throttle, Address, s_start));
     }
 
     [Fact]
@@ -71,7 +72,7 @@ public class LoginThrottleTests {
 
         Fail(throttle, Address, Limit, s_start);
 
-        Assert.False(throttle.IsThrottled("198.51.100.4", s_start));
+        Assert.False(IsThrottled(throttle, "198.51.100.4", s_start));
     }
 
     [Fact]
@@ -79,10 +80,10 @@ public class LoginThrottleTests {
         var throttle = new LoginThrottle(Limit, s_window);
         Fail(throttle, Address, Limit - 1, s_start);
         var limitingFailure = s_start + TimeSpan.FromMinutes(4);
-        throttle.RecordFailure(Address, limitingFailure);
+        Fail(throttle, Address, 1, limitingFailure);
 
-        Assert.True(throttle.IsThrottled(Address, limitingFailure + s_window - TimeSpan.FromSeconds(1)));
-        Assert.False(throttle.IsThrottled(Address, limitingFailure + s_window));
+        Assert.True(IsThrottled(throttle, Address, limitingFailure + s_window - TimeSpan.FromSeconds(1)));
+        Assert.False(IsThrottled(throttle, Address, limitingFailure + s_window));
     }
 
     [Fact]
@@ -91,9 +92,9 @@ public class LoginThrottleTests {
 
         Fail(throttle, Address, Limit - 1, s_start);
         var later = s_start + s_window;
-        throttle.RecordFailure(Address, later);
+        Fail(throttle, Address, 1, later);
 
-        Assert.False(throttle.IsThrottled(Address, later));
+        Assert.False(IsThrottled(throttle, Address, later));
     }
 
     [Fact]
@@ -102,15 +103,49 @@ public class LoginThrottleTests {
         Fail(throttle, Address, Limit, s_start);
         var afterLockout = s_start + s_window;
 
-        throttle.RecordFailure(Address, afterLockout);
+        Fail(throttle, Address, 1, afterLockout);
 
-        Assert.False(throttle.IsThrottled(Address, afterLockout));
+        Assert.False(IsThrottled(throttle, Address, afterLockout));
+    }
+
+    [Fact]
+    public void ParallelAttempts_BeyondLimit_Refused() {
+        var throttle = new LoginThrottle(Limit, s_window);
+
+        var begun = Enumerable.Range(0, Limit * 4)
+            .AsParallel()
+            .Count(_ => throttle.TryBeginAttempt(Address, s_start));
+
+        Assert.Equal(Limit, begun);
+    }
+
+    [Fact]
+    public void FinishedAttempt_FreesItsPlace() {
+        var throttle = new LoginThrottle(Limit, s_window);
+        for (var i = 0; i < Limit; i++) {
+            Assert.True(throttle.TryBeginAttempt(Address, s_start));
+        }
+
+        Assert.False(throttle.TryBeginAttempt(Address, s_start));
+        throttle.EndAttempt(Address, s_start, failed: false);
+
+        Assert.True(throttle.TryBeginAttempt(Address, s_start));
     }
 
     private static void Fail(LoginThrottle throttle, string address, int count, DateTimeOffset at) {
         for (var i = 0; i < count; i++) {
-            throttle.RecordFailure(address, at);
+            Assert.True(throttle.TryBeginAttempt(address, at));
+            throttle.EndAttempt(address, at, failed: true);
         }
+    }
+
+    private static bool IsThrottled(LoginThrottle throttle, string address, DateTimeOffset at) {
+        if (!throttle.TryBeginAttempt(address, at)) {
+            return true;
+        }
+
+        throttle.EndAttempt(address, at, failed: false);
+        return false;
     }
 
 }

@@ -98,17 +98,20 @@ internal static class UserAuthenticator {
     /// <param name="authMessage">The authentication message.</param>
     /// <returns>The authentication details.</returns>
     internal static AuthenticationDetails Authenticate(SessionActor sessionActor, MSG_USER_AUTHEN_V3 authMessage) {
-        if (s_loginThrottle.IsThrottled(sessionActor.RemoteIp, DateTimeOffset.UtcNow)) {
-            Logger.Warning("SessionActor {Id} from {Ip} was refused: too many failed logins from this address.",
+        if (!s_loginThrottle.TryBeginAttempt(sessionActor.RemoteIp, DateTimeOffset.UtcNow)) {
+            Logger.Warning("SessionActor {Id} from {Ip} was refused: too many failed or running logins from this address.",
                 Logger.Args(sessionActor.SessionID, sessionActor.RemoteIp));
 
             return new AuthenticationDetails { _result = UserAuthenResult.AuthenFailed };
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var details = AuthenticateUser(sessionActor, authMessage);
-        if (details._result == UserAuthenResult.AuthenFailed) {
-            s_loginThrottle.RecordFailure(sessionActor.RemoteIp, DateTimeOffset.UtcNow);
+        AuthenticationDetails details = null;
+        try {
+            details = AuthenticateUser(sessionActor, authMessage);
+        } finally {
+            var failed = details is null || details._result == UserAuthenResult.AuthenFailed;
+            s_loginThrottle.EndAttempt(sessionActor.RemoteIp, DateTimeOffset.UtcNow, failed);
         }
 
         Logger.Debug("SessionActor {Id} authentication finished in {Elapsed} ms with {Result}.",

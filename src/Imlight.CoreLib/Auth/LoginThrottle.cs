@@ -21,9 +21,10 @@
  * 
  * PURPOSE:
  * Counts failed logins per source address and refuses an address for one window once it reaches the limit.
+ * Attempts still running count against the limit, so parallel connections cannot outrun it.
  * 
  * USAGE EXAMPLE:
- * if (throttle.IsThrottled(ip, now)) { refuse; } ... throttle.RecordFailure(ip, now);
+ * if (!throttle.TryBeginAttempt(ip, now)) { refuse; } try { ... } finally { throttle.EndAttempt(ip, now, failed); }
  * 
  * NOTE:
  * 
@@ -46,19 +47,31 @@ internal sealed class LoginThrottle(int failureLimit, TimeSpan window) {
     private readonly Lock _lock = new();
     private readonly Dictionary<string, AddressRecord> _records = new(StringComparer.Ordinal);
 
-    internal bool IsThrottled(string address, DateTimeOffset now) {
-        lock (_lock) {
-            return _records.TryGetValue(address, out var record) && record.LockedUntil > now;
-        }
-    }
-
-    internal void RecordFailure(string address, DateTimeOffset now) {
+    internal bool TryBeginAttempt(string address, DateTimeOffset now) {
         lock (_lock) {
             RemoveIdleRecords(now);
 
             if (!_records.TryGetValue(address, out var record)) {
                 record = new AddressRecord();
                 _records[address] = record;
+            }
+
+            DropFailuresOutsideWindow(record, now);
+            if (record.LockedUntil > now || record.Failures.Count + record.AttemptsInFlight >= failureLimit) {
+                return false;
+            }
+
+            record.AttemptsInFlight++;
+            return true;
+        }
+    }
+
+    internal void EndAttempt(string address, DateTimeOffset now, bool failed) {
+        lock (_lock) {
+            var record = _records[address];
+            record.AttemptsInFlight--;
+            if (!failed) {
+                return;
             }
 
             record.Failures.Enqueue(now);
@@ -79,7 +92,8 @@ internal sealed class LoginThrottle(int failureLimit, TimeSpan window) {
 
     private void RemoveIdleRecords(DateTimeOffset now) {
         var idleAddresses = _records
-            .Where(entry => entry.Value.LockedUntil <= now
+            .Where(entry => entry.Value.AttemptsInFlight == 0
+                && entry.Value.LockedUntil <= now
                 && (entry.Value.Failures.Count == 0 || now - entry.Value.Failures.Last() >= window))
             .Select(entry => entry.Key)
             .ToArray();
@@ -92,6 +106,7 @@ internal sealed class LoginThrottle(int failureLimit, TimeSpan window) {
     private sealed class AddressRecord {
 
         public Queue<DateTimeOffset> Failures { get; } = new();
+        public int AttemptsInFlight { get; set; }
         public DateTimeOffset LockedUntil { get; set; }
 
     }
