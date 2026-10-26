@@ -28,7 +28,8 @@
  * when the page opens; each is answered once. The server never pushes.
  *
  * NOTE:
- * Shards, gold, the spellbook and the progress change together under the wizard's backpack lock.
+ * Shards, gold, the spellbook, the decks and the progress change together under the wizard's backpack lock.
+ * The paid reset (D26) is REFUNDFORMP; the free one-time reset is DOPREPFORMP.
  * The lists the client reads are comma-separated spell template ids.
  *
  * TODO:
@@ -83,19 +84,26 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_REQUESTTSDONEPREPFORMP))]
     private void ReceiveRequestDonePrepForMultiplePaths(WIZARD3_56_PROTOCOL.MSG_REQUESTTSDONEPREPFORMP _) {
         var wizard = GetActiveWizard();
-        var prepped = wizard.TieredSpells.Where(progress => progress.DonePrepForMultiplePaths)
-            .Select(progress => progress.TierOneSpellId);
+        string data;
+        lock (HousingItems.BackpackLock(wizard)) {
+            data = string.Join(ListSeparator, wizard.TieredSpells.Where(progress => progress.DonePrepForMultiplePaths)
+                .Select(progress => progress.TierOneSpellId));
+        }
 
-        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_UPDATETSDONEPREPFORMP { Data = string.Join(ListSeparator, prepped) });
+        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_UPDATETSDONEPREPFORMP { Data = data });
     }
 
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_REQUESTTSMARKEDASUNTRAINED))]
     private void ReceiveRequestMarkedAsUntrained(WIZARD3_56_PROTOCOL.MSG_REQUESTTSMARKEDASUNTRAINED _) {
         var wizard = GetActiveWizard();
-        var untrained = wizard.TieredSpells.Where(progress => !wizard.SpellbookBehavior.HasSpell(progress.CurrentSpellId))
-            .Select(progress => progress.CurrentSpellId);
+        string data;
+        lock (HousingItems.BackpackLock(wizard)) {
+            data = string.Join(ListSeparator, wizard.TieredSpells
+                .Where(progress => !wizard.SpellbookBehavior.HasSpell(progress.CurrentSpellId))
+                .Select(progress => progress.CurrentSpellId));
+        }
 
-        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_UPDATETSMARKEDASUNTRAINED { Data = string.Join(ListSeparator, untrained) });
+        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_UPDATETSMARKEDASUNTRAINED { Data = data });
     }
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_TIEREDSPELLUPGRADE))]
@@ -123,8 +131,7 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_TIEREDSPELLREFUND))]
     private void ReceiveTieredSpellRefund(WIZARD2_53_PROTOCOL.MSG_TIEREDSPELLREFUND message) {
         var wizard = GetActiveWizard();
-        var refunded = StepDown(wizard, message.SpellID, message.SpellIDOld)
-            || StepDown(wizard, message.SpellIDOld, message.SpellID);
+        var refunded = StepDown(wizard, message.SpellID, message.SpellIDOld);
 
         Logger.Debug("Tiered spell refund between {SpellId} and {OldSpellId}: {Refunded}.",
             Logger.Args(message.SpellID, message.SpellIDOld, refunded));
@@ -171,6 +178,9 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         }
 
         var group = groups[groupIndex];
+        if (TierOneSpellId(group) is not { } tierOneSpellId) {
+            return NotUpgraded(TieredSpellUpgradeOutcome.NotTrained);
+        }
 
         TieredSpellUpgradeDecision decision;
         ClientReagentItem shards = null;
@@ -183,22 +193,23 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
                 return decision;
             }
 
-            var existing = wizard.TieredSpells.Find(candidate => candidate.GroupIndex == groupIndex);
-            var progress = existing ?? NewProgress(groupIndex, spellId);
-            if (!TieredSpellLedger.CanApplyUpgrade(progress, spellId, newSpellId)) {
+            var existing = FindProgress(wizard, groupIndex);
+            var progress = existing ?? TieredSpellLedger.NewProgress(groupIndex, tierOneSpellId);
+            if (!TieredSpellLedger.CanApplyUpgrade(progress, spellId, newSpellId) || !wizard.LearnSpell(newSpell)) {
                 return NotUpgraded(TieredSpellUpgradeOutcome.NotTrained);
             }
 
             if (decision.Cost > 0 && !wizard.RemoveReagents(group.ShardTemplateId, decision.Cost, out shards)) {
+                wizard.UnlearnSpell(newSpellId);
+
                 return NotUpgraded(TieredSpellUpgradeOutcome.NotEnoughShards);
             }
 
+            wizard.UnlearnSpell(spellId);
             if (existing is null) {
                 wizard.TieredSpells.Add(progress);
             }
 
-            wizard.UnlearnSpell(spellId);
-            wizard.LearnSpell(newSpell);
             TieredSpellLedger.ApplyUpgrade(progress, spellId, newSpellId, decision.Cost);
             wizard.SaveTieredSpells();
         }
@@ -212,96 +223,78 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         return decision;
     }
 
-    private bool StepDown(Wizard wizard, uint currentSpellId, uint targetSpellId) {
-        if (SpellFactory.GetSpell(targetSpellId) is not { } targetSpell) {
+    private bool StepDown(Wizard wizard, uint spellId, uint otherSpellId) {
+        var groupIndex = GroupOfSpells(spellId, otherSpellId);
+        if (groupIndex == TieredSpellLedger.NoGroup) {
             return false;
         }
 
-        int shardsReturned;
-        IndexedTieredSpellGroup group;
+        var group = TieredSpellIndex.Instance.Groups[groupIndex];
         lock (HousingItems.BackpackLock(wizard)) {
-            var progress = wizard.TieredSpells.Find(candidate => candidate.CurrentSpellId == currentSpellId);
-            if (progress is null) {
+            var progress = FindProgress(wizard, groupIndex);
+            if (progress is null || (progress.CurrentSpellId != spellId && progress.CurrentSpellId != otherSpellId)) {
                 return false;
             }
 
-            group = TieredSpellIndex.Instance.Groups[progress.GroupIndex];
-            if (!TieredSpellLedger.TryRefund(progress, currentSpellId, targetSpellId, group.ReturnRate, out shardsReturned)) {
+            var targetSpellId = progress.CurrentSpellId == spellId ? otherSpellId : spellId;
+            var draft = TieredSpellLedger.Copy(progress);
+            if (!TieredSpellLedger.TryRefund(draft, progress.CurrentSpellId, targetSpellId, group.ReturnRate, out var shardsReturned)
+                || !CommitPathChange(wizard, progress, draft, group, shardsReturned, () => true)) {
                 return false;
             }
 
-            wizard.UnlearnSpell(currentSpellId);
-            wizard.LearnSpell(targetSpell);
             wizard.SaveTieredSpells();
         }
-
-        ReturnShards(wizard, group, shardsReturned);
-        SendSpellSwap(currentSpellId, targetSpellId);
 
         return true;
     }
 
     private bool RefundSpells(Wizard wizard, uint spellId, IReadOnlyCollection<uint> spellIds) {
-        uint previousSpellId;
-        uint currentSpellId;
-        int shardsReturned;
-        IndexedTieredSpellGroup group;
+        var groupIndex = GroupOfSpells(spellId, spellId);
+        if (groupIndex == TieredSpellLedger.NoGroup) {
+            return false;
+        }
+
+        var group = TieredSpellIndex.Instance.Groups[groupIndex];
         lock (HousingItems.BackpackLock(wizard)) {
-            var progress = wizard.TieredSpells.Find(candidate => IsTierOf(candidate, spellId));
+            var progress = FindProgress(wizard, groupIndex);
             if (progress is null) {
                 return false;
             }
 
-            group = TieredSpellIndex.Instance.Groups[progress.GroupIndex];
-            if (wizard.GameStats.m_currentGold < group.GoldResetCost) {
+            var draft = TieredSpellLedger.Copy(progress);
+            if (!TieredSpellLedger.TryRefundSpells(draft, spellIds, group.ReturnRate, out var shardsReturned)
+                || !CommitPathChange(wizard, progress, draft, group, shardsReturned, () => TryChargeReset(wizard, group))) {
                 return false;
             }
 
-            var paysCrowns = group.GoldResetCost == 0 && group.CrownsResetCost > 0;
-            if (paysCrowns && !wizard.Account.TryAdjustCrowns(-(int) group.CrownsResetCost)) {
-                return false;
-            }
-
-            previousSpellId = progress.CurrentSpellId;
-            if (!TieredSpellLedger.TryRefundSpells(progress, spellIds, group.ReturnRate, out shardsReturned)) {
-                if (paysCrowns && !wizard.Account.TryAdjustCrowns((int) group.CrownsResetCost)) {
-                    Logger.Error("Could not return {Crowns} reset crowns to account {AccountId}.",
-                        Logger.Args(group.CrownsResetCost, wizard.AccountId));
-                }
-
-                return false;
-            }
-
-            if (group.GoldResetCost > 0) {
-                wizard.RemoveGold((int) group.GoldResetCost);
-            }
-
-            currentSpellId = progress.CurrentSpellId;
-            SwapTrainedSpell(wizard, previousSpellId, currentSpellId);
             wizard.SaveTieredSpells();
         }
-
-        ReturnShards(wizard, group, shardsReturned);
-        SendSpellSwap(previousSpellId, currentSpellId);
 
         return true;
     }
 
     private bool PrepForMultiplePaths(Wizard wizard, uint spellId, uint oldSpellId, bool keepProgression) {
-        uint previousSpellId;
-        uint currentSpellId;
-        int shardsReturned;
-        IndexedTieredSpellGroup group;
+        var groupIndex = GroupOfSpells(spellId, spellId);
+        if (groupIndex == TieredSpellLedger.NoGroup) {
+            groupIndex = GroupOfSpells(oldSpellId, oldSpellId);
+        }
+
+        if (groupIndex == TieredSpellLedger.NoGroup) {
+            return false;
+        }
+
+        var group = TieredSpellIndex.Instance.Groups[groupIndex];
         lock (HousingItems.BackpackLock(wizard)) {
-            var existing = wizard.TieredSpells.Find(candidate => IsTierOf(candidate, spellId) || IsTierOf(candidate, oldSpellId));
-            var progress = existing ?? NewProgressForTrainedTier(wizard, spellId, oldSpellId);
+            var existing = FindProgress(wizard, groupIndex);
+            var progress = existing ?? StartAtTrainedTierOne(wizard, groupIndex, group);
             if (progress is null) {
                 return false;
             }
 
-            group = TieredSpellIndex.Instance.Groups[progress.GroupIndex];
-            previousSpellId = progress.CurrentSpellId;
-            if (!TieredSpellLedger.TryPrepForMultiplePaths(progress, keepProgression, group.ReturnRate, out shardsReturned)) {
+            var draft = TieredSpellLedger.Copy(progress);
+            if (!TieredSpellLedger.TryPrepForMultiplePaths(draft, keepProgression, group.ReturnRate, out var shardsReturned)
+                || !CommitPathChange(wizard, progress, draft, group, shardsReturned, () => true)) {
                 return false;
             }
 
@@ -309,24 +302,117 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
                 wizard.TieredSpells.Add(progress);
             }
 
-            currentSpellId = progress.CurrentSpellId;
-            SwapTrainedSpell(wizard, previousSpellId, currentSpellId);
             wizard.SaveTieredSpells();
-        }
-
-        ReturnShards(wizard, group, shardsReturned);
-        if (previousSpellId != currentSpellId) {
-            SendSpellSwap(previousSpellId, currentSpellId);
         }
 
         return true;
     }
 
+    /// <summary>
+    /// Applies a planned path change under the caller's backpack lock: every check runs before the first change,
+    /// then the charge, the spellbook swap, the shard return, the record and the decks, in that order.
+    /// </summary>
+    /// <returns>False, with nothing changed, when a check or the charge fails.</returns>
+    private bool CommitPathChange(Wizard wizard, TieredSpellProgress progress, TieredSpellProgress draft,
+        IndexedTieredSpellGroup group, int shardsReturned, Func<bool> tryCharge) {
+        var oldSpellId = progress.CurrentSpellId;
+        var newSpellId = draft.CurrentSpellId;
+        var isSwap = oldSpellId != newSpellId;
+        var newSpell = isSwap ? SpellFactory.GetSpell(newSpellId) : null;
+        if (isSwap && newSpell is null) {
+            return false;
+        }
+
+        if (shardsReturned > 0 && !wizard.AlchemyBehavior.HasReagentSpace(group.ShardTemplateId, shardsReturned)) {
+            return false;
+        }
+
+        if (!tryCharge()) {
+            return false;
+        }
+
+        var swapped = !isSwap || TieredSpellLedger.TrySwapSpell(
+            () => wizard.SpellbookBehavior.HasSpell(newSpellId) || wizard.LearnSpell(newSpell),
+            () => UnlearnIfTrained(wizard, oldSpellId));
+        if (!swapped) {
+            Logger.Error("Could not teach tier {SpellId} to {CharId} after the refund was charged.",
+                Logger.Args(newSpellId, wizard.CharId));
+
+            return false;
+        }
+
+        if (shardsReturned > 0 && !LootGranter.GrantReagents(SessionActor.ActorRef, wizard, group.ShardTemplateId, shardsReturned)) {
+            Logger.Error("Could not return {Count} shards {ShardId} to {CharId}.",
+                Logger.Args(shardsReturned, group.ShardTemplateId, wizard.CharId));
+        }
+
+        var removedTiers = TieredSpellLedger.RemovedTiers(progress, draft);
+        progress.CurrentSpellId = draft.CurrentSpellId;
+        progress.Unlocks = draft.Unlocks;
+        progress.DonePrepForMultiplePaths = draft.DonePrepForMultiplePaths;
+
+        ReplaceTiersInDecks(wizard, removedTiers, newSpellId);
+        if (isSwap) {
+            SendSpellSwap(oldSpellId, newSpellId);
+        }
+
+        return true;
+    }
+
+    private void ReplaceTiersInDecks(Wizard wizard, IReadOnlySet<uint> removedTiers, uint newSpellId) {
+        if (removedTiers.Count == 0) {
+            return;
+        }
+
+        foreach (var deck in wizard.InventoryBehavior.Items.Concat(wizard.EquipmentBehavior.EquippedItems)) {
+            if (!CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deck, out var deckBehavior)) {
+                continue;
+            }
+
+            foreach (var (templateId, quantity) in TieredSpellLedger.ReplacedDeckCards(deckBehavior.m_spellList ?? [], removedTiers)) {
+                for (var copy = 0; copy < quantity && wizard.RemoveSpellFromDeck(templateId, deck.m_globalID); copy++) {
+                    SendToSocket(new WIZARD_12_PROTOCOL.MSG_REMOVESPELLFROMDECK {
+                        SpellID = (int) templateId,
+                        DeckID = deck.m_globalID,
+                        Success = 1,
+                    });
+
+                    if (wizard.AddSpellToDeck(newSpellId, deck.m_globalID)) {
+                        SendToSocket(new WIZARD_12_PROTOCOL.MSG_ADDSPELLTODECK {
+                            SpellID = (int) newSpellId,
+                            DeckID = deck.m_globalID,
+                            Success = 1,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool TryChargeReset(Wizard wizard, IndexedTieredSpellGroup group) {
+        if (group.GoldResetCost > 0) {
+            if (wizard.GameStats.m_currentGold < group.GoldResetCost) {
+                return false;
+            }
+
+            wizard.RemoveGold((int) group.GoldResetCost);
+
+            return true;
+        }
+
+        return group.CrownsResetCost == 0 || wizard.Account.TryAdjustCrowns(-(int) group.CrownsResetCost);
+    }
+
     private void SendVisibility(Wizard wizard, byte checkTieredSpellNotifications, GID shardType) {
         var groups = TieredSpellIndex.Instance.Groups;
-        var trainedSpells = TrainedSpellNames(wizard);
-        var visibility = TieredSpellVisibility.For(groups, trainedSpells, wizard.AlchemyBehavior.HasReageant,
-            group => CanUpgrade(wizard, group, trainedSpells));
+        TieredSpellGroupVisibility visibility;
+        lock (HousingItems.BackpackLock(wizard)) {
+            var trainedSpells = TrainedSpellNames(wizard);
+            var upgradable = UpgradableGroups(wizard, trainedSpells);
+            visibility = TieredSpellVisibility.For(groups, trainedSpells, wizard.AlchemyBehavior.HasReageant,
+                upgradable.Contains);
+        }
+
         var data = TieredSpellVisibility.Serialize(visibility);
 
         Logger.Debug("Tiered spell group visibility for {Count} groups is {Length} bytes.",
@@ -337,6 +423,41 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
             CheckTieredSpellNotifications = checkTieredSpellNotifications,
             ShardType = shardType,
         });
+    }
+
+    private HashSet<IndexedTieredSpellGroup> UpgradableGroups(Wizard wizard, IReadOnlySet<string> trainedSpells) {
+        var groups = TieredSpellIndex.Instance.Groups;
+        var upgradable = new HashSet<IndexedTieredSpellGroup>(ReferenceEqualityComparer.Instance);
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++) {
+            var group = groups[groupIndex];
+            var currentName = CurrentTierName(wizard, FindProgress(wizard, groupIndex), group, trainedSpells);
+            if (currentName is not null && CanUpgradeFrom(wizard, group, currentName)) {
+                upgradable.Add(group);
+            }
+        }
+
+        return upgradable;
+    }
+
+    private bool CanUpgradeFrom(Wizard wizard, IndexedTieredSpellGroup group, string currentName) {
+        var shardsOwned = wizard.AlchemyBehavior.GetReagent(group.ShardTemplateId)?.m_quantity ?? 0;
+
+        return (TierTemplate(currentName)?.m_nextTierSpells ?? [])
+            .Select(name => TierTemplate(name.ToString()))
+            .Any(next => next is { m_retired: false }
+                && next.m_newShardCost <= shardsOwned
+                && FirstFailedRequirement(wizard, next.m_requirements) == TieredSpellLedger.NoFailedRequirement);
+    }
+
+    private static string CurrentTierName(Wizard wizard, TieredSpellProgress progress, IndexedTieredSpellGroup group,
+        IReadOnlySet<string> trainedSpells) {
+        if (progress is null) {
+            return trainedSpells.Contains(group.TierOneSpell) ? group.TierOneSpell : null;
+        }
+
+        return wizard.SpellbookBehavior.HasSpell(progress.CurrentSpellId)
+            ? (CoreObjectFactory.GetCoreTemplate(progress.CurrentSpellId) as SpellTemplate)?.m_name.ToString()
+            : null;
     }
 
     private int FirstFailedRequirement(Wizard wizard, RequirementList requirements) {
@@ -351,18 +472,6 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
 
         // An OR list can fail as a whole while each item alone passes; the client still needs an index.
         return Math.Max(index, 0);
-    }
-
-    private void ReturnShards(Wizard wizard, IndexedTieredSpellGroup group, int shardsReturned) {
-        if (shardsReturned <= 0) {
-            return;
-        }
-
-        var granted = LootGranter.GrantReagent(SessionActor.ActorRef, wizard, group.ShardTemplateId, shardsReturned);
-        if (granted < shardsReturned) {
-            Logger.Warning("Returned {Granted} of {Count} shards {ShardId} to {CharId}: the stack is full.",
-                Logger.Args(granted, shardsReturned, group.ShardTemplateId, wizard.CharId));
-        }
     }
 
     private void SendShardStack(Wizard wizard, ClientReagentItem shards) {
@@ -387,51 +496,28 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_ADDSPELLTOBOOK { SpellID = (int) newSpellId });
     }
 
-    private static void SwapTrainedSpell(Wizard wizard, uint oldSpellId, uint newSpellId) {
-        if (oldSpellId == newSpellId || SpellFactory.GetSpell(newSpellId) is not { } newSpell) {
-            return;
+    private static void UnlearnIfTrained(Wizard wizard, uint spellId) {
+        if (wizard.SpellbookBehavior.HasSpell(spellId)) {
+            wizard.UnlearnSpell(spellId);
         }
-
-        wizard.UnlearnSpell(oldSpellId);
-        wizard.LearnSpell(newSpell);
     }
 
-    private static TieredSpellProgress NewProgress(int groupIndex, uint currentSpellId) {
-        var tierOne = SpellFactory.GetSpell(TieredSpellIndex.Instance.Groups[groupIndex].TierOneSpell);
+    private static TieredSpellProgress StartAtTrainedTierOne(Wizard wizard, int groupIndex, IndexedTieredSpellGroup group)
+        => TierOneSpellId(group) is { } tierOneSpellId && wizard.SpellbookBehavior.HasSpell(tierOneSpellId)
+            ? TieredSpellLedger.NewProgress(groupIndex, tierOneSpellId)
+            : null;
 
-        return new TieredSpellProgress {
-            GroupIndex = groupIndex,
-            TierOneSpellId = tierOne?.m_templateID ?? currentSpellId,
-            CurrentSpellId = currentSpellId,
-            DonePrepForMultiplePaths = false,
-        };
-    }
+    private static TieredSpellProgress FindProgress(Wizard wizard, int groupIndex)
+        => wizard.TieredSpells.Find(progress => progress.GroupIndex == groupIndex);
 
-    private static TieredSpellProgress NewProgressForTrainedTier(Wizard wizard, params uint[] spellIds) {
-        var groups = TieredSpellIndex.Instance.Groups;
-        foreach (var spellId in spellIds.Where(wizard.SpellbookBehavior.HasSpell)) {
-            var name = (CoreObjectFactory.GetCoreTemplate(spellId) as SpellTemplate)?.m_name.ToString();
-            var groupIndex = groups.ToList().FindIndex(group => group.Spells.Contains(name));
-            if (groupIndex >= 0) {
-                return NewProgress(groupIndex, spellId);
-            }
-        }
+    private static int GroupOfSpells(uint spellId, uint otherSpellId)
+        => TieredSpellLedger.ResolveGroup(TieredSpellIndex.Instance.Groups, SpellName(spellId), SpellName(otherSpellId));
 
-        return null;
-    }
+    private static string SpellName(uint spellId)
+        => (CoreObjectFactory.GetCoreTemplate(spellId) as SpellTemplate)?.m_name.ToString();
 
-    private static bool IsTierOf(TieredSpellProgress progress, uint spellId)
-        => progress.TierOneSpellId == spellId || progress.CurrentSpellId == spellId;
-
-    private static bool CanUpgrade(Wizard wizard, IndexedTieredSpellGroup group, IReadOnlySet<string> trainedSpells) {
-        var shardsOwned = wizard.AlchemyBehavior.GetReagent(group.ShardTemplateId)?.m_quantity ?? 0;
-
-        return group.Spells.Where(trainedSpells.Contains)
-            .Select(TierTemplate)
-            .SelectMany(tier => tier?.m_nextTierSpells ?? [])
-            .Select(name => TierTemplate(name.ToString()))
-            .Any(next => next is { m_retired: false } && next.m_newShardCost <= shardsOwned);
-    }
+    private static uint? TierOneSpellId(IndexedTieredSpellGroup group)
+        => SpellFactory.GetSpell(group.TierOneSpell)?.m_templateID;
 
     private static TieredSpellTemplate TierTemplate(string spellName)
         => SpellFactory.TryGetTemplateHash(spellName, out var hash)

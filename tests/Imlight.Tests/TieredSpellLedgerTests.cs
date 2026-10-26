@@ -36,6 +36,7 @@
  */
 
 using System.Collections.Generic;
+using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -50,6 +51,8 @@ public sealed class TieredSpellLedgerTests {
     private const uint FireCatThreeId = 300;
     private const uint ReturnRate = 100;
     private const uint StrayTierId = 777;
+    private const int FireCatGroupIndex = 4;
+    private const int OtherGroupIndex = 9;
 
     private static readonly IndexedTieredSpellGroup s_fireCatGroup = new("Fire Cat", 1492248,
         ["Fire Cat", "Fire Cat - T02", "Fire Cat - T02 - B", "Fire Cat - T03 - A"]);
@@ -214,6 +217,104 @@ public sealed class TieredSpellLedgerTests {
         Assert.Equal(0, returned);
         Assert.Equal(FireCatThreeId, progress.CurrentSpellId);
         Assert.Equal(2, progress.Unlocks.Count);
+    }
+
+    [Fact]
+    public void Refund_Twice_Refused() {
+        var progress = UpgradedToThree();
+        Assert.True(TieredSpellLedger.TryRefund(progress, FireCatThreeId, FireCatTwoId, ReturnRate, out _));
+
+        Assert.False(TieredSpellLedger.TryRefund(progress, FireCatThreeId, FireCatTwoId, ReturnRate, out var returned));
+
+        Assert.Equal(0, returned);
+        Assert.Equal(FireCatTwoId, progress.CurrentSpellId);
+    }
+
+    [Fact]
+    public void Refund_RateRoundsDown() {
+        var progress = UpgradedToThree();
+
+        Assert.True(TieredSpellLedger.TryRefund(progress, FireCatThreeId, FireCatId, 33, out var returned));
+
+        Assert.Equal(49, returned);
+    }
+
+    [Fact]
+    public void Copy_ChangesLeaveTheOriginalUntouched() {
+        var progress = UpgradedToThree();
+
+        var draft = TieredSpellLedger.Copy(progress);
+        Assert.True(TieredSpellLedger.TryRefundSpells(draft, [FireCatTwoId, FireCatThreeId], ReturnRate, out _));
+
+        Assert.Equal(FireCatThreeId, progress.CurrentSpellId);
+        Assert.Equal(2, progress.Unlocks.Count);
+        Assert.Equal(FireCatId, draft.CurrentSpellId);
+    }
+
+    [Fact]
+    public void RemovedTiers_AreTheTiersLeftOffThePath() {
+        var progress = UpgradedToThree();
+        var draft = TieredSpellLedger.Copy(progress);
+        Assert.True(TieredSpellLedger.TryRefund(draft, FireCatThreeId, FireCatId, ReturnRate, out _));
+
+        Assert.Equal([FireCatTwoId, FireCatThreeId], TieredSpellLedger.RemovedTiers(progress, draft).Order());
+        Assert.Empty(TieredSpellLedger.RemovedTiers(progress, progress));
+    }
+
+    [Fact]
+    public void ReplacedDeckCards_OnlyRemovedTiersWithTheirCopies() {
+        List<SpellData> deck = [
+            new() { m_templateID = FireCatThreeId, m_quantity = 2 },
+            new() { m_templateID = 555, m_quantity = 4 },
+            new() { m_templateID = FireCatTwoId, m_quantity = 1 },
+        ];
+
+        var replaced = TieredSpellLedger.ReplacedDeckCards(deck, new HashSet<uint> { FireCatTwoId, FireCatThreeId });
+
+        Assert.Equal([(FireCatThreeId, 2), (FireCatTwoId, 1)], replaced);
+    }
+
+    [Fact]
+    public void NewProgress_StartsAtTierOneOnly() {
+        var progress = TieredSpellLedger.NewProgress(FireCatGroupIndex, FireCatId);
+
+        Assert.False(TieredSpellLedger.CanApplyUpgrade(progress, FireCatTwoId, FireCatThreeId));
+        Assert.True(TieredSpellLedger.CanApplyUpgrade(progress, FireCatId, FireCatTwoId));
+        Assert.False(progress.DonePrepForMultiplePaths);
+    }
+
+    [Theory]
+    [InlineData(FireCatId, FireCatGroupIndex, FireCatTwoId, FireCatGroupIndex, FireCatTwoId)]
+    [InlineData(FireCatTwoId, FireCatGroupIndex, 0u, TieredSpellLedger.NoGroup, FireCatTwoId)]
+    [InlineData(FireCatThreeId, FireCatGroupIndex, 0u, TieredSpellLedger.NoGroup, null)]
+    [InlineData(FireCatThreeId, FireCatGroupIndex, FireCatTwoId, FireCatGroupIndex, null)]
+    [InlineData(FireCatId, FireCatGroupIndex, FireCatThreeId, FireCatGroupIndex, FireCatId)]
+    [InlineData(FireCatId, FireCatGroupIndex, 888u, OtherGroupIndex, FireCatId)]
+    [InlineData(888u, OtherGroupIndex, 0u, TieredSpellLedger.NoGroup, 888u)]
+    [InlineData(555u, TieredSpellLedger.NoGroup, FireCatTwoId, FireCatGroupIndex, 555u)]
+    public void CastTier_DealtAndSelectedMustBeTrained(uint dealt, int dealtGroup, uint selected, int selectedGroup,
+        uint? expected) {
+        var progress = TieredSpellLedger.NewProgress(FireCatGroupIndex, FireCatId);
+        Assert.True(TieredSpellLedger.ApplyUpgrade(progress, FireCatId, FireCatTwoId, 50));
+
+        Assert.Equal(expected, TieredSpellLedger.CastTier([progress], dealt, dealtGroup, selected, selectedGroup));
+    }
+
+    [Fact]
+    public void SwapSpell_NewTierNotLearned_KeepsTheOldOne() {
+        var unlearned = false;
+
+        Assert.False(TieredSpellLedger.TrySwapSpell(() => false, () => unlearned = true));
+        Assert.False(unlearned);
+
+        Assert.True(TieredSpellLedger.TrySwapSpell(() => true, () => unlearned = true));
+        Assert.True(unlearned);
+    }
+
+    [Fact]
+    public void CastTier_WithoutProgress_CastsTheDealtCard() {
+        Assert.Equal(FireCatThreeId,
+            TieredSpellLedger.CastTier(null, FireCatThreeId, FireCatGroupIndex, FireCatTwoId, FireCatGroupIndex));
     }
 
     [Fact]

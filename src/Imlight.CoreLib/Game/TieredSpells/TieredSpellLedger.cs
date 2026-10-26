@@ -24,7 +24,7 @@
  * cast, over a TieredSpellProgress and the tier templates. No I/O: TieredSpellService debits, grants and saves.
  *
  * USAGE EXAMPLE:
- * var decision = TieredSpellLedger.DecideUpgrade(isTrained, current, next, failedIndex, shardsOwned);
+ * var decision = TieredSpellLedger.DecideUpgrade(group, isTrained, current, next, failedIndex, shardsOwned);
  *
  * NOTE:
  * The price is the target tier's m_newShardCost: m_shardCost is the price before Spellements 2.0, kept in the
@@ -124,6 +124,87 @@ internal static class TieredSpellLedger {
     }
 
     /// <summary>
+    /// A group's first record: the wizard stands on the tier-one spell and has made no one-time reset choice.
+    /// </summary>
+    internal static TieredSpellProgress NewProgress(int groupIndex, uint tierOneSpellId)
+        => new() { GroupIndex = groupIndex, TierOneSpellId = tierOneSpellId, CurrentSpellId = tierOneSpellId };
+
+    /// <summary>
+    /// A copy to plan a change on, so the saved record moves only once every other step has succeeded.
+    /// </summary>
+    internal static TieredSpellProgress Copy(TieredSpellProgress progress)
+        => new() {
+            GroupIndex = progress.GroupIndex,
+            TierOneSpellId = progress.TierOneSpellId,
+            CurrentSpellId = progress.CurrentSpellId,
+            DonePrepForMultiplePaths = progress.DonePrepForMultiplePaths,
+            Unlocks = [.. progress.Unlocks.Select(unlock => new TieredSpellUnlock {
+                SpellId = unlock.SpellId,
+                FromSpellId = unlock.FromSpellId,
+                ShardsSpent = unlock.ShardsSpent,
+            })],
+        };
+
+    /// <summary>
+    /// The tiers on the path before a change that are no longer on it after.
+    /// </summary>
+    internal static IReadOnlySet<uint> RemovedTiers(TieredSpellProgress before, TieredSpellProgress after) {
+        var kept = PathDown(after).Select(unlock => unlock.SpellId).ToHashSet();
+
+        return PathDown(before).Select(unlock => unlock.SpellId).Where(spellId => !kept.Contains(spellId)).ToHashSet();
+    }
+
+    /// <summary>
+    /// The deck cards that are removed tiers, with how many copies the deck holds.
+    /// </summary>
+    internal static IReadOnlyList<(uint TemplateId, int Quantity)> ReplacedDeckCards(IEnumerable<SpellData> deck,
+        IReadOnlySet<uint> removedTiers)
+        => [.. deck.Where(card => removedTiers.Contains(card.m_templateID))
+            .Select(card => (card.m_templateID, (int) card.m_quantity))];
+
+    /// <summary>
+    /// Swaps a trained spell for another: the new one is learned first, and the old one goes only if that worked.
+    /// </summary>
+    internal static bool TrySwapSpell(Func<bool> learnNew, System.Action unlearnOld) {
+        if (!learnNew()) {
+            return false;
+        }
+
+        unlearnOld();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Picks the spell a player casts from the card dealt and the tier chosen at cast.
+    /// </summary>
+    /// <param name="progress">The caster's tiered spell progress; null for a caster without any (a creature).</param>
+    /// <param name="dealtSpellId">The template of the card dealt.</param>
+    /// <param name="dealtGroupIndex">The dealt card's group, or NoGroup.</param>
+    /// <param name="selectedSpellId">The tier chosen at cast, or 0.</param>
+    /// <param name="selectedGroupIndex">The chosen tier's group, or NoGroup.</param>
+    /// <returns>The template to cast, or null when the dealt card is a tier the caster no longer has.</returns>
+    internal static uint? CastTier(IReadOnlyList<TieredSpellProgress> progress, uint dealtSpellId, int dealtGroupIndex,
+        uint selectedSpellId, int selectedGroupIndex) {
+        if (progress is null) {
+            return dealtSpellId;
+        }
+
+        var dealtGroup = progress.FirstOrDefault(group => group.GroupIndex == dealtGroupIndex);
+        if (dealtGroupIndex != NoGroup && dealtGroup is not null && !IsOnPath(dealtGroup, dealtSpellId)) {
+            return null;
+        }
+
+        var isSelectable = selectedSpellId != 0
+            && selectedSpellId != dealtSpellId
+            && selectedGroupIndex != NoGroup
+            && selectedGroupIndex == dealtGroupIndex
+            && IsTrainedTier(progress, selectedSpellId);
+
+        return isSelectable ? selectedSpellId : dealtSpellId;
+    }
+
+    /// <summary>
     /// Whether an upgrade may be recorded: it starts at the current tier and buys a tier not yet on the path.
     /// </summary>
     internal static bool CanApplyUpgrade(TieredSpellProgress progress, uint spellId, uint newSpellId)
@@ -212,7 +293,10 @@ internal static class TieredSpellLedger {
     /// Whether a spell is a tier the wizard may cast: a group's tier-one spell or a tier on its current path.
     /// </summary>
     internal static bool IsTrainedTier(IEnumerable<TieredSpellProgress> progress, uint spellId)
-        => progress.Any(group => group.TierOneSpellId == spellId || PathDown(group).Any(unlock => unlock.SpellId == spellId));
+        => progress.Any(group => IsOnPath(group, spellId));
+
+    private static bool IsOnPath(TieredSpellProgress progress, uint spellId)
+        => progress.TierOneSpellId == spellId || PathDown(progress).Any(unlock => unlock.SpellId == spellId);
 
     private static bool IsInGroup(IndexedTieredSpellGroup group, string currentName, string nextName)
         => group.Spells.Contains(currentName) && group.Spells.Contains(nextName);
