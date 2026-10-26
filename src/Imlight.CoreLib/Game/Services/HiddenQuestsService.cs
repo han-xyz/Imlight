@@ -30,7 +30,8 @@
  * (WizardObjectLoader.SetHiddenQuestsBehavior).
  * 
  * TODO:
- * - Check that the blob names only quests the character holds; its format needs a captured payload first.
+ * - Check that the blob names only quests the character holds. The entry hash is probably StringHash of the quest name,
+ *   but the only captured blob has no entries, so a wrong guess would drop real data.
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -55,7 +56,7 @@ internal sealed class HiddenQuestsService(SessionActor sessionActor) : MessageSe
     internal const int MaxHiddenQuestsDataBytes = 8192;
 
     internal static bool TryStoreHiddenQuests(Wizard wizard, ByteString hiddenQuestsData) {
-        if (hiddenQuestsData.Length > MaxHiddenQuestsDataBytes) {
+        if (hiddenQuestsData.Length > MaxHiddenQuestsDataBytes || !HiddenQuestsBlob.IsWellFormed((byte[]) hiddenQuestsData)) {
             return false;
         }
 
@@ -83,7 +84,7 @@ internal sealed class HiddenQuestsService(SessionActor sessionActor) : MessageSe
         }
 
         if (!TryStoreHiddenQuests(wizard, message.Data)) {
-            Logger.Warning("Rejected hidden quests data from character {Id}: {Length} bytes is over the {Max} byte limit.",
+            Logger.Warning("Rejected hidden quests data from character {Id}: {Length} bytes is over the {Max} byte limit or not a well-formed blob.",
                 Logger.Args(wizard.CharId, message.Data.Length, MaxHiddenQuestsDataBytes));
             return;
         }
