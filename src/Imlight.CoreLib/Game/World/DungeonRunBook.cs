@@ -71,6 +71,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     private readonly Dictionary<ulong, DungeonRun> _runsByOwner = [];
     private readonly Dictionary<string, Dictionary<ulong, DateTimeOffset>> _waitingByZone = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, EndedRun> _endedRunsByMember = [];
+    private readonly Dictionary<ulong, (ulong OwnerCharId, string ZoneName)> _copiesByWizard = [];
 
     /// <summary>
     /// Records a wizard counting down on the pad that leads to <paramref name="zoneName"/>.
@@ -120,14 +121,17 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             run.Members.Add(charId);
             _endedRunsByMember.Remove(charId);
 
-            return new InstanceEntry(run.OwnerCharId, ResetInstance: run.Zones.Add(zoneName));
+            var isNewToRun = run.Zones.Add(zoneName);
+
+            return new InstanceEntry(run.OwnerCharId, ResetInstance: isNewToRun && !IsOccupied(run.OwnerCharId, zoneName));
         }
     }
 
     /// <summary>
     /// Routes a transfer that leaves <paramref name="sourceZoneName"/> into the run owner's container, when the wizard
     /// belongs to a live run that has reached that zone; otherwise null. The first transfer to a zone new to the run
-    /// resets it, so a copy left by an earlier run of the same owner is not reused.
+    /// resets it, so a copy left by an earlier run of the same owner is not reused; a copy anyone is still inside is never
+    /// reset.
     /// </summary>
     internal InstanceEntry RouteTransfer(ulong charId, string sourceZoneName, string destinationZoneName) {
         lock (_lock) {
@@ -138,7 +142,17 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
 
             var isFirstArrival = !run.Zones.Contains(destinationZoneName) && run.ClaimedZones.Add(destinationZoneName);
 
-            return new InstanceEntry(run.OwnerCharId, ResetInstance: isFirstArrival);
+            return new InstanceEntry(run.OwnerCharId,
+                ResetInstance: isFirstArrival && !IsOccupied(run.OwnerCharId, destinationZoneName));
+        }
+    }
+
+    /// <summary>
+    /// Releases the claim <see cref="RouteTransfer"/> made on a zone, for a transfer that failed or was refused.
+    /// </summary>
+    internal void ReleaseClaim(ulong charId, string zoneName) {
+        lock (_lock) {
+            FindRunOf(charId)?.ClaimedZones.Remove(zoneName);
         }
     }
 
@@ -160,6 +174,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     /// </summary>
     internal void Arrived(ulong charId, string zoneName, bool isInstance, bool fromRunZone) {
         lock (_lock) {
+            _copiesByWizard.Remove(charId);
             if (FindRunOf(charId) is not { } run) {
                 return;
             }
@@ -170,6 +185,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             }
 
             if (run.Zones.Contains(zoneName)) {
+                _copiesByWizard[charId] = (run.OwnerCharId, zoneName);
                 run.Inside.Add(charId);
                 run.EmptySince = null;
 
@@ -201,6 +217,12 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             return true;
         }
     }
+
+    // A wizard keeps their place in a copy when their run ends or they disconnect, so a later run of the same owner
+    // never resets a copy with someone in it.
+    private bool IsOccupied(ulong ownerCharId, string zoneName)
+        => _copiesByWizard.Values.Any(copy => copy.OwnerCharId == ownerCharId
+                                              && string.Equals(copy.ZoneName, zoneName, StringComparison.OrdinalIgnoreCase));
 
     private DungeonRun FindRunOf(ulong charId)
         => LiveRuns().FirstOrDefault(run => run.Members.Contains(charId));

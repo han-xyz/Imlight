@@ -157,6 +157,42 @@ public sealed class DungeonRunBookTests {
     }
 
     [Fact]
+    public void RouteTransfer_ToAFloorSomeoneIsStillInside_DoesNotReset() {
+        EnterTogether();
+        _book.RouteTransfer(Member, Floor1, Floor2);
+        _book.Arrived(Member, Floor2, isInstance: true, fromRunZone: true);
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+        var newGroup = new GroupSnapshot(11, 21, Leader, [SigilEntryPlanTests.Online(Leader), SigilEntryPlanTests.Online(Stranger)], 0, 0);
+        _groups[Leader] = newGroup;
+        _groups[Stranger] = newGroup;
+        _book.Enter(Leader, Floor1, Street);
+        _book.Enter(Stranger, Floor1, Street);
+        _book.Arrived(Stranger, Floor1, isInstance: true, fromRunZone: false);
+
+        Assert.Equal(new InstanceEntry(Leader, ResetInstance: false), _book.RouteTransfer(Stranger, Floor1, Floor2));
+    }
+
+    [Fact]
+    public void Enter_ZoneSomeoneIsStillInside_DoesNotReset() {
+        EnterTogether();
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+        var newGroup = new GroupSnapshot(11, 21, Leader, [SigilEntryPlanTests.Online(Leader), SigilEntryPlanTests.Online(Stranger)], 0, 0);
+        _groups[Leader] = newGroup;
+        _groups[Stranger] = newGroup;
+
+        Assert.Equal(new InstanceEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1, Street));
+    }
+
+    [Fact]
+    public void RouteTransfer_AfterAFailedTransfer_ReleasesTheClaimSoTheNextArrivalResets() {
+        EnterTogether();
+        _book.RouteTransfer(Member, Floor1, Floor2);
+        _book.ReleaseClaim(Member, Floor2);
+
+        Assert.Equal(new InstanceEntry(Leader, ResetInstance: true), _book.RouteTransfer(Leader, Floor1, Floor2));
+    }
+
+    [Fact]
     public void RouteTransfer_AfterAStreetHop_DoesNotFollowAgain() {
         EnterTogether();
         Assert.Equal(Leader, _book.RouteTransfer(Member, Floor1, Street)?.OwnerCharId);

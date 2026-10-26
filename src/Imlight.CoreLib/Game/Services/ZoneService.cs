@@ -257,6 +257,10 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         if (failed) {
+            if (runTransfer is not null) {
+                DungeonRunBook.Shared.ReleaseClaim(traveller.CharId, message.DestinationZone);
+            }
+
             return;
         }
 
