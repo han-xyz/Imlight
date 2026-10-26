@@ -762,18 +762,23 @@ public class Wizard {
             return false;
         }
 
-        StorageBehavior.RemoveItem(item);
-        if (!InventoryBehavior.AddItem(item)) {
-            StorageBehavior.AddItem(item);
+        lock (HousingItems.BackpackLock(this)) {
+            if (!StorageBehavior.RemoveItem(item)) {
+                return false;
+            }
 
-            return false;
+            if (!InventoryBehavior.AddItem(item)) {
+                StorageBehavior.AddItem(item);
+
+                return false;
+            }
+
+            // Persistent save.
+            return SaveItemsOrRollBack(() => {
+                InventoryBehavior.RemoveItem(item);
+                StorageBehavior.AddItem(item);
+            });
         }
-
-        // Persistent save.
-        return SaveItemsOrRollBack(() => {
-            InventoryBehavior.RemoveItem(item);
-            StorageBehavior.AddItem(item);
-        });
     }
 
     /// <summary>
