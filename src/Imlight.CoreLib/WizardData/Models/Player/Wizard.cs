@@ -985,6 +985,28 @@ public class Wizard {
         return true;
     }
 
+    public bool AddReagents(ulong templateId, int count, out ClientReagentItem stack) {
+        if (!AlchemyBehavior.AddReagents(templateId, count, () => NewReagentStack(templateId), out stack)) {
+            return false;
+        }
+
+        // Persistent save. The stored stack takes the bag's quantity, whether the stack is new or grown.
+        WizardReagentCollection.AddReagent(stack);
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    private ClientReagentItem NewReagentStack(ulong templateId) {
+        if (CoreObjectFactory.FinalizeCoreObject(templateId) is not ClientReagentItem stack) {
+            return null;
+        }
+
+        stack.m_characterId = (GID) CharId;
+
+        return stack;
+    }
+
     public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem reagent) {
         if (!AlchemyBehavior.RemoveReagents(templateId, count, out reagent)) {
             return false;

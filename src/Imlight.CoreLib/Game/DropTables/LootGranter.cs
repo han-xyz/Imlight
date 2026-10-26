@@ -151,12 +151,31 @@ public static class LootGranter {
             return 0;
         }
 
-        var reagent = wizard.AlchemyBehavior.GetReagent(templateId);
+        SendReagentStack(playerActor, wizard, wizard.AlchemyBehavior.GetReagent(templateId));
+
+        return granted;
+    }
+
+    /// <summary>
+    /// Grants a count of one reagent with a single save, all or nothing.
+    /// </summary>
+    /// <returns>False, with nothing granted, when the count does not fit under the stack limit.</returns>
+    internal static bool GrantReagents(IActorRef playerActor, Wizard wizard, ulong templateId, int quantity) {
+        if (!wizard.AddReagents(templateId, quantity, out var stack)) {
+            return false;
+        }
+
+        SendReagentStack(playerActor, wizard, stack);
+
+        return true;
+    }
+
+    private static void SendReagentStack(IActorRef playerActor, Wizard wizard, ClientReagentItem reagent) {
         if (!s_itemSerializer.Serialize(reagent, ReagentAddSerializationFlags, out var serializedReagent)) {
             Logger.Error("Failed to serialize reward reagent {0} for reagent-add.",
                 Logger.Args(reagent.m_globalID.Full));
 
-            return granted;
+            return;
         }
 
         playerActor.Tell(new WIZARD_12_PROTOCOL.MSG_REAGENTADD {
@@ -173,8 +192,6 @@ public static class LootGranter {
             ItemID = reagent.m_globalID,
             Quantity = reagent.m_quantity
         });
-
-        return granted;
     }
 
     internal static void UpdateWizardGold(IActorRef playerActor, Wizard wizard, int goldDelta) {
