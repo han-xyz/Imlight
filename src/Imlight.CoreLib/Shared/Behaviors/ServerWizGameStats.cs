@@ -22,6 +22,7 @@ using System.Text.Json.Serialization;
 using Imlight.CoreLib.WizardData.Implementations;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Game.Combat;
+using Imlight.CoreLib.Game.Housing;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.IO;
 using Imlight.Common;
@@ -172,6 +173,7 @@ public class ServerWizGameStats : IClientTypeProvider<WizGameStats> {
 
         m_baseGoldPouch = ConfigurationManager.Settings["Character.BaseGoldPouch"].AsInt();
         m_baseEventCurrency1Pouch = ConfigurationManager.Settings["Character.BaseLunariPouch"].AsInt();
+        m_maximumNumberOfIslands = HousingSettings.MaxCastles;
     }
 
     /// <summary>
@@ -305,6 +307,7 @@ public class ServerWizGameStats : IClientTypeProvider<WizGameStats> {
             m_powerPipBase = baseStats.m_pipChance,
 
             m_baseGoldPouch = m_baseGoldPouch,
+            m_maximumNumberOfIslands = m_maximumNumberOfIslands,
             m_currentHitpoints = m_currentHitpoints,
             m_currentGold = m_currentGold,
             m_currentEventCurrency1 = m_currentEventCurrency1,

@@ -40,7 +40,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/15/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -49,6 +49,7 @@ using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Housing;
 using Imlight.CoreLib.Game.Housing.Attics;
 using Imlight.CoreLib.Game.Housing.Families;
 using Imlight.CoreLib.Game.Housing.Houses;
@@ -77,6 +78,10 @@ internal class HousingService(SessionActor sessionActor) : MessageService(sessio
         _atticViewer.Release();
         base.OnPreDispose();
     }
+
+    [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE))]
+    private void ReceiveAttachComplete(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE message)
+        => SendToSocket(new WIZARDHOUSING_50_PROTOCOL.MSG_UPDATEISLANDSPACE { IslandLimit = HousingSettings.MaxCastles });
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_PRELOGIN))]
     private void ReceivePreLogin(ZONE_102_PROTOCOL.MSG_PRELOGIN message) {
