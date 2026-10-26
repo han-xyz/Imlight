@@ -79,6 +79,9 @@ internal static class UserAuthenticator {
     private static readonly string s_serverRevision 
         = ConfigurationManager.Settings["Global Settings.GameRevision"].AsString();
     private static readonly TimeSpan s_deadline = TimeSpan.FromSeconds(10);
+    private static readonly LoginThrottle s_loginThrottle = new(
+        ConfigurationManager.GetValue("Login Server.FailedLoginLimit", 10),
+        TimeSpan.FromSeconds(ConfigurationManager.GetValue("Login Server.FailedLoginWindowSeconds", 300)));
 
     internal class AuthenticationDetails {
         
@@ -96,8 +99,19 @@ internal static class UserAuthenticator {
     /// <param name="authMessage">The authentication message.</param>
     /// <returns>The authentication details.</returns>
     internal static AuthenticationDetails Authenticate(SessionActor sessionActor, MSG_USER_AUTHEN_V3 authMessage) {
+        if (s_loginThrottle.IsThrottled(sessionActor.RemoteIp, DateTimeOffset.UtcNow)) {
+            Logger.Warning("SessionActor {Id} from {Ip} was refused: too many failed logins from this address.",
+                Logger.Args(sessionActor.SessionID, sessionActor.RemoteIp));
+
+            return new AuthenticationDetails { _result = UserAuthenResult.AuthenFailed };
+        }
+
         var stopwatch = Stopwatch.StartNew();
         var details = AuthenticateUser(sessionActor, authMessage);
+        if (details._result == UserAuthenResult.AuthenFailed) {
+            s_loginThrottle.RecordFailure(sessionActor.RemoteIp, DateTimeOffset.UtcNow);
+        }
+
         Logger.Debug("SessionActor {Id} authentication finished in {Elapsed} ms with {Result}.",
             Logger.Args(sessionActor.SessionID, stopwatch.ElapsedMilliseconds, details._result));
 
