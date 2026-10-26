@@ -39,6 +39,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
@@ -61,7 +63,7 @@ internal class PlayerQuestOfferState {
     public DateTime LastUpdated { get; set; }
 }
 
-internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
+internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
     : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory {
 
     private const string PREP_NPC_ICON = "Prep";
@@ -87,6 +89,11 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
     private readonly List<QuestTemplate> _givesQuests = [];
     private readonly Dictionary<ulong, DateTime> _lastWizBangUpdate = [];
     private readonly Dictionary<ulong, PlayerQuestOfferState> _cachedPlayerStates = [];
+    private readonly ConditionalWeakTable<ServiceOptionBase, QuestTemplate> _offeredQuests = [];
+    private bool _warnedStaleTitleTwin;
+
+    [GeneratedRegex(@"^WC-ST\d+-C\d+-")]
+    private static partial Regex OldStyleQuestName();
 
     public static bool ShouldAttachToEntity(CoreTemplate template) {
         if (template is not GameObjectTemplate goTemplate ||
@@ -120,6 +127,12 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
 
         var state = GetOrUpdatePlayerState(wizard);
 
+        if (!_warnedStaleTitleTwin && HasStaleTitleTwin(state.AvailableQuests)) {
+            _warnedStaleTitleTwin = true;
+            Logger.Warning("NPC {Npc} offers an old-style quest sharing a title with a current one; stale quest data",
+                Logger.Args(Entity.ActiveGameObject.m_debugName));
+        }
+
         // The memento wizbang tick reads this property; refresh it from live state.
         WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
 
@@ -128,12 +141,22 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         }
     }
 
-    internal PrepEntry ToOfferOption(QuestTemplate quest)
-        => new() {
+    internal PrepEntry ToOfferOption(QuestTemplate quest) {
+        var option = new PrepEntry {
             m_displayKey = quest.m_questTitle,
             m_iconKey = PREP_NPC_ICON,
             m_serviceName = ServiceName,
         };
+        _offeredQuests.AddOrUpdate(option, quest);
+
+        return option;
+    }
+
+    internal static bool HasStaleTitleTwin(IEnumerable<QuestTemplate> quests)
+        => quests
+            .GroupBy(quest => (string) quest.m_questTitle, StringComparer.Ordinal)
+            .Any(group => group.Any(quest => OldStyleQuestName().IsMatch(quest.m_questName))
+                && group.Any(quest => !OldStyleQuestName().IsMatch(quest.m_questName)));
 
     internal static List<QuestTemplate> FindAvailableQuests(IEnumerable<QuestTemplate> offeredQuests, Wizard wizard)
         => [.. offeredQuests
@@ -225,10 +248,20 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         HandleQuestOffer(playerActor, quest, playerCharacter);
     }
 
-    internal static QuestTemplate FindClickedQuest(ServiceOptionBase sentOption, IEnumerable<QuestTemplate> availableQuests)
-        => sentOption is PrepEntry entry
-            ? availableQuests.FirstOrDefault(quest => (string) quest.m_questTitle == (string) entry.m_displayKey)
-            : null;
+    internal QuestTemplate FindClickedQuest(ServiceOptionBase sentOption, IEnumerable<QuestTemplate> availableQuests) {
+        if (sentOption is not PrepEntry entry) {
+            return null;
+        }
+
+        if (_offeredQuests.TryGetValue(entry, out var offered)) {
+            return availableQuests.FirstOrDefault(quest => ReferenceEquals(quest, offered));
+        }
+
+        Logger.Warning("Quest offer option {Title} has no recorded quest; resolving by title",
+            Logger.Args(entry.m_displayKey));
+
+        return availableQuests.FirstOrDefault(quest => (string) quest.m_questTitle == (string) entry.m_displayKey);
+    }
 
     private PlayerQuestOfferState GetOrUpdatePlayerState(Wizard wizard, bool forceUpdate = false) {
         var playerId = wizard.CharId;

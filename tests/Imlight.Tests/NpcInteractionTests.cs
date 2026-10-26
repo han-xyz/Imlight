@@ -171,6 +171,31 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
+    public void QuestOffer_SharedTitle_ClickResolvesByIdentity() {
+        var first = new QuestTemplate { m_questName = "Alpha", m_questTitle = "To Ravenwood!" };
+        var second = new QuestTemplate { m_questName = "Beta", m_questTitle = "To Ravenwood!" };
+        var offer = new InteractQuestOfferComponent(null!);
+        var table = new ServiceOptionTable();
+        var wizard = NewWizard();
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([first, second], wizard);
+        table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
+
+        Assert.Same(first, ClickOffer(table, offer, 0, [first, second], wizard));
+        Assert.Same(second, ClickOffer(table, offer, 1, [first, second], wizard));
+    }
+
+    [Fact]
+    public void QuestOffer_SharedTitleOldStyleAndCurrent_FlagsStaleTwin() {
+        var old = new QuestTemplate { m_questName = "WC-ST01-C02-Old", m_questTitle = "Same" };
+        var current = new QuestTemplate { m_questName = "WC-Current", m_questTitle = "Same" };
+        var otherOld = new QuestTemplate { m_questName = "WC-ST01-C03-Old", m_questTitle = "Same" };
+
+        Assert.True(InteractQuestOfferComponent.HasStaleTitleTwin([old, current]));
+        Assert.False(InteractQuestOfferComponent.HasStaleTitleTwin([old, otherOld]));
+        Assert.False(InteractQuestOfferComponent.HasStaleTitleTwin([current]));
+    }
+
+    [Fact]
     public void QuestOffer_HeldQuest_NotOffered() {
         var held = new QuestTemplate { m_questName = "Held" };
         var open = new QuestTemplate { m_questName = "Open" };
@@ -285,7 +310,7 @@ public sealed class NpcInteractionTests {
         Assert.Same(offer, owner);
         Assert.True(table.TryGetSentOption(FirstPlayer, owner, localIndex, out var sent));
 
-        return InteractQuestOfferComponent.FindClickedQuest(sent, InteractQuestOfferComponent.FindAvailableQuests(npcQuests, wizard));
+        return offer.FindClickedQuest(sent, InteractQuestOfferComponent.FindAvailableQuests(npcQuests, wizard));
     }
 
     private static QuestTemplate ClickUnderway(ServiceOptionTable table, InteractQuestUnderwayComponent underway, uint index,
