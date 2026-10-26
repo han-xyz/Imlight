@@ -95,10 +95,12 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
     private bool _isDisposed;
     private bool _stoppedByStrategy;
     private bool _isDeallocated;
+    private readonly bool _registersOnlinePlayer;
     private ICancelable _clientCloseTimer;
 
     // ctor
-    public SessionActor(Socket socket, ushort sessionId, IActorRef server, IActorRef actorFactoryRef = null) {
+    public SessionActor(Socket socket, ushort sessionId, IActorRef server, IActorRef actorFactoryRef = null, bool registersOnlinePlayer = false) {
+        this._registersOnlinePlayer = registersOnlinePlayer;
         this._socket = socket;
         this.Ip = socket.RemoteEndPoint.ToString();
         this.RemoteIp = socket.RemoteEndPoint.ToString().Split(':')[0];
@@ -124,8 +126,8 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
     }
 
     // Akka.NET ctor
-    public static Props Props(Socket socket, ushort sessionId, IActorRef server, IActorRef actorFactoryRef = null)
-        => Akka.Actor.Props.Create(() => new SessionActor(socket, sessionId, server, actorFactoryRef));
+    public static Props Props(Socket socket, ushort sessionId, IActorRef server, IActorRef actorFactoryRef = null, bool registersOnlinePlayer = false)
+        => Akka.Actor.Props.Create(() => new SessionActor(socket, sessionId, server, actorFactoryRef, registersOnlinePlayer));
 
     /// <summary>
     /// Places the session in the queue.
@@ -364,8 +366,11 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
             });
         }
 
-        // An abrupt socket drop never reaches the logout path, so the online entry is removed here.
-        OnlinePlayerCollection.RemoveOnlinePlayer(SessionID);
+        // An abrupt socket drop never reaches the logout path, so a game session removes its online entry here.
+        // Session ids are per server, so a login session must not match a game player's entry.
+        if (_registersOnlinePlayer) {
+            OnlinePlayerCollection.RemoveOnlinePlayer(SessionID);
+        }
 
         base.PostStop();
     }

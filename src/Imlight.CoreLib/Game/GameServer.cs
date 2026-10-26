@@ -55,6 +55,8 @@ namespace Imlight.CoreLib.Game;
 
 public class GameServer : Server {
 
+    protected override bool RegistersOnlinePlayers => true;
+
     private readonly ushort _sessionKeyValidityTime = ConfigurationManager.Settings["Game Server.SessionKeyValidityTime"].AsUShort();
     private readonly ushort _playerLimit = ConfigurationManager.Settings["Game Server.GameServerPlayerLimit"].AsUShort();
 

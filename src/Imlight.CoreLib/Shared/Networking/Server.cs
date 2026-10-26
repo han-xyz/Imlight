@@ -59,6 +59,7 @@ public abstract class Server : ReceiveProtocolDispatcher {
     public string Ip { get; }
     public int Port { get; }
     public virtual string RealmName { get; protected set; }
+    protected virtual bool RegistersOnlinePlayers => false;
 
     protected readonly ObservableHashSet<SessionActor> ActiveSessions;
 
@@ -107,7 +108,7 @@ public abstract class Server : ReceiveProtocolDispatcher {
     protected virtual void ReceiveAllocateSocket(SERVER_100_PROTOCOL.MSG_ALLOCATESOCKET message) {
         // Create a new child actor, which represents the active socket connection.
         var id = GetNewUniqueId();
-        var sessionProps = SessionActor.Props(message.Socket, id, Context.Self, _actorFactoryRef);
+        var sessionProps = SessionActor.Props(message.Socket, id, Context.Self, _actorFactoryRef, RegistersOnlinePlayers);
         Context.ActorOf(sessionProps, $"SessionActor.{id}");
 
         // Logger
