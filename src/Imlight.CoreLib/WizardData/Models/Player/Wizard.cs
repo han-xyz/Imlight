@@ -2013,6 +2013,7 @@ public class Wizard {
         GameStats.MagicSchool = MagicSchoolBehavior.MagicSchool;
         GameStats.m_schoolID = (uint) MagicSchoolBehavior.MagicSchool;
         GameStats.m_highestCharacterLevelOnAccount = highestLevelOnAcc;
+        InventoryBehavior.ExtraSpace = GameStats.m_extraInventorySpace;
 
         CharacterHelper.RecalculateGameStats(this);
     }
