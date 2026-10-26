@@ -388,4 +388,56 @@ public sealed class QuestServiceTests {
         return template;
     }
 
+    [Fact]
+    public void DeclineQuest_OfferedToSession_DropsTheOffer() {
+        var offers = new List<QuestTemplate> { new() { m_questName = "Offered" }, new() { m_questName = "Other" } };
+
+        Assert.True(QuestService.RemoveDeclinedOffer(offers, "Offered"));
+        Assert.Equal(["Other"], offers.Select(q => (string) q.m_questName));
+    }
+
+    [Fact]
+    public void DeclineQuest_NotOfferedToSession_ChangesNothing() {
+        var offers = new List<QuestTemplate> { new() { m_questName = "Other" } };
+
+        Assert.False(QuestService.RemoveDeclinedOffer(offers, "NeverOffered"));
+        Assert.Single(offers);
+    }
+
+    [Fact]
+    public void SwitchActiveQuest_HeldQuestAndItsGoal_IsAccepted() {
+        var held = new[] { HeldQuest("A", 1, 11), HeldQuest("B", 2, 21) };
+
+        Assert.True(QuestService.IsHeldQuestGoal(held, 2, 21));
+    }
+
+    [Fact]
+    public void SwitchActiveQuest_UnheldQuestOrForeignGoal_IsRefused() {
+        var held = new[] { HeldQuest("A", 1, 11), HeldQuest("B", 2, 21) };
+
+        Assert.False(QuestService.IsHeldQuestGoal(held, 3, 21));
+        Assert.False(QuestService.IsHeldQuestGoal(held, 1, 21));
+        Assert.False(QuestService.IsHeldQuestGoal(held, 1, 0));
+    }
+
+    [Fact]
+    public void QuestFinder_PrefersQuestWithGoalInPlayerZone() {
+        var held = new[] { HeldQuest("A", 1, 11), HeldQuest("B", 2, 21) };
+
+        var pick = QuestService.PickQuestFinderQuest(held, activeQuestId: 1, hasGoalInPlayerZone: q => q.QuestName == "B");
+
+        Assert.Equal(2ul, pick.ID);
+    }
+
+    [Fact]
+    public void QuestFinder_WithoutZoneMatch_FallsBackToActiveThenFirst() {
+        var held = new[] { HeldQuest("A", 1, 11), HeldQuest("B", 2, 21) };
+
+        Assert.Equal(2ul, QuestService.PickQuestFinderQuest(held, activeQuestId: 2, hasGoalInPlayerZone: _ => false).ID);
+        Assert.Equal(1ul, QuestService.PickQuestFinderQuest(held, activeQuestId: 0, hasGoalInPlayerZone: _ => false).ID);
+        Assert.Null(QuestService.PickQuestFinderQuest([], activeQuestId: 0, hasGoalInPlayerZone: _ => true));
+    }
+
+    private static QuestInstance HeldQuest(string name, ulong questId, ulong goalId)
+        => new() { ID = questId, QuestName = name, GoalProgress = [new GoalInstance { ID = goalId, GoalName = name + "Goal" }] };
 }

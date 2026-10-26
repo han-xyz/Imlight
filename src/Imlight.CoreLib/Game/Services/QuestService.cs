@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using Akka.Actor;
@@ -70,6 +70,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private const string GOAL_COMPLETE_EVENT_PREFIX = "GoalComplete_";
     private const string GOAL_COMPLETION_DIALOG_TAG = "Completion";
     private const string DIALOG_ENTRY_EVENT_COMPLETION = "ENTRY";
+    private const string QuestStartDialogTag = "Start";
 
     private const float FIRST_RUN_XP_SCALE = 1f;
     private const float SECOND_RUN_XP_SCALE = 0.5f;
@@ -110,6 +111,8 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private readonly List<PendingGoalCompletion> _pendingGoalCompletions = [];
     private bool _clientReportsPersonaCompletion;
     private readonly NpcRefreshGate _npcRefresh = new();
+    private ulong _activeQuestId;
+    private bool _activeMapQuestsRequestLogged;
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new QuestService(parentActor));
@@ -554,6 +557,104 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         => requirements is null || RequirementDispatcher.EvaluateRequirements(
             requirements: requirements,
             context: new QuestRequirementContext(requirements, null, null, wizard, quest.m_questName));
+
+    [MessageHandler(typeof(QUEST_MESSAGES_52_PROTOCOL.MSG_DECLINEQUEST))]
+    private void ReceiveDeclineQuest(QUEST_MESSAGES_52_PROTOCOL.MSG_DECLINEQUEST message) {
+        if (!RemoveDeclinedOffer(_cachedQuestOffers, message.QuestName)) {
+            Logger.Warning("Character {CharId} declined quest '{Quest}', which was not offered to them.",
+                Logger.Args(GetActiveWizard().CharId, (string) message.QuestName));
+        }
+    }
+
+    internal static bool RemoveDeclinedOffer(List<QuestTemplate> offers, string questName)
+        => offers.RemoveAll(q => q.m_questName == questName) > 0;
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_SWITCHACTIVEQUEST))]
+    private void ReceiveSwitchActiveQuest(WIZARD2_53_PROTOCOL.MSG_SWITCHACTIVEQUEST message) {
+        var wizard = GetActiveWizard();
+        if (!IsHeldQuestGoal(wizard.QuestBehavior.CurrentQuestInstances, message.ActiveQuestGID, message.ActiveGoalGID)) {
+            Logger.Warning("Character {CharId} switched to goal {GoalId} of quest {QuestId}, which they do not hold.",
+                Logger.Args(wizard.CharId, message.ActiveGoalGID, message.ActiveQuestGID));
+
+            return;
+        }
+
+        _activeQuestId = message.ActiveQuestGID;
+    }
+
+    internal static bool IsHeldQuestGoal(IEnumerable<QuestInstance> heldQuests, ulong questId, ulong goalId)
+        => heldQuests.Any(q => q is not null && q.ID == questId && q.GoalProgress.Any(g => g.ID == goalId));
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_REQUESTNEXTCLOSESTQUEST))]
+    private void ReceiveRequestNextClosestQuest(WIZARD_12_PROTOCOL.MSG_REQUESTNEXTCLOSESTQUEST message) {
+        var wizard = GetActiveWizard();
+        Logger.Debug("Character {CharId} asked for the quest finder quest with NPC list {NpcList}.",
+            Logger.Args(wizard.CharId, Convert.ToHexString((byte[]) message.NPCList ?? [])));
+
+        var heldQuests = wizard.QuestBehavior.CurrentQuestInstances
+            .Where(q => q is not null && IsVisibleToClient(q.QuestName))
+            .ToList();
+        var quest = PickQuestFinderQuest(heldQuests, _activeQuestId,
+            q => GetQuestTemplate(q.QuestName) is { } qTemplate
+                && ActiveGoals(q, qTemplate).Any(g => (string) g.m_destinationZone == wizard.Zone));
+        if (quest is null) {
+            return;
+        }
+
+        var goal = quest.GoalProgress.FirstOrDefault(g => quest.IsGoalActive(g.GoalName));
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_ADDQUESTFINDER {
+            QuestID = quest.ID,
+            GoalID = goal?.ID ?? 0,
+            NPCList = message.NPCList,
+        });
+    }
+
+    internal static QuestInstance PickQuestFinderQuest(IReadOnlyList<QuestInstance> heldQuests,
+                                                       ulong activeQuestId,
+                                                       Func<QuestInstance, bool> hasGoalInPlayerZone)
+        => heldQuests.FirstOrDefault(hasGoalInPlayerZone)
+            ?? heldQuests.FirstOrDefault(q => q.ID == activeQuestId)
+            ?? heldQuests.FirstOrDefault();
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_REQUESTACTIVEMAPQUESTS))]
+    private void ReceiveRequestActiveMapQuests(WIZARD_12_PROTOCOL.MSG_REQUESTACTIVEMAPQUESTS message) {
+        // The XMLs define no reply; the map pins come from the goal locations already sent with MSG_SENDGOAL.
+        if (_activeMapQuestsRequestLogged) {
+            return;
+        }
+
+        _activeMapQuestsRequestLogged = true;
+        Logger.Debug("Character {CharId} asked for the active map quests with data {Data}.",
+            Logger.Args(GetActiveWizard().CharId, Convert.ToHexString((byte[]) message.Data ?? [])));
+    }
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_REQUESTQUESTDIALOG))]
+    private void ReceiveRequestQuestDialog(WIZARD_12_PROTOCOL.MSG_REQUESTQUESTDIALOG message) {
+        var wizard = GetActiveWizard();
+        var qInstance = wizard.QuestBehavior.CurrentQuestInstances
+            .FirstOrDefault(q => q is not null && StringHash.Compute(q.QuestName) == message.QuestNameID);
+        var qTemplate = qInstance is null ? null : GetQuestTemplate(qInstance.QuestName);
+        var dialog = qTemplate is null ? null : FindDialogue(qTemplate.m_dialogList, QuestStartDialogTag);
+        if (dialog is null) {
+            Logger.Warning("Character {CharId} asked for the dialog of quest {QuestNameId}, which they do not hold or which has no start dialog.",
+                Logger.Args(wizard.CharId, message.QuestNameID));
+
+            return;
+        }
+
+        var serializer = new ObjectSerializer(Versionable: false);
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialog), 16, out var serializedData)) {
+            Logger.Error("The start dialog of quest '{Quest}' could not be serialized, so it is not shown.",
+                Logger.Args(qInstance.QuestName));
+
+            return;
+        }
+
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_QUESTDIALOG {
+            QuestNameID = message.QuestNameID,
+            ActorDialog = serializedData,
+        });
+    }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND))]
     private void ReceiveQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
@@ -1772,7 +1873,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private void ShowQuestStartDialogue(QuestTemplate questTemplate)
-         => ShowDialogue(questTemplate.m_dialogList, "Start", "QuestStart");
+         => ShowDialogue(questTemplate.m_dialogList, QuestStartDialogTag, "QuestStart");
 
     private void ShowGoalStartDialogue(GoalTemplate goalTemplate, ulong questId, ulong goalId)
         => ShowDialogue(goalTemplate.m_dialogList, "Prep", "QuestStart", questId, goalId);
