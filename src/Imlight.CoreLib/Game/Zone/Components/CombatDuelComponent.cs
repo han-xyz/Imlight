@@ -41,7 +41,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -57,6 +57,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Combat;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.PvP;
 using Imlight.CoreLib.Game.PvP.Arena;
 using Imlight.CoreLib.Game.PvP.Data;
@@ -143,6 +144,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     // Keyed by the actor: a CoreObject is a record whose hash follows its location.
     private readonly HashSet<IActorRef> _entitiesInRange = [];
     private readonly CombatGroupReservations _groupReservations = new();
+    // Slot index to the crown shop purchase whose henchman holds it.
+    private readonly Dictionary<int, ulong> _henchmanPurchases = [];
     private readonly ObjectSerializer _serializer = new(
         Versionable: false,
         Behaviors: SerializerFlags.None
@@ -815,6 +818,35 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         SpawnAndAssignMinion(message.CreatureTid, message.Caster);
     }
 
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN))]
+    private void ReceiveSummonHenchman(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN message) {
+        var result = SummonHenchman(message.CreatureTid, message.IsPvPEnabled, message.Owner, out var slotIndex);
+        if (result == HenchmanSummonResult.Summoned) {
+            _henchmanPurchases[slotIndex] = message.PurchaseId;
+        }
+
+        message.Owner.Tell(new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
+            Request = message,
+            Result = result,
+            DuelActor = Self,
+            SubCircle = slotIndex
+        });
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_DISMISSMINION))]
+    private void ReceiveDismissMinion(COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
+        var minion = SubCircles?.FirstOrDefault(x => x.SlotIndex == message.SubCircle);
+        if (!_isActive || minion?.CombatParticipant is null || !IsDismissible(minion, message)) {
+            Logger.Warning("Duel {DuelId} | dismiss of slot {Slot} refused: not the requester's minion or purchase.",
+                Logger.Args(Duel?.m_duelID.Full, message.SubCircle));
+
+            return;
+        }
+
+        // The minion's MSG_COMBATDEATH handler tells the clients and frees the slot through OnMinionRemoved.
+        minion.ParticipantActor.Tell(new COMBAT_106_PROTOCOL.MSG_COMBATDEATH());
+    }
+
     private void InitializeDuel(Dictionary<IActorRef, CoreObject> startingParticipants) {
         Duel = CreateDuelWithDefaults();
         SubCircles = CreateDuelActorSubCircles(_sigilTemplate);
@@ -1065,14 +1097,64 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     internal static void OnMinionRemoved(CombatDuelSubCircle circle)
         => circle.RemoveParticipant();
 
-    private void SpawnAndAssignMinion(uint creatureTid, CombatDuelSubCircle caster) {
+    internal static bool MayDismiss(bool isSummonedMinion, int minionOwnerSlot, int requesterSlot)
+        => isSummonedMinion && minionOwnerSlot == requesterSlot;
+
+    private bool IsDismissible(CombatDuelSubCircle minion, COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
+        // A purchase's dismiss needs no live requester: the buyer may have left the duel before its refund was settled.
+        if (message.PurchaseId != 0) {
+            return minion.IsSummonedMinion
+                && _henchmanPurchases.TryGetValue(minion.SlotIndex, out var purchaseId)
+                && purchaseId == message.PurchaseId;
+        }
+
+        var requester = SubCircles.FirstOrDefault(x => x.ParticipantActor == message.Owner);
+        return requester is not null
+            && MayDismiss(minion.IsSummonedMinion, minion.CombatParticipant.m_minionSubCircle, requester.SlotIndex);
+    }
+
+    internal HenchmanSummonResult SummonHenchman(uint creatureTid, bool isPvPEnabled, IActorRef owner, out int slotIndex) {
+        slotIndex = -1;
+        var ownerCircle = SubCircles?.FirstOrDefault(x => x.ParticipantActor == owner);
+        if (!_isActive || ownerCircle is null) {
+            return HenchmanSummonResult.NotInDuel;
+        }
+
+        var refusal = HenchmanPurchase.Refusal(Duel.m_bPVP, isPvPEnabled, Duel.m_duelPhase == kDuelPhase.kPhase_Planning);
+        if (refusal is not null) {
+            return refusal.Value;
+        }
+
+        if (FreeMinionSlot(ownerCircle) is null) {
+            return HenchmanSummonResult.NoFreeSlot;
+        }
+
+        var slot = SpawnAndAssignMinion(creatureTid, ownerCircle);
+        if (slot is null) {
+            return HenchmanSummonResult.Failed;
+        }
+
+        // Bought in the planning phase, so register it now and let its AI pick a move for this round,
+        // instead of waiting for the next round's AddWaitingCombatParticipants.
+        AddCombatParticipant(slot);
+        slot.ParticipantActor.Tell(new COMBAT_106_PROTOCOL.MSG_NEWROUND { Round = Duel.m_roundNum });
+
+        slotIndex = slot.SlotIndex;
+        return HenchmanSummonResult.Summoned;
+    }
+
+    private CombatDuelSubCircle FreeMinionSlot(CombatDuelSubCircle caster) {
         // A PvE minion fights for the wizards whoever summoned it; in PvP it fights for its summoner.
-        var slot = Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : GetAvailableSubCircleTeamPlayer();
+        return Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : _groupReservations.FreeUnreservedPlayerCircle(SubCircles);
+    }
+
+    private CombatDuelSubCircle SpawnAndAssignMinion(uint creatureTid, CombatDuelSubCircle caster) {
+        var slot = FreeMinionSlot(caster);
         if (slot is null) {
             Logger.Information("Duel {0} | minion summon (tid {1}) skipped, no free slot on the side of the caster.",
                 Logger.Args(Duel.m_duelID.Full, creatureTid));
 
-            return;
+            return null;
         }
 
         var template = CoreObjectFactory.GetCoreTemplate(creatureTid);
@@ -1080,7 +1162,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             Logger.Warning("Duel {0} | minion summon: no template for creature tid {1}.",
                 Logger.Args(Duel.m_duelID.Full, creatureTid));
 
-            return;
+            return null;
         }
 
         var centre = Entity.ActiveGameObject?.m_location ?? (caster?.ParticipantObject?.m_location ?? default);
@@ -1092,14 +1174,19 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         var minionObj = CoreObjectFactory.FinalizeCoreObject(info, template);
         minionObj = CoreObjectFactory.InitializeCoreObjectBehaviors(minionObj, template);
 
+        _henchmanPurchases.Remove(slot.SlotIndex);
         var minionActor = Entity.SpawnCombatMinionActor(minionObj, template);
         if (minionActor is null) {
-            return;
+            return null;
         }
 
         try {
-            AssignParticipantToSubCircle(slot, minionActor, minionObj, isSummonedMinion: true,
-                                         minionOwnerSubCircle: caster.SlotIndex);
+            if (!AssignParticipantToSubCircle(slot, minionActor, minionObj, isSummonedMinion: true,
+                                              minionOwnerSubCircle: caster.SlotIndex)) {
+                minionActor.Tell(PoisonPill.Instance);
+
+                return null;
+            }
         }
         catch (Exception ex) {
             Logger.Error("Duel {0} | minion summon: failed to assign tid {1} to slot {2}: {3}",
@@ -1107,11 +1194,13 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             slot.RemoveParticipant();
             minionActor.Tell(PoisonPill.Instance);
 
-            return;
+            return null;
         }
 
         Logger.Information("Duel {0} | summoned minion tid {1} into player-team slot {2} (caught up next round).",
             Logger.Args(Duel.m_duelID.Full, creatureTid, slot.SlotIndex));
+
+        return slot;
     }
 
     private void AddParticipant(CoreObject participantObject, IActorRef participantActor) {
@@ -1866,7 +1955,9 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         return (byte) upFirst.SlotIndex;
     }
 
-    private void AddWaitingCombatParticipants() => EnactActionOnSubCircles(circle => {
+    private void AddWaitingCombatParticipants() => EnactActionOnSubCircles(AddCombatParticipant);
+
+    private void AddCombatParticipant(CombatDuelSubCircle circle) {
         if (circle.AddedToDuel || !circle.Occupied) {
             return;
         }
@@ -1891,7 +1982,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
         circle.AddedToDuel = true;
         Duel.m_flatParticipantList.Add(participant);
-    });
+    }
 
     private void LogStartingPips() {
         var pips = new List<string>();

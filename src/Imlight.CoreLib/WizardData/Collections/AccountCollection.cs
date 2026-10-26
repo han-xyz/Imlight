@@ -26,8 +26,6 @@ using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Raven.Client.Documents.Session;
 using System;
-using System.Collections.Generic;
-using Imcodec.ObjectProperty.TypeCache;
 
 namespace Imlight.CoreLib.WizardData.Collections;
 
@@ -481,6 +479,20 @@ public static class AccountCollection {
         return UpdateAccount(accountId, acc => {
             acc.Crowns = crownsAmount;
         });
+    }
+
+    public static bool TryAdjustCrowns(ulong accountId, int delta, out int balance) {
+        // Applied to the stored balance under the account's write lane, never to a session's cached copy,
+        // so two sessions of one account cannot overwrite each other's spend or refund.
+        var applied = false;
+        var stored = 0;
+        var found = UpdateAccount(accountId, acc => {
+            applied = Account.TryApplyCrownsDelta(acc.Crowns, delta, out stored);
+            acc.Crowns = stored;
+        });
+
+        balance = stored;
+        return found && applied;
     }
 
     public static bool AddGiftMail(ulong accountId, Mail mail) {

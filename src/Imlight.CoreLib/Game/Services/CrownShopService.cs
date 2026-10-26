@@ -35,12 +35,11 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 19.10.2026
+ * Last Updated: 10/26/2026
  */
 
 using Akka.Actor;
 using Imcodec.CoreObject;
-using Imcodec.Cryptography;
 using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
@@ -85,24 +84,29 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     private static readonly ObjectSerializer s_nonVersionableSerializer = new(Versionable: false, Behaviors: SerializerFlags.None);
     private static readonly ObjectSerializer s_versionableSerializer = new(Versionable: true, Behaviors: SerializerFlags.None);
 
-    private static readonly int s_errorNotEnoughCrowns = (int) StringHash.Compute("Error_NotEnoughCrowns");
-    private static readonly int s_errorCantAfford = (int) StringHash.Compute("Error_BuyerCantAffordItem");
-    private static readonly int s_errorInvFull = (int) StringHash.Compute("Error_CantHoldItemInventoryFull");
-    private static readonly int s_errorInvBankFull = (int) StringHash.Compute("Error_CantHoldItemInventoryFullAndReachedBankCap");
-    private static readonly int s_errorMaxGold = (int) StringHash.Compute("Error_CantHoldItemMaxGold");
-    private static readonly int s_errorMaxLunari = (int) StringHash.Compute("CantHoldItemMaxLunari");
-    private static readonly int s_errorMaxEmotes = (int) StringHash.Compute("CantHoldItemMaxEmotes");
-    private static readonly int s_errorMaxTeleportEffects = (int) StringHash.Compute("CantHoldItemMaxTeleportEffects");
-    private static readonly int s_errorInCombat = (int) StringHash.Compute("Error_InCombat");
-    private static readonly int s_errorNotInCombat = (int) StringHash.Compute("Error_NotInCombat");
-    private static readonly int s_errorLevelTooLow = (int) StringHash.Compute("Error_LevelTooLow");
-    private static readonly int s_errorOneCastle = (int) StringHash.Compute("Error_OnlyOneOfEachIsland");
-    private static readonly int s_errorMaxElixirs = (int) StringHash.Compute("Error_MaxElixirs");
-    private static readonly int s_errorCSDisabled = (int) StringHash.Compute("Error_CrownShopDisabled");
-    private static readonly int s_errorPurchase = (int) StringHash.Compute("Error_PriceLockMismatch");
-    private static readonly int s_errorNoGiftThisItem = (int) StringHash.Compute("Error_NoGiftThisItem");
-    private static readonly int s_errorFailedToSendGift = (int) StringHash.Compute("Error_FailedToSendGift");
-    private static readonly int s_errorNoPriceForType = (int) StringHash.Compute("Error_PriceLockNoPriceForType");
+    private static readonly int s_errorNotEnoughCrowns = CrownShopErrors.Register("Error_NotEnoughCrowns");
+    private static readonly int s_errorCantAfford = CrownShopErrors.Register("Error_BuyerCantAffordItem");
+    private static readonly int s_errorInvFull = CrownShopErrors.Register("Error_CantHoldItemInventoryFull");
+    private static readonly int s_errorInvBankFull = CrownShopErrors.Register("Error_CantHoldItemInventoryFullAndReachedBankCap");
+    private static readonly int s_errorMaxGold = CrownShopErrors.Register("Error_CantHoldItemMaxGold");
+    private static readonly int s_errorMaxLunari = CrownShopErrors.Register("CantHoldItemMaxLunari");
+    private static readonly int s_errorMaxEmotes = CrownShopErrors.Register("CantHoldItemMaxEmotes");
+    private static readonly int s_errorMaxTeleportEffects = CrownShopErrors.Register("CantHoldItemMaxTeleportEffects");
+    private static readonly int s_errorInCombat = CrownShopErrors.Register("Error_InCombat");
+    private static readonly int s_errorNotInCombat = CrownShopErrors.NotInCombat;
+    private static readonly int s_errorLevelTooLow = CrownShopErrors.Register("Error_LevelTooLow");
+    private static readonly int s_errorOneCastle = CrownShopErrors.Register("Error_OnlyOneOfEachIsland");
+    private static readonly int s_errorMaxElixirs = CrownShopErrors.Register("Error_MaxElixirs");
+    private static readonly int s_errorCSDisabled = CrownShopErrors.Register("Error_CrownShopDisabled");
+    private static readonly int s_errorPurchase = CrownShopErrors.PriceLockMismatch;
+    private static readonly int s_errorNoGiftThisItem = CrownShopErrors.Register("Error_NoGiftThisItem");
+    private static readonly int s_errorFailedToSendGift = CrownShopErrors.Register("Error_FailedToSendGift");
+    private static readonly int s_errorNoPriceForType = CrownShopErrors.Register("Error_PriceLockNoPriceForType");
+
+    private const string HenchmanSummonTimeoutKey = "HenchmanSummonTimeout";
+    private static readonly TimeSpan s_henchmanSummonTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly HenchmanPurchaseFlow _henchmanPurchase = new();
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new CrownShopService(parentActor));
@@ -201,43 +205,47 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         var wizard = GetActiveWizard();
 
         if (message.Count < 1 || message.Count > CrownShopHandler.s_maxBuyCount || message.SaleID != 0) {
-            Logger.Warning("Rejected purchase request for item {0}.", Logger.Args(message.Item));
-            SendPurchaseError(s_errorPurchase);
+            SendPurchaseError(s_errorPurchase, message.Item, wizard.IsInDuel);
             return;
         }
 
         // Authoritative cost lookup from catalog
         if (!CrownShopHandler.TryGetCrownShopItem(message.Item, out var catalogItem)) {
-            Logger.Warning("Item {0} not found in CrownShop.", Logger.Args(message.Item));
-            SendPurchaseError(s_errorPurchase);
+            SendPurchaseError(s_errorPurchase, message.Item, wizard.IsInDuel);
             return;
         }
 
-        if (wizard.IsInDuel && !catalogItem.m_combatOnly) {
-            SendPurchaseError(s_errorInCombat);
+        var route = HenchmanPurchase.Route(wizard.IsInDuel, catalogItem.m_combatOnly, CrownShopHandler.IsHenchman(message.Item));
+        if (route == CrownShopPurchaseRoute.RefuseInCombat) {
+            SendPurchaseError(s_errorInCombat, message.Item, wizard.IsInDuel);
             return;
         }
 
-        if (!wizard.IsInDuel && catalogItem.m_combatOnly) {
-            SendPurchaseError(s_errorNotInCombat);
+        if (route == CrownShopPurchaseRoute.RefuseNotInCombat) {
+            SendPurchaseError(s_errorNotInCombat, message.Item, wizard.IsInDuel);
             return;
         }
 
         var isGift = message.Recipient != 0;
         if (isGift && catalogItem.m_noGift) {
-            SendPurchaseError(s_errorNoGiftThisItem);
+            SendPurchaseError(s_errorNoGiftThisItem, message.Item, wizard.IsInDuel);
             return;
         }
 
         if (!CrownShopPrice.TryCompute(catalogItem, message.Type, message.Count, out var amountToPay)) {
             Logger.Warning("Item {0} has no price for currency type {1}.", Logger.Args(message.Item, message.Type));
-            SendPurchaseError(s_errorNoPriceForType);
+            SendPurchaseError(s_errorNoPriceForType, message.Item, wizard.IsInDuel);
             return;
         }
 
         var itemTemplate = CoreObjectFactory.GetCoreTemplate(message.Item);
+        if (route == CrownShopPurchaseRoute.SummonHenchman) {
+            RequestHenchmanSummon(wizard, message, itemTemplate, amountToPay);
+            return;
+        }
+
         if (!isGift && !HasInventorySpaceFor(wizard, itemTemplate, message.Count)) {
-            SendPurchaseError(s_errorInvFull);
+            SendPurchaseError(s_errorInvFull, message.Item, wizard.IsInDuel);
             return;
         }
 
@@ -249,7 +257,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 : TryGrantPurchasedItem(transaction, wizard, message, itemTemplate));
 
         if (error != 0) {
-            SendPurchaseError(error);
+            SendPurchaseError(error, message.Item, wizard.IsInDuel);
             return;
         }
 
@@ -274,6 +282,91 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
+    private void RequestHenchmanSummon(Wizard wizard, WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_REQUEST message,
+                                       CoreTemplate itemTemplate, int amountToPay) {
+        if (message.Count != 1 || !HenchmanPurchase.TryGetCreatureTemplateId(itemTemplate, out var creatureTid)) {
+            SendPurchaseError(s_errorPurchase, message.Item, wizard.IsInDuel);
+            return;
+        }
+
+        var purchaseId = GenerateRandomUlong() | 1;
+        var error = _henchmanPurchase.Begin(purchaseId,
+            () => TryDebit(wizard, message.Type, amountToPay),
+            () => Refund(wizard, message.Type, amountToPay));
+        if (error != 0) {
+            SendPurchaseError(error, message.Item, wizard.IsInDuel);
+            return;
+        }
+
+        var request = new COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN {
+            Owner = SessionActor.ActorRef,
+            CreatureTid = creatureTid,
+            IsPvPEnabled = HenchmanPurchase.IsPvPEnabled(itemTemplate),
+            PurchaseId = purchaseId,
+            Item = message.Item,
+            Currency = message.Type,
+            Cost = amountToPay
+        };
+        // Without an answer (a duel actor that stopped) the purchase would stay pending and paid; refund it instead.
+        Timers.StartSingleTimer(HenchmanSummonTimeoutKey, new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
+            Request = request,
+            Result = HenchmanSummonResult.Failed,
+            SubCircle = -1
+        }, s_henchmanSummonTimeout);
+        TellOtherServices(request);
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED))]
+    private void ReceiveHenchmanSummoned(COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED message) {
+        var wizard = GetActiveWizard();
+        var request = message.Request;
+        if (!_henchmanPurchase.TryFinish(request.PurchaseId, message.Result, out var error)) {
+            Logger.Warning("Henchman purchase {PurchaseId} of item {ItemId} answered {Result} after it was settled.",
+                Logger.Args(request.PurchaseId, request.Item, message.Result));
+            if (message.Result == HenchmanSummonResult.Summoned) {
+                message.DuelActor.Tell(new COMBAT_106_PROTOCOL.MSG_DISMISSMINION {
+                    SubCircle = message.SubCircle,
+                    PurchaseId = request.PurchaseId
+                });
+            }
+            return;
+        }
+
+        Timers.Cancel(HenchmanSummonTimeoutKey);
+        if (error != 0) {
+            Logger.Warning("Henchman summon for item {ItemId} ended {Result}; payment refunded.",
+                Logger.Args(request.Item, message.Result));
+            SendPurchaseError(error, request.Item, wizard.IsInDuel);
+            return;
+        }
+
+        if (request.Currency == CrownShopPrice.GoldCurrency) {
+            SyncGoldBalance(wizard);
+        }
+        else {
+            SyncCrownBalance(wizard);
+        }
+
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
+            Item = request.Item,
+            Error = 0,
+            Cost = request.Cost,
+            Count = 1,
+            Gifted = 0,
+            Type = request.Currency
+        });
+    }
+
+    protected override void OnPreDispose() {
+        Timers.Cancel(HenchmanSummonTimeoutKey);
+        if (_henchmanPurchase.TryAbandon()) {
+            Logger.Warning("Session {SessionId} closed with a henchman purchase in flight; payment refunded.",
+                Logger.Args(SessionActor.SessionID));
+        }
+
+        base.OnPreDispose();
+    }
+
     private static bool HasInventorySpaceFor(Wizard wizard, CoreTemplate itemTemplate, int count) {
         var requiredSlots = GiftingService.CalculateRequiredInventorySlots(itemTemplate, count);
         return requiredSlots == 0 || wizard.InventoryBehavior.HasInventorySpace(requiredSlots);
@@ -295,18 +388,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return 0;
         }
 
-        var crowns = wizard.Account.Crowns;
-        if (crowns < amount) {
-            return s_errorNotEnoughCrowns;
-        }
-
-        if (!wizard.Account.SetCrowns(crowns - amount)) {
-            Logger.Error("Could not save the crowns debit for account {0}.", Logger.Args(wizard.AccountId));
-            wizard.Account.Crowns = crowns;
-            return s_errorPurchase;
-        }
-
-        return 0;
+        return wizard.Account.TryAdjustCrowns(-amount) ? 0 : s_errorNotEnoughCrowns;
     }
 
     private static void Refund(Wizard wizard, int currency, int amount) {
@@ -315,7 +397,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (!wizard.Account.SetCrowns(wizard.Account.Crowns + amount)) {
+        if (!wizard.Account.TryAdjustCrowns(amount)) {
             Logger.Error("Could not save the refund of {0} crowns for account {1}.", Logger.Args(amount, wizard.AccountId));
         }
     }
@@ -837,10 +919,13 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
-    private void SendPurchaseError(int errorCode)
-        => SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
+    private void SendPurchaseError(int errorCode, ulong item, bool isInDuel) {
+        Logger.Warning("Refused purchase of item {ItemId}: {Error}, in duel: {InDuel}.",
+            Logger.Args(item, CrownShopErrors.NameOf(errorCode), isInDuel));
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
             Error = errorCode
         });
+    }
 
     private void SyncCrownBalance(Wizard wizard)
         => SendToSocket(new WIZARD_12_PROTOCOL.MSG_CROWNBALANCE {

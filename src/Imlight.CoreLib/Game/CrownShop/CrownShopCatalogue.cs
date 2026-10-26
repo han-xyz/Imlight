@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System.Collections.Generic;
@@ -47,7 +47,7 @@ namespace Imlight.CoreLib.Game.CrownShop;
 
 internal sealed class CrownShopCatalogue {
 
-    public static CrownShopCatalogue Empty { get; } = new([], []);
+    public static CrownShopCatalogue Empty { get; } = new([], [], []);
 
     private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() {
         PropertyNameCaseInsensitive = true,
@@ -59,15 +59,21 @@ internal sealed class CrownShopCatalogue {
     private const int WishlistHeaderBytes = 12;
     private const int WishlistItemBytes = 6;
 
+    // CrownShopSWF_CategoryHenchmen: the pack gives these items no flags, but the client sells them only in a duel.
+    private const uint HenchmenCategoryId = 18;
+
     private readonly Dictionary<ulong, CrownShopItem> _items;
+    private readonly HashSet<ulong> _henchmen;
 
     public IReadOnlyList<CrownShopTabConfig> Tabs { get; }
 
     public IReadOnlyCollection<CrownShopItem> Items => _items.Values;
 
-    private CrownShopCatalogue(IReadOnlyList<CrownShopTabConfig> tabs, Dictionary<ulong, CrownShopItem> items) {
+    private CrownShopCatalogue(IReadOnlyList<CrownShopTabConfig> tabs, Dictionary<ulong, CrownShopItem> items,
+                               HashSet<ulong> henchmen) {
         Tabs = tabs;
         _items = items;
+        _henchmen = henchmen;
     }
 
     /// <summary>
@@ -81,19 +87,28 @@ internal sealed class CrownShopCatalogue {
             .ToList();
 
         var items = new Dictionary<ulong, CrownShopItem>();
+        var henchmen = new HashSet<ulong>();
         foreach (var item in tabs.SelectMany(t => t.Items)) {
             if (items.TryGetValue(item.TemplateId, out var listed) && !HasSamePrices(listed, item)) {
                 throw new InvalidDataException($"Crown shop item {item.TemplateId} is listed in two tabs with different prices.");
             }
 
-            items[item.TemplateId] = ToCrownShopItem(item);
+            var isHenchman = IsInHenchmenCategory(item);
+            // Any listing in the henchmen category makes it a henchman, whatever tab lists it last.
+            if (isHenchman) {
+                henchmen.Add(item.TemplateId);
+            }
+
+            items[item.TemplateId] = ToCrownShopItem(item, henchmen.Contains(item.TemplateId));
         }
 
-        return new CrownShopCatalogue(tabs, items);
+        return new CrownShopCatalogue(tabs, items, henchmen);
     }
 
     public bool TryGetItem(ulong templateId, out CrownShopItem item)
         => _items.TryGetValue(templateId, out item);
+
+    public bool IsHenchman(ulong templateId) => _henchmen.Contains(templateId);
 
     /// <summary>
     /// Decodes a client wishlist that is exactly one encoded wishlist of at most <paramref name="maxSize"/>
@@ -138,7 +153,10 @@ internal sealed class CrownShopCatalogue {
     private static bool HasSamePrices(CrownShopItem listed, CrownShopItemConfig item)
         => listed.m_goldCost == item.GoldCost && listed.m_crownsCost == item.CrownsCost && listed.m_ticketCost == item.TicketCost;
 
-    private static CrownShopItem ToCrownShopItem(CrownShopItemConfig item) => new() {
+    private static bool IsInHenchmenCategory(CrownShopItemConfig item)
+        => item.DisplayPriority.Count > 0 && item.DisplayPriority[0] == HenchmenCategoryId;
+
+    private static CrownShopItem ToCrownShopItem(CrownShopItemConfig item, bool isHenchman) => new() {
         m_itemTemplateId = item.TemplateId,
         m_itemFlags = item.ItemFlags,
         m_goldCost = item.GoldCost,
@@ -147,8 +165,9 @@ internal sealed class CrownShopCatalogue {
         m_strikethruCrowns = item.StrikethruCrowns,
         m_ticketCost = item.TicketCost,
         m_displayPriority = string.Join(',', item.DisplayPriority.Select((priority, index) => $"{priority}:{index}")),
-        m_combatOnly = item.CrownShopItemFlags.CombatOnly,
-        m_noGift = item.CrownShopItemFlags.NoGift,
+        m_combatOnly = item.CrownShopItemFlags.CombatOnly || isHenchman,
+        // A henchman joins the buyer's own duel, so it cannot be a gift; its item template carries FLAG_NoGift.
+        m_noGift = item.CrownShopItemFlags.NoGift || isHenchman,
         m_recommendIfOwned = item.CrownShopItemFlags.RecommendIfOwned,
         m_saleID = 0,
         m_description = "",

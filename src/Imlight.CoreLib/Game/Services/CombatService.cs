@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -50,6 +50,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
@@ -313,6 +314,34 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             GetActiveWizard().IsInDuel = false;
         }
         _currentDuelActor?.Tell(message, SessionActor.ActorRef);
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN))]
+    private void ReceiveSummonHenchman(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN message) {
+        if (_currentDuelActor is null) {
+            TellOtherServices(new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
+                Request = message,
+                Result = HenchmanSummonResult.NotInDuel,
+                SubCircle = -1
+            });
+            return;
+        }
+
+        _currentDuelActor.Tell(message);
+    }
+
+    [MessageHandler(typeof(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_DISMISS_SUMMON))]
+    private void ReceiveDismissSummon(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_DISMISS_SUMMON message) {
+        if (_currentDuelActor is null) {
+            Logger.Debug("Session {SessionId} asked to dismiss a summon with no active duel; dropping it.",
+                Logger.Args(SessionActor.SessionID));
+            return;
+        }
+
+        _currentDuelActor.Tell(new COMBAT_106_PROTOCOL.MSG_DISMISSMINION {
+            Owner = SessionActor.ActorRef,
+            SubCircle = (int) message.Subcircle
+        });
     }
 
     [MessageHandler(typeof(TUTORIAL_108_PROTOCOL.MSG_TUTORIALREBUILDDUELHAND))]

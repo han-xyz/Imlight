@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -389,7 +389,13 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
     }
 
     protected override void Unhandled(object message) {
-        // Bump this up to warning on release builds.
+        // A client message nobody handles is a missing feature; internal tells without a taker are routine.
+        if (message is IMessage) {
+            Logger.Information("SessionActor {Id} received unhandled client message {Type}.",
+                Logger.Args(SessionID, message.GetType().Name));
+            return;
+        }
+
         Logger.Verbose("SessionActor {Id} received unhandled message of type {Type}.",
             Logger.Args(SessionID, message.GetType()));
     }
