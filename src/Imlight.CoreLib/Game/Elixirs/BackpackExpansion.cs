@@ -40,6 +40,7 @@
  */
 
 using System;
+using System.Linq;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -65,8 +66,16 @@ internal static class BackpackExpansion {
 
     public static bool IsAtLimit(Wizard wizard) => wizard.InventoryBehavior.ExtraSpace >= MaxExtraSpace;
 
-    public static bool MayPurchase(Wizard wizard, int count)
-        => wizard.InventoryBehavior.ExtraSpace + count * SlotsPerElixir <= MaxExtraSpace;
+    /// <summary>
+    /// Whether <paramref name="count"/> more elixirs could all still be used, counting the unused ones already in
+    /// the backpack and the bank.
+    /// </summary>
+    public static bool MayPurchase(Wizard wizard, int count) {
+        var unused = wizard.InventoryBehavior.Items.Concat(wizard.StorageBehavior.Items)
+            .Count(item => IsBackpackExpansion(item.m_templateID));
+
+        return wizard.InventoryBehavior.ExtraSpace + (unused + count) * SlotsPerElixir <= MaxExtraSpace;
+    }
 
     /// <summary>
     /// Adds one elixir's slots to the wizard and stores them with <paramref name="save"/>. Unless the result is

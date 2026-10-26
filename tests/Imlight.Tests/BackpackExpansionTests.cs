@@ -168,6 +168,25 @@ public sealed class BackpackExpansionTests {
     }
 
     [Theory]
+    [InlineData(0, 0, 2, true)]
+    [InlineData(1, 0, 1, true)]
+    [InlineData(1, 0, 2, false)]
+    [InlineData(1, 1, 1, false)]
+    [InlineData(0, 1, 2, false)]
+    public void MayPurchase_CountsUnusedElixirsInBackpackAndBank(int inBackpack, int inBank, int count, bool expected) {
+        var wizard = Bare();
+        for (var i = 0; i < inBackpack; i++) {
+            wizard.InventoryBehavior.AddItem(Item(1 + (ulong) i));
+        }
+        for (var i = 0; i < inBank; i++) {
+            wizard.StorageBehavior.Items.Add(Item(100 + (ulong) i));
+        }
+        wizard.InventoryBehavior.AddItem(new WizClientObjectItem { m_globalID = new GID(500), m_templateID = new GID(OtherElixirTemplateId) });
+
+        Assert.Equal(expected, BackpackExpansion.MayPurchase(wizard, count));
+    }
+
+    [Theory]
     [InlineData(0, false)]
     [InlineData(SlotsPerElixir, false)]
     [InlineData(2 * SlotsPerElixir, true)]
@@ -199,7 +218,8 @@ public sealed class BackpackExpansionTests {
     private static Wizard Bare()
         => new() {
             GameStats = new ServerWizGameStats(MagicSchool.Fire, 1),
-            InventoryBehavior = new ServerWizInventoryBehavior { Items = [], InventoryItemIds = [] }
+            InventoryBehavior = new ServerWizInventoryBehavior { Items = [], InventoryItemIds = [] },
+            StorageBehavior = new ServerWizStorageBehavior()
         };
 
 }
