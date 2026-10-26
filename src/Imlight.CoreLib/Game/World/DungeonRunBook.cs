@@ -64,9 +64,12 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
         () => TimeSpan.FromMinutes(Zone.Core.Zone.InstanceIdleMinutes),
         () => DateTimeOffset.UtcNow);
 
+    // Well past the 10 second countdown: a wait this old belongs to a session that never ended or cancelled it.
+    private static readonly TimeSpan WaitingLifetime = TimeSpan.FromMinutes(1);
+
     private readonly Lock _lock = new();
     private readonly Dictionary<ulong, DungeonRun> _runsByOwner = [];
-    private readonly Dictionary<string, HashSet<ulong>> _waitingByZone = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<ulong, DateTimeOffset>> _waitingByZone = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, EndedRun> _endedRunsByMember = [];
 
     /// <summary>
@@ -79,7 +82,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
                 _waitingByZone[zoneName] = waiting;
             }
 
-            waiting.Add(charId);
+            waiting[charId] = clock();
         }
     }
 
@@ -239,7 +242,12 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             return [];
         }
 
-        HashSet<ulong> occupants = [.. waiting];
+        var staleBefore = clock() - WaitingLifetime;
+        HashSet<ulong> occupants = [.. waiting.Where(wait => wait.Value > staleBefore).Select(wait => wait.Key)];
+        foreach (var stale in waiting.Where(wait => wait.Value <= staleBefore).Select(wait => wait.Key).ToList()) {
+            waiting.Remove(stale);
+        }
+
         waiting.Remove(charId);
         if (waiting.Count == 0) {
             _waitingByZone.Remove(zoneName);

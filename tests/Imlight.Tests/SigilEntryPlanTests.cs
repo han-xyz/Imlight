@@ -107,6 +107,14 @@ public sealed class DungeonRunBookTests {
     }
 
     [Fact]
+    public void Enter_LeaderWhoseCountdownWentStale_DoesNotOwnTheRun() {
+        _book.Wait(Leader, Floor1);
+        _now += TimeSpan.FromMinutes(2);
+
+        Assert.Equal(new InstanceEntry(Member, ResetInstance: true), _book.Enter(Member, Floor1, Street));
+    }
+
+    [Fact]
     public void Enter_OwnerReturningFromTheStreet_JoinsTheLiveRunWithoutReset() {
         EnterTogether();
         _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
