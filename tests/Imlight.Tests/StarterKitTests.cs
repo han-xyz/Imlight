@@ -137,11 +137,12 @@ public sealed class StarterKitTests {
         foreach (var school in s_primarySchools) {
             var kit = kits.For(AuthLevel.None, school);
 
-            Assert.Equal(5, kit.ItemTemplateIds.Count);
+            Assert.Equal(2, kit.ItemTemplateIds.Count);
             Assert.Equal(0u, kit.PetTemplateId);
             Assert.All(kit.ItemTemplateIds, id => {
                 Assert.DoesNotContain("Crown", filenamesById[id], StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("Mount", filenamesById[id], StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotMatch("Hat-|Robe-|Shoe-", filenamesById[id]);
             });
         }
     }
