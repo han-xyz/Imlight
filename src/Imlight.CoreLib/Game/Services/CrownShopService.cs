@@ -244,6 +244,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
+        if (!isGift && BackpackExpansion.IsBackpackExpansion(message.Item) && !BackpackExpansion.MayPurchase(wizard, message.Count)) {
+            SendPurchaseError(s_errorMaxElixirs, message.Item, wizard.IsInDuel);
+            return;
+        }
+
         if (!isGift && !HasInventorySpaceFor(wizard, itemTemplate, message.Count)) {
             SendPurchaseError(s_errorInvFull, message.Item, wizard.IsInDuel);
             return;
