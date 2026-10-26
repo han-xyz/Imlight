@@ -59,10 +59,6 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
     public bool IsEmbedded { get; protected set; }
 
     protected virtual IDocumentStore CreateStore() {
-        // If this is the first time we're creating the store, we need to create the database.
-        Logger.Information("Initializing remote RavenDB database for the first time..");
-        Logger.Information("Database name: {0}", Logger.Args(DatabaseName));
-
         var store = new DocumentStore {
             Urls = [Url],
             Database = DatabaseName,
@@ -80,7 +76,7 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
         RavenSystemTextJsonBridge.Apply(store.Conventions);
 
         store.Initialize();
-        Logger.Information("Database initialized.");
+        Logger.Information("Using the RavenDB database {DatabaseName} at {Url}.", Logger.Args(DatabaseName, Url));
 
         return store;
     }
@@ -108,21 +104,26 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
         EmbeddedDatabaseManager.Start();
         var store = EmbeddedDatabaseManager.GetDocumentStore(DatabaseName);
         IsEmbedded = true;
+        if (store is null) {
+            return null;
+        }
+
+        Logger.Information("Using the embedded database {DatabaseName}. Set PlayerDatabaseUrl in [Database] " +
+            "to use your own RavenDB server.", Logger.Args(DatabaseName));
 
         return store;
     }
 
     protected virtual X509Certificate2 GetCertificate() {
-        if (string.IsNullOrEmpty(Url)) {
+        if (string.IsNullOrEmpty(Url) || string.IsNullOrWhiteSpace(CertificatePath)) {
             return null;
         }
 
         // The certificate path is relative to the working directory.
-        // We need to get the absolute path.
         var absolutePath = Path.GetFullPath(CertificatePath);
-
         if (!File.Exists(absolutePath)) {
-            throw new FileNotFoundException($"No database certificate found at {absolutePath}", absolutePath);
+            throw new FileNotFoundException($"The database certificate {absolutePath} does not exist. Fix " +
+                "PlayerDatabaseCertificatePath in [Database], or leave it empty to connect without one.", absolutePath);
         }
 
         return X509CertificateLoader.LoadPkcs12FromFile(absolutePath, password: null);

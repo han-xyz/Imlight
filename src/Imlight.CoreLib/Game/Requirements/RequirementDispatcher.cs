@@ -58,7 +58,7 @@ namespace Imlight.CoreLib.Game.Requirements;
 public static class RequirementDispatcher {
 
     private static readonly Dictionary<Type, MethodInfo> s_requirementHandlers = [];
-    private static readonly ConcurrentDictionary<Type, byte> s_reportedUnhandledTypes = new();
+    private static readonly ConcurrentDictionary<Type, byte> s_reportedTypesWithoutHandler = new();
 
     // ctor
     static RequirementDispatcher()
@@ -112,8 +112,8 @@ public static class RequirementDispatcher {
         var handlerType = FindHandlerForRequirement(requirementType, context);
 
         if (handlerType == null) {
-            if (s_reportedUnhandledTypes.TryAdd(requirementType, 0)) {
-                Logger.Warning("No handler found for requirement type: {0}",
+            if (s_reportedTypesWithoutHandler.TryAdd(requirementType, 0)) {
+                Logger.Warning("Requirement {Requirement} is not supported by the server yet, so it always counts as not met. This is logged once.",
                     Logger.Args(requirementType.Name));
             }
 
@@ -127,8 +127,8 @@ public static class RequirementDispatcher {
             return handler?.Evaluate(context) ?? false;
         }
         catch (Exception ex) {
-            Logger.Error("Error evaluating requirement {0}: {1} | {2}",
-                Logger.Args(requirementType.Name, ex.Message, ex.StackTrace));
+            Logger.Error("Requirement {Requirement} could not be checked, so it counts as not met. {Exception}",
+                Logger.Args(requirementType.Name, ex));
 
             return false;
         }
@@ -207,12 +207,12 @@ public static class RequirementDispatcher {
                 s_requirementHandlers.Add(type, shouldAttachMethod);
             }
             else {
-                Logger.Warning("Could not find ShouldAttachToContext method on: {0}",
-                    Logger.Args(type.FullName));
+                Logger.Error("Requirement handler {Handler} has no ShouldAttachToContext method, so it never runs.",
+                    Logger.Args(type.Name));
             }
         }
 
-        Logger.Information("Registered {0} requirement handlers",
+        Logger.Debug("Registered {Count} requirement handlers.",
             Logger.Args(s_requirementHandlers.Count));
     }
 
