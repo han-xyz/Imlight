@@ -162,7 +162,7 @@ public sealed class NpcInteractionTests {
         var table = new ServiceOptionTable();
         var wizard = NewWizard();
 
-        var shown = InteractQuestOfferComponent.FindAvailableQuests([beta, alpha], wizard);
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([beta, alpha], wizard, QuestOfferGate.Open);
         var options = table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
 
         Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
@@ -177,7 +177,7 @@ public sealed class NpcInteractionTests {
         var offer = new InteractQuestOfferComponent(null!);
         var table = new ServiceOptionTable();
         var wizard = NewWizard();
-        var shown = InteractQuestOfferComponent.FindAvailableQuests([first, second], wizard);
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([first, second], wizard, QuestOfferGate.Open);
         table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
 
         Assert.Same(first, ClickOffer(table, offer, 0, [first, second], wizard));
@@ -200,7 +200,7 @@ public sealed class NpcInteractionTests {
         var held = new QuestTemplate { m_questName = "Held" };
         var open = new QuestTemplate { m_questName = "Open" };
 
-        var quests = InteractQuestOfferComponent.FindAvailableQuests([held, open], NewWizard("Held"));
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([held, open], NewWizard("Held"), QuestOfferGate.Open);
 
         Assert.Equal([open], quests);
     }
@@ -212,7 +212,7 @@ public sealed class NpcInteractionTests {
         var offer = new InteractQuestOfferComponent(null!);
         var table = new ServiceOptionTable();
         var wizard = NewWizard();
-        var shown = InteractQuestOfferComponent.FindAvailableQuests([alpha, beta], wizard);
+        var shown = InteractQuestOfferComponent.FindAvailableQuests([alpha, beta], wizard, QuestOfferGate.Open);
         table.Build(FirstPlayer, [(offer, [.. shown.Select(offer.ToOfferOption)])]);
 
         wizard.QuestBehavior.CurrentQuestInstances.Add(new QuestInstance { QuestName = "Alpha" });
@@ -231,7 +231,7 @@ public sealed class NpcInteractionTests {
         var wizard = NewWizard();
         wizard.QuestBehavior.AddToQuestRegistry("Weekly", "Complete", 1);
 
-        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard, QuestOfferGate.Open);
 
         Assert.Equal(offered, quests.Contains(quest));
     }
@@ -240,7 +240,7 @@ public sealed class NpcInteractionTests {
     public void QuestOffer_HeldRepeatableQuest_NotOffered() {
         var quest = new QuestTemplate { m_questName = "Weekly", m_questRepeat = -1 };
 
-        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard("Weekly")));
+        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard("Weekly"), QuestOfferGate.Open));
     }
 
     [Theory]
@@ -249,7 +249,7 @@ public sealed class NpcInteractionTests {
     public void QuestOffer_HiddenOrOutdated_NotOffered(bool hidden, bool outdated) {
         var quest = new QuestTemplate { m_questName = "Old", m_isHidden = hidden, m_outdated = outdated };
 
-        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard()));
+        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard(), QuestOfferGate.Open));
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public sealed class NpcInteractionTests {
         var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
         var offerComponent = new InteractQuestOfferComponent(null!);
         var offer = new CachingService(wizard
-            => [.. InteractQuestOfferComponent.FindAvailableQuests([alpha], wizard).Select(offerComponent.ToOfferOption)]);
+            => [.. InteractQuestOfferComponent.FindAvailableQuests([alpha], wizard, QuestOfferGate.Open).Select(offerComponent.ToOfferOption)]);
         var persona = new CachingService(wizard
             => wizard.HasQuest("Alpha") ? [new GoalEntry { m_displayKey = "Title_Alpha" }] : []);
         var table = new ServiceOptionTable();
@@ -310,7 +310,7 @@ public sealed class NpcInteractionTests {
         Assert.Same(offer, owner);
         Assert.True(table.TryGetSentOption(FirstPlayer, owner, localIndex, out var sent));
 
-        return offer.FindClickedQuest(sent, InteractQuestOfferComponent.FindAvailableQuests(npcQuests, wizard));
+        return offer.FindClickedQuest(sent, InteractQuestOfferComponent.FindAvailableQuests(npcQuests, wizard, QuestOfferGate.Open));
     }
 
     private static QuestTemplate ClickUnderway(ServiceOptionTable table, InteractQuestUnderwayComponent underway, uint index,
