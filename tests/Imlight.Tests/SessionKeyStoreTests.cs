@@ -104,6 +104,31 @@ public class SessionKeyStoreTests {
     }
 
     [Fact]
+    public void RemoveExpired_DropsExpiredKeysAndTickets() {
+        var store = new SessionKeyStore(TimeSpan.FromMilliseconds(5));
+        _ = store.IssueLoginKey(UserId, TimeSpan.FromMilliseconds(5));
+        store.IssueTransferTicket(UserId + 1, RemoteIp, ZoneName, FallbackZoneName);
+        _ = store.IssueLoginKey(UserId + 2, s_validity);
+
+        Thread.Sleep(50);
+
+        Assert.Equal(2, store.RemoveExpired());
+        Assert.Equal(0, store.RemoveExpired());
+        Assert.Equal((true, false), store.Describe(UserId + 2));
+    }
+
+    [Fact]
+    public void IssueLoginKey_RemovesOtherUsersExpiredKeys() {
+        var store = new SessionKeyStore();
+        _ = store.IssueLoginKey(UserId, TimeSpan.FromMilliseconds(5));
+
+        Thread.Sleep(50);
+        _ = store.IssueLoginKey(UserId + 1, s_validity);
+
+        Assert.Equal(0, store.RemoveExpired());
+    }
+
+    [Fact]
     public void Validate_Twice_Succeeds() {
         var store = new SessionKeyStore();
         var key = store.IssueLoginKey(UserId, s_validity);

@@ -39,6 +39,7 @@
  */
 
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -72,11 +73,18 @@ public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
         // MSG_ATTACH.LoginKey is a STR, so the random bytes travel as Base64 text with no NUL.
         var key = Encoding.ASCII.GetBytes(Convert.ToBase64String(RandomNumberGenerator.GetBytes(LoginKeyLength)));
         lock (_lock) {
+            _ = RemoveExpiredEntries();
             _loginKeys.Store(userId, [.. key], validity);
             _ = _transferTickets.Remove(userId);
         }
 
         return key;
+    }
+
+    public int RemoveExpired() {
+        lock (_lock) {
+            return RemoveExpiredEntries();
+        }
     }
 
     public void IssueTransferTicket(ulong userId, string remoteIp, string zoneName, string fallbackZoneName) {
@@ -121,6 +129,14 @@ public sealed class SessionKeyStore(TimeSpan transferTicketValidity) {
         lock (_lock) {
             return (_loginKeys.Get(userId) is not null, _transferTickets.Get(userId) is not null);
         }
+    }
+
+    private int RemoveExpiredEntries()
+        => RemoveExpired(_loginKeys) + RemoveExpired(_transferTickets);
+
+    private static int RemoveExpired<T>(Cache<ulong, T> cache) where T : class {
+        // Cache.Get drops an entry once it has expired.
+        return cache.Select(entry => entry.Key).ToArray().Count(userId => cache.Get(userId) is null);
     }
 
     private static bool Matches(byte[] stored, ReadOnlySpan<byte> key)
