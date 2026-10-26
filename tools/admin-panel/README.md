@@ -1,6 +1,6 @@
 # Admin panel client files
 
-The in-game admin panel is a client script, `Scripts/AdminPanel/Client.lua`, plus two GUI files. `AdminPanelService` starts the script for staff accounts when `[Admin Panel] Enabled = true` (or `IMLIGHT__Admin_Panel__Enabled=true`). The script adds an **Admin** button to the settings window. Opening the panel turns admin mode on, and closing it turns admin mode off.
+The in-game admin panel is a client script, `Scripts/AdminPanel/Client.lua`, plus two GUI files. `AdminPanelService` starts the script for staff accounts when `[Admin Panel] Enabled = true` (or `IMLIGHT__Admin_Panel__Enabled=true`). The script adds an **Admin** button to the settings window. Each action needs the account's own auth level, and every change is written to the `AdminAudit` collection.
 
 The client loads scripts only from its own archives, so each staff PC needs these files added to its `Data/GameData/Root.wad`. Players who aren't staff need nothing. The script never starts for them.
 

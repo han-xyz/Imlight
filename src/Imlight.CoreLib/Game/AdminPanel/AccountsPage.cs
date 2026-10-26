@@ -68,7 +68,7 @@ internal static class AccountsPage {
 
         var result = AccountAdministration.Lookup(actor, username, out var account);
         if (!result.Succeeded) {
-            var hint = account is null && actor.AdminModeEnabled ? " To make it, enter a password and press Create." : "";
+            var hint = account is null && actor.AuthLevel >= AuthLevel.HallMonitor ? " To make it, enter a password and press Create." : "";
             reply(["status", "error", result.Message + hint]);
 
             return;

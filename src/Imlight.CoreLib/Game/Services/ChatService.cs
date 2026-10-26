@@ -267,7 +267,7 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         // Regular players have no reason to be able to select other players
         // for command context.
         var localAccount = GetActiveAccount();
-        if (localAccount.EffectiveAuthLevel < AuthLevel.HallMonitor) {
+        if (localAccount.AuthLevel < AuthLevel.HallMonitor) {
             return;
         }
 

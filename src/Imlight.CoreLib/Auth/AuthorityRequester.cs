@@ -60,21 +60,11 @@ internal static class AuthorityRequester {
     /// <param name="target">The required authority level.</param>
     /// <param name="account">The account to check.</param>
     /// <param name="reason">The reason for the authority request.</param>
-    /// <param name="requireAdminMode">Whether staff must have admin mode on. Only commands that switch admin mode
-    /// itself pass false.</param>
     /// <returns>True if the account has the required authority level, false otherwise.</returns>
     /// <remarks>
-    /// Automatically records and logs unauthorized access attempts as suspicious behavior. Staff who have not
-    /// enabled admin mode are refused without an infraction.
+    /// Automatically records and logs unauthorized access attempts as suspicious behavior.
     /// </remarks>
-    internal static bool RequestAuthority(AuthLevel target, Account account, string reason = null, bool requireAdminMode = true) {
-        if (requireAdminMode && account.AuthLevel >= target && !account.AdminModeEnabled) {
-            Logger.Information("Account {0} needs admin mode for {1}.",
-                Logger.Args(account.Username, reason ?? "an authority request"));
-
-            return false;
-        }
-
+    internal static bool RequestAuthority(AuthLevel target, Account account, string reason = null) {
         if (account.AuthLevel < target) {
             Logger.Warning("Account {0} attempted authority request without auth level {1} ({2}) "
                 + "This is considered suspicious behavior and will be logged.",

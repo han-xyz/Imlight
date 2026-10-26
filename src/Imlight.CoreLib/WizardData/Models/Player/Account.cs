@@ -103,11 +103,6 @@ public class Account {
     [JsonIgnore] public InfractionHistory InfractionHistory { get; set; }
     [JsonIgnore] public SessionActor SessionActor { get; set; }
 
-    // Staff privileges apply only after the account explicitly enables admin mode. The flag is never saved,
-    // so it ends with the session that enabled it.
-    [JsonIgnore] public bool AdminModeEnabled { get; set; }
-    [JsonIgnore] public AuthLevel EffectiveAuthLevel => AdminModeEnabled ? AuthLevel : AuthLevel.None;
-
     [JsonConstructor] public Account() {  }
 
     // ctor

@@ -10,15 +10,6 @@ Security tiers:
 
 If Imlight was built in _release_ mode, any command with a developer security level required will instead be forwarded to Game Master tier.
 
-Staff privileges are off until the account turns admin mode on. Until then, every command below except the admin commands answers "Admin mode is off", and staff play as normal players. Admin mode ends at logout, and every change to it is written to the `AdminAudit` collection.
-
-## Admin Commands
-| Command | Security | Syntax | Description |
-| ------- | -------- | ------ | ----------- |
-| admin on | Quality Assurance | `.admin on` | Turns admin mode on for this session. |
-| admin off | Quality Assurance | `.admin off` | Turns admin mode off. |
-| admin status | Quality Assurance | `.admin status` | Shows whether admin mode is on and the account's granted level. |
-
 ## Ungrouped Commands
 | Command | Security | Syntax | Description |
 | ------- | -------- | ------ | ----------- |

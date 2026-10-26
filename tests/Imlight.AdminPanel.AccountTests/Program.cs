@@ -123,15 +123,10 @@ var monitor = Staff("monitor", AuthLevel.HallMonitor);
 var player = new Account("player", "", DatabaseUtilities.CreateHashedPassword("player-password"));
 Check(AccountCollection.CreateAccount(player), "player account stored");
 
-// Admin mode gates everything.
-var refused = Run("CreateAccount", admin, null, "alice", "first-password");
-Check(!refused.Succeeded && refused.Message.Contains("Admin mode is off"), "actions are refused while admin mode is off");
+// The account's own auth level gates everything.
+var refused = Run("CreateAccount", player, null, "alice", "first-password");
+Check(!refused.Succeeded && refused.Message.Contains("needs auth level"), "a player account cannot use admin actions");
 Check(AccountCollection.GetAccount("alice", waitForIndex: true) is null, "a refused create writes nothing");
-Check(!Run("SetAdminMode", player, null, true).Succeeded && !player.AdminModeEnabled, "a player account cannot enable admin mode");
-Check(Run("SetAdminMode", admin, null, true).Succeeded && admin.AdminModeEnabled, "staff can enable admin mode");
-Check(AuditCount(AdminAuditAction.AdminModeEnabled) == 1, "enabling admin mode is audited");
-Check(Run("SetAdminMode", admin, null, true).Succeeded && AuditCount(AdminAuditAction.AdminModeEnabled) == 1,
-    "enabling it again is not audited twice");
 
 // Create and password.
 Check(Run("CreateAccount", admin, null, " alice ", "first-password").Succeeded, "an administrator can create an account");
@@ -165,7 +160,6 @@ Check(!Run("SetAuthLevel", admin, null, "admin", "None").Succeeded, "nobody can 
 Check(AuditCount(AdminAuditAction.AuthLevelChanged) == 2, "both auth level changes are audited");
 
 // A hall monitor's limits. Lacking the level is a plain refusal; acting on an account it does not outrank is an infraction.
-Check(Run("SetAdminMode", monitor, null, true).Succeeded, "a hall monitor can enable admin mode");
 Check(Run("CreateAccount", monitor, null, "carol", "carol-password").Succeeded, "a hall monitor can create an account");
 Check(!Run("ChangePassword", monitor, null, "carol", "x").Succeeded, "a hall monitor cannot change passwords");
 Check(!Run("SetAuthLevel", monitor, null, "carol", "HallMonitor").Succeeded, "a hall monitor cannot set auth levels");
@@ -286,11 +280,6 @@ Check(Status(Players(admin, "crowns", "erin", "5")) is ["status", "error", "The 
     AuditCount(AdminAuditAction.CrownsChanged) == 4, "an unanswered change is reported and not audited");
 online = (_, _) => null;
 Check(Status(Players(admin, "lookup", "nobody"))[1] == "error", "looking up a missing player is refused");
-
-// Turning admin mode off closes the gate again.
-Check(Run("SetAdminMode", admin, null, false).Succeeded && !admin.AdminModeEnabled, "admin mode can be turned off");
-Check(AuditCount(AdminAuditAction.AdminModeDisabled) == 1, "turning admin mode off is audited");
-Check(!Run("SetLocked", admin, null, "carol", true).Succeeded, "actions are refused again once admin mode is off");
 
 Console.WriteLine($"Completed {checks} checks in {database}.");
 

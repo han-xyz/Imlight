@@ -45,22 +45,6 @@ internal sealed record CrownChange(bool Applied, int Before, int After, string P
 /// </remarks>
 internal static class AccountAdministration {
 
-    internal static AdminActionResult SetAdminMode(Account actor, Wizard character, bool enabled) {
-        if (actor.AuthLevel == AuthLevel.None) {
-            return Refuse("Only staff accounts have an admin mode.");
-        }
-
-        if (actor.AdminModeEnabled == enabled) {
-            return new(true, enabled ? $"Admin mode is already on ({actor.AuthLevel})." : "Admin mode is already off.");
-        }
-
-        actor.AdminModeEnabled = enabled;
-        Audit(actor, character, enabled ? AdminAuditAction.AdminModeEnabled : AdminAuditAction.AdminModeDisabled,
-            enabled ? $"Auth level {actor.AuthLevel}" : null);
-
-        return new(true, enabled ? $"Admin mode on ({actor.AuthLevel})." : "Admin mode off.");
-    }
-
     internal static AdminActionResult CreateAccount(Account actor, Wizard character, string username, string password) {
         if (!CanAct(actor, AuthLevel.HallMonitor, out var refusal)) {
             return refusal;
@@ -213,9 +197,6 @@ internal static class AccountAdministration {
         refusal = null;
         if (actor.AuthLevel < required) {
             refusal = Refuse($"This needs auth level {required}; yours is {actor.AuthLevel}.");
-        }
-        else if (!actor.AdminModeEnabled) {
-            refusal = Refuse("Admin mode is off.");
         }
 
         return refusal is null;

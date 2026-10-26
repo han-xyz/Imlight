@@ -34,8 +34,8 @@ namespace Imlight.CoreLib.Game.Services;
 /// Runs the admin panel's client script for staff accounts and carries out the panel's requests.
 /// </summary>
 /// <remarks>
-/// The script adds an Admin button to the settings window. Opening the panel turns admin mode on and closing it
-/// turns admin mode off; both are audited. Requests and replies are tab-separated fields in a raw text message:
+/// The script adds an Admin button to the settings window. Each action needs the account's own auth level, and
+/// every change is audited. Requests and replies are tab-separated fields in a raw text message:
 /// the client accepts process messages only from protocols it has loaded, which excludes the script debugger's.
 /// Each page of the panel has its own handler, chosen by the request's prefix (for example "accounts.lookup").
 /// </remarks>
@@ -48,8 +48,6 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
 
     private uint? _jobId;
     private uint _nextJobId = FirstJobId;
-    // Whether the panel turned admin mode on, so it is turned off again when the panel goes away.
-    private bool _panelOpen;
 
     internal static bool IsAdminPanelJob(uint jobId) => jobId >= FirstJobId;
 
@@ -74,7 +72,6 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
         // Whether client scripts survive a zone change is unknown, so restart the script to keep exactly one copy.
         if (_jobId is uint running) {
             SendToSocket(new GAME_5_PROTOCOL.MSG_KILL_CLIENT_PROCESS { JobID = running });
-            ClosePanel("the zone changed");
         }
 
         var jobId = _nextJobId++;
@@ -109,18 +106,8 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
         Logger.Information("Admin panel: {0} requested '{1}'.", Logger.Args(account.Username, action));
 
         switch (action) {
-            case "started":
-                break;
-            case "open":
-                var result = AccountAdministration.SetAdminMode(account, wizard, true);
-                _panelOpen = result.Succeeded;
-                // An open panel already says admin mode is on; only a refusal needs words.
-                if (!result.Succeeded) {
-                    Reply(["status", "error", result.Message]);
-                }
-                break;
-            case "close":
-                ClosePanel(null);
+            // The script reports these steps; they need no answer.
+            case "started" or "open" or "close":
                 break;
             case not null when action.StartsWith(AccountsPage.Prefix):
                 AccountsPage.Handle(account, wizard, action[AccountsPage.Prefix.Length..], fields[1..], Reply);
@@ -143,20 +130,6 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
 
         _jobId = null;
         Logger.Information("Admin panel: the client ended the script (job {0:X8}).", Logger.Args(message.JobID));
-        ClosePanel("the admin panel script ended");
-    }
-
-    private void ClosePanel(string reason) {
-        if (!_panelOpen) {
-            return;
-        }
-
-        _panelOpen = false;
-        var wizard = GetActiveWizard();
-        var result = AccountAdministration.SetAdminMode(wizard.Account, wizard, false);
-        if (reason is not null) {
-            InformGameClient($"{result.Message} ({reason} closed the admin panel)");
-        }
     }
 
     // An online player's Crowns are cached by their session, which saves the cached balance after each purchase,

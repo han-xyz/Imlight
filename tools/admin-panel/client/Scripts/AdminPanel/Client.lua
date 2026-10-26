@@ -5,8 +5,7 @@
 	The admin panel. The server starts this script only for staff accounts.
 
 	The script adds an Admin button to the settings window whenever that window exists. The button closes
-	the settings window and opens the panel; the server turns admin mode on when the panel opens and off
-	when it closes.
+	the settings window and opens the panel.
 
 	The panel looks like a page of the settings window, with a tab per section:
 	- Accounts: look an account up, change its fields, then save; Create makes a new account from the

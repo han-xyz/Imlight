@@ -153,7 +153,7 @@ internal class CantripService(SessionActor sessionActor) : MessageService(sessio
         // We aren't going to do that, but it will refill your energy if you are QA or above
         var wizard = GetActiveWizard();
         MaybeBackflip(wizard);
-        if (wizard.Account.EffectiveAuthLevel >= AuthLevel.QualityAssurance) {
+        if (wizard.Account.AuthLevel >= AuthLevel.QualityAssurance) {
             // The client has a max mana increase effect applied, so sending it here would double the mana client side.
             var magicSchool = wizard.MagicSchoolBehavior.MagicSchool;
             var level = wizard.MagicSchoolBehavior.Level;

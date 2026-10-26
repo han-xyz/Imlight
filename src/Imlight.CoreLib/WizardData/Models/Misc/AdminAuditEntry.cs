@@ -22,8 +22,6 @@ namespace Imlight.CoreLib.WizardData.Models.Misc;
 
 public enum AdminAuditAction {
 
-    AdminModeEnabled,
-    AdminModeDisabled,
     AuthLevelChanged,
     AccountCreated,
     PasswordChanged,

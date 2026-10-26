@@ -309,13 +309,13 @@ def build_panel(client):
             ('ap_btn_lookup', 'Look Up', 'Load the account named in Username'),
             ('ap_btn_create', 'Create', 'Create a new account with this name, password, level and lock'),
             ('ap_btn_save', 'Save', 'Save your changes to the loaded account'),
-            ('ap_btn_close', 'Close', 'Close the panel and turn admin mode off'),
+            ('ap_btn_close', 'Close', 'Close the panel'),
         ]),
         buttons('ap_buttons_players', False, [
             ('ap_p_btn_lookup', 'Look Up', 'Load the Crowns of the account named in Username'),
             ('ap_p_btn_give', 'Give', 'Add the Give Crowns amount; a negative amount takes Crowns away'),
             ('ap_p_btn_save', 'Save', 'Set the Crowns to the amount in the Crowns row'),
-            ('ap_p_btn_close', 'Close', 'Close the panel and turn admin mode off'),
+            ('ap_p_btn_close', 'Close', 'Close the panel'),
         ]),
     ])
 
