@@ -162,6 +162,8 @@ public class CoreObjectFactory : RootSingleResourceSingleton<CoreObjectFactory>,
             var slot = Enumerable.Range(0, templateSlotCount)
                 .FirstOrDefault(index => !filledSlots.Contains(index) && slots[index]?.GetType() == behavior.GetType(), -1);
             if (slot < 0) {
+                Logger.Debug("Template {Tid} has no free slot for behavior {Behavior}, so it goes after the template's slots.",
+                    Logger.Args(coreObject.m_templateID, behavior.GetType().Name));
                 slots.Add(behavior);
 
                 continue;

@@ -21,6 +21,9 @@ using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Raven.Client.Documents;
+using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Shared.Items;
+using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -134,7 +137,7 @@ public static class AccountCollection {
 
     private static void LoadSharedBank(IDocumentSession session, ulong accountId, AccountSharedBank sharedBank) {
         // The shared bank items are stored like character items, owned by the account id.
-        sharedBank.Items = LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, accountId, sharedBank.ItemIds);
+        sharedBank.Items = LoadSharedItems(session, accountId, sharedBank.ItemIds);
         sharedBank.Reagents = LoadSharedDocuments<ClientReagentItem>(session, WizardReagentCollection.CollectionName, accountId, sharedBank.ReagentIds);
         sharedBank.Snacks = LoadSharedDocuments<ClientPetSnackItem>(session, WizardPetSnackCollection.CollectionName, accountId, sharedBank.SnackIds);
     }
@@ -168,6 +171,17 @@ public static class AccountCollection {
 
             return false;
         }
+    }
+
+    internal static List<WizClientObjectItem> LoadSharedItems(IDocumentSession session, ulong accountId, List<ulong> ids) {
+        var items = LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, accountId, ids);
+
+        // Pets stored before their behaviors followed the template order would break the client's read of the bank.
+        foreach (var pet in items.Where(item => PetFactory.IsPetTemplate(ItemHelper.GetTemplateId(item)))) {
+            CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        }
+
+        return items;
     }
 
     internal static List<T> LoadSharedDocuments<T>(IDocumentSession session, string collectionName, ulong accountId, List<ulong> ids)

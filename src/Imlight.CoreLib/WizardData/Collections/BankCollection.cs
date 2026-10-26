@@ -327,7 +327,7 @@ internal static class BankCollection {
             return state.Deny(BankDenial.UnknownItem, $"item {move.ItemId} is in the shared bank already");
         }
 
-        shared.Items = AccountCollection.LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, storedAccount.AccountId, shared.ItemIds);
+        shared.Items = AccountCollection.LoadSharedItems(session, storedAccount.AccountId, shared.ItemIds);
         var denial = BankRules.CanMove(move.From, move.To, item, 1, wizard, storedAccount);
         if (denial != BankDenial.None) {
             return state.Deny(denial, $"item {move.ItemId} may not be added to the shared bank: {denial}");
@@ -356,7 +356,7 @@ internal static class BankCollection {
             return state.Deny(BankDenial.UnknownItem, $"item {move.ItemId} is listed in {move.From} but has no document");
         }
 
-        shared.Items = AccountCollection.LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, storedAccount.AccountId, shared.ItemIds);
+        shared.Items = AccountCollection.LoadSharedItems(session, storedAccount.AccountId, shared.ItemIds);
         var denial = BankRules.CanMove(move.From, move.To, item, move.Quantity, wizard, storedAccount);
         if (denial != BankDenial.None) {
             return state.Deny(denial, $"item {move.ItemId} may not move from {move.From} to {move.To}: {denial}");
@@ -525,7 +525,7 @@ internal static class BankCollection {
     private static MoveState PlanItemDelete(IDocumentSession session, Account storedAccount, MoveState state) {
         var shared = storedAccount.SharedBank;
         var itemId = state.Move.ItemId;
-        shared.Items = AccountCollection.LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, storedAccount.AccountId, shared.ItemIds);
+        shared.Items = AccountCollection.LoadSharedItems(session, storedAccount.AccountId, shared.ItemIds);
         var item = shared.Items.FirstOrDefault(stored => stored.m_globalID == itemId);
         if (item is null) {
             return state.Deny(BankDenial.UnknownItem, $"item {itemId} is listed in the shared bank but has no document");

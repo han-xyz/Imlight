@@ -89,6 +89,38 @@ public sealed class PetItemBehaviorTests {
         Assert.Same(petItem, pet.m_inactiveBehaviors[2]);
     }
 
+    [RootWadFact]
+    public void ArrangeBehaviorsByTemplate_IsIdempotent() {
+        LoadGameData();
+        var pet = new WizClientObjectItem {
+            m_templateID = ZappyGlowbugTemplateId,
+            m_inactiveBehaviors = [new ClientPetItemBehavior { m_level = 3 }, new ClientPetNameBehavior { m_nameKeys = 42 }],
+        };
+
+        CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        var arranged = pet.m_inactiveBehaviors.ToList();
+        CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+
+        Assert.Equal(arranged.Count, pet.m_inactiveBehaviors.Count);
+        for (var slot = 0; slot < arranged.Count; slot++) {
+            Assert.Same(arranged[slot], pet.m_inactiveBehaviors[slot]);
+        }
+    }
+
+    [RootWadFact]
+    public void ArrangeBehaviorsByTemplate_KeepsBehaviorWithoutSlot() {
+        LoadGameData();
+        var extraName = new ClientPetNameBehavior { m_nameKeys = 7 };
+        var pet = new WizClientObjectItem {
+            m_templateID = ZappyGlowbugTemplateId,
+            m_inactiveBehaviors = [new ClientPetNameBehavior { m_nameKeys = 42 }, extraName],
+        };
+
+        CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+
+        Assert.Contains(extraName, pet.m_inactiveBehaviors);
+    }
+
     private static void LoadGameData() {
         InitializeQuietLogging();
         RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml"]));
