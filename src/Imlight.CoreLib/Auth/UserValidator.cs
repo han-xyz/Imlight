@@ -86,7 +86,7 @@ internal static class UserValidator {
 
         string sessionKey = null;
         var (admission, matchedAccount) = LoginGate.Admit(
-            () => InfractionCollection.IsMachineBanned(validateMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.Ip),
+            () => InfractionCollection.IsMachineBanned(validateMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.RemoteIp),
             () => AccountCollection.GetAccountForCharacterList(validateMessage.UserID),
             () => false,
             account => {
@@ -109,7 +109,7 @@ internal static class UserValidator {
         // If we've made it this far, the user is valid.
         matchedAccount.LastLoginMachineId = validateMessage.MachineID;
         matchedAccount.LastLoginTime = DateTime.UtcNow;
-        matchedAccount.LastLoginIp = sessionActor.Ip;
+        matchedAccount.LastLoginIp = sessionActor.RemoteIp;
 
         details._account = matchedAccount;
         details._sessionKey = sessionKey;

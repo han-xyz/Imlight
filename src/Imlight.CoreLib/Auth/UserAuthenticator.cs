@@ -151,7 +151,7 @@ internal static class UserAuthenticator {
         }
 
         var (admission, matchedAccount) = LoginGate.Admit(
-            () => InfractionCollection.IsMachineBanned(authMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.Ip),
+            () => InfractionCollection.IsMachineBanned(authMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.RemoteIp),
             () => AccountCollection.GetAccountForCharacterList(username),
             () => stopwatch.Elapsed > s_deadline,
             account => ClientKey.VerifyCK1(account.PasswordHash, sessionId, offerTime, offerMilli, clientKey1));
@@ -185,7 +185,7 @@ internal static class UserAuthenticator {
         // todo: these are only ever cached and not ever persistently saved
         matchedAccount.LastLoginMachineId = authMessage.MachineID;
         matchedAccount.LastLoginTime = DateTime.UtcNow;
-        matchedAccount.LastLoginIp = sessionActor.Ip;
+        matchedAccount.LastLoginIp = sessionActor.RemoteIp;
 
         // Craft a successful reply and return.
         var rec1 = Rec1.Encode(sessionKey, sessionId, offerTime, offerMilli);
