@@ -20,8 +20,8 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Accepts the client's telemetry and retail-service requests the server has no state for, answering the
- * ones whose protocol has a reply with an empty one, so they stop logging as unhandled.
+ * Accepts the client's telemetry, retail-service and other requests the server has no state or data for,
+ * answering the ones whose protocol has a reply with an empty one, so they stop logging as unhandled.
  * 
  * USAGE EXAMPLE:
  * Internal service attached to SessionActor; the client sends these around login and on its own timers.
@@ -30,6 +30,8 @@
  * Each request type is logged at Debug once per session.
  * 
  * TODO:
+ * - MSG_GETNEXTWORLD needs a world order; the data has none yet.
+ * - MSG_JEWELSOCKETUNLOCKCOST needs socket unlock costs; the data has none yet.
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -97,6 +99,20 @@ internal sealed class AcknowledgedRequestService(SessionActor sessionActor) : Me
             LoyaltyNumTokensCanClaim = 0
         });
     }
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_NOT_AFK))]
+    private void ReceiveNotAfk(GAME_5_PROTOCOL.MSG_NOT_AFK message) => Acknowledge(message);
+
+    [MessageHandler(typeof(QUEST_MESSAGES_52_PROTOCOL.MSG_GETNEXTWORLD))]
+    private void ReceiveNextWorldRequest(QUEST_MESSAGES_52_PROTOCOL.MSG_GETNEXTWORLD message) => Acknowledge(message);
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_JEWELSOCKETUNLOCKCOST))]
+    private void ReceiveJewelSocketUnlockCostRequest(WIZARD2_53_PROTOCOL.MSG_JEWELSOCKETUNLOCKCOST message)
+        => Acknowledge(message);
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_TOURNAMENTLOOTROLLINFO))]
+    private void ReceiveTournamentLootRollInfoRequest(WIZARD2_53_PROTOCOL.MSG_TOURNAMENTLOOTROLLINFO message)
+        => Acknowledge(message);
 
     private void Acknowledge(IMessage request) {
         if (_loggedRequests.Add(request.GetType())) {

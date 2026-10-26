@@ -35,7 +35,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -65,6 +65,10 @@ internal class PvPService(SessionActor sessionActor) : MessageService(sessionAct
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new PvPService(parentActor));
+
+    [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_REQUESTSHOWPVPOPTION))]
+    private void ReceiveShowPvPOptionRequest(WIZARD3_56_PROTOCOL.MSG_REQUESTSHOWPVPOPTION message)
+        => SendToSocket(new WIZARD3_56_PROTOCOL.MSG_RESPONSESHOWPVPOPTION { ShowPVPOption = 0 });
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_BUDDYREQUESTLIST))]
     private void ReceiveBuddyRequestList(GAME_5_PROTOCOL.MSG_BUDDYREQUESTLIST message) {
