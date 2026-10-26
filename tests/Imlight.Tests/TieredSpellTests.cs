@@ -27,7 +27,8 @@
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
  * 
  * NOTE:
- * ShardReagent_Granted reads the extracted client root wad (ROOTWAD_DIR) and the data pack (SPIRALDB_CLONE).
+ * The game data tests read the extracted client root wad (ROOTWAD_DIR) and the data pack (SPIRALDB_CLONE).
+ * ShardReagent_Granted stops short of the database write in Wizard.AddReagent.
  * 
  * TODO:
  * 
@@ -38,17 +39,24 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
+using Imcodec.Wad;
+using Imlight.Common;
+using Imlight.CoreLib.Game.Reagents;
 using Imlight.CoreLib.Game.TieredSpells;
+using Imlight.CoreLib.Shared.Behaviors;
+using Imlight.CoreLib.Shared.Resources;
 using Xunit;
 
 namespace Imlight.Tests;
 
+[Collection("env")]
 public sealed class TieredSpellTests {
 
     private const string SpellementDropTable = "droptables_spellements_p_school_arc01_01.json";
@@ -126,18 +134,63 @@ public sealed class TieredSpellTests {
 
     [GameDataFact]
     public void ShardReagent_Granted() {
-        var dropTable = JsonDocument.Parse(File.ReadAllText(Path.Combine(s_spiralDbClone!, "DropTables", SpellementDropTable)));
-        var droppedIds = dropTable.RootElement.GetProperty("Items").EnumerateArray()
-            .Select(item => ulong.Parse(item.GetProperty("ItemId").GetString()!))
-            .ToHashSet();
-        var shards = Directory.GetFiles(Path.Combine(s_rootWadDirectory!, "ObjectData", "Reagents", "Shards"))
-            .Select(path => new BindSerializer().Deserialize<ReagentItemTemplate>(File.ReadAllBytes(path), out var template)
-                ? template
-                : null)
-            .ToList();
+        InitializeQuietLogging();
+        RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml", "ObjectData/Reagents/", "Locale/en-US/"]));
+        _ = CoreObjectFactory.Instance;
+        _ = ReagentFactory.Instance;
+        var reagentBag = new ServerAlchemyBehavior();
 
-        Assert.All(shards, shard => Assert.StartsWith(ShardPrefix, shard?.m_objectName.ToString()));
-        Assert.Subset(shards.Select(shard => (ulong) shard!.m_templateID).ToHashSet(), droppedIds);
+        foreach (var templateId in SpellementDropIds()) {
+            var template = Assert.IsAssignableFrom<ReagentItemTemplate>(CoreObjectFactory.GetCoreTemplate(templateId));
+            var name = template.m_objectName.ToString();
+            Assert.StartsWith(ShardPrefix, name);
+            Assert.Equal(templateId, (ulong) ReagentFactory.GetReagentTemplate(name).m_templateID);
+
+            var shard = Assert.IsType<ClientReagentItem>(CoreObjectFactory.FinalizeCoreObject(templateId));
+            Assert.True(reagentBag.AddReagent(shard));
+            Assert.True(reagentBag.HasReageant(templateId));
+        }
+    }
+
+    private static HashSet<ulong> SpellementDropIds() {
+        using var dropTable = JsonDocument.Parse(File.ReadAllText(Path.Combine(s_spiralDbClone!, "DropTables", SpellementDropTable)));
+
+        return dropTable.RootElement.GetProperty("Items").EnumerateArray()
+            .Select(item => ulong.Parse(item.GetProperty("ItemId").GetString()!, CultureInfo.InvariantCulture))
+            .ToHashSet();
+    }
+
+    private static Archive ArchiveOf(string directory, string[] pathPrefixes) {
+        var stream = new MemoryStream();
+        var files = new Dictionary<string, FileEntry>();
+        foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)) {
+            var name = Path.GetRelativePath(directory, path).Replace(Path.DirectorySeparatorChar, '/');
+            if (!pathPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.Ordinal))) {
+                continue;
+            }
+
+            var bytes = File.ReadAllBytes(path);
+            files[name] = new FileEntry {
+                Offset = (uint) stream.Position,
+                UncompressedSize = (uint) bytes.Length,
+                CompressedSize = (uint) bytes.Length,
+                FileName = name,
+            };
+            stream.Write(bytes);
+        }
+
+        return new Archive(files, stream, version: 1);
+    }
+
+    private static void InitializeQuietLogging() {
+        var iniFilePath = Path.GetTempFileName();
+        var logPath = Path.Combine(Path.GetTempPath(), "imlight-tests", "log.txt");
+        try {
+            File.WriteAllText(iniFilePath, $"[Logging]\nLogPath = {logPath}\nLogLevel = ERROR\n");
+            ConfigurationManager.Initialize(iniFilePath);
+        } finally {
+            File.Delete(iniFilePath);
+        }
     }
 
     private static TieredSpellGroupInfo GroupInfo(string spellName, int groupIndex, string tierOneSpell)
