@@ -65,9 +65,10 @@ internal sealed class MinigameProcess : Process {
 
     private const uint QUERY_WIZARD_TIMEOUT_IN_MS = 5000;
     private const long LOGGED_SCORE_CAP_MULTIPLIER = 100;
+    private const int DEFAULT_MIN_ROUND_SECONDS = 20;
 
     private bool IsMinigameActive { get; set; }
-    private bool _roundOpen;
+    private readonly MinigameRound _round = new();
     private bool _chestSettled;
     private bool _chestRefused;
 
@@ -125,8 +126,15 @@ internal sealed class MinigameProcess : Process {
     }
 
     private void HandleConnect() {
+        var minimum = TimeSpan.FromSeconds(ConfigurationManager.GetValue("Minigames.MinRoundSeconds", DEFAULT_MIN_ROUND_SECONDS));
+        if (!_round.TryOpen(DateTimeOffset.UtcNow, minimum)) {
+            Logger.Debug("{Process} refused a round start, the round is open or the last one is too recent",
+                Logger.Args(ProcessName));
+
+            return;
+        }
+
         IsMinigameActive = true;
-        _roundOpen = true;
 
         var msg = new WIZARD_12_PROTOCOL.MSG_ENTERMINIGAME();
         Sender.Tell(msg, Self);
@@ -150,15 +158,13 @@ internal sealed class MinigameProcess : Process {
             return;
         }
 
-        if (!_roundOpen) {
+        if (!_round.TrySettle()) {
             Logger.Warning("{Process} ignored the score {Score}, no round is open",
                 Logger.Args(ProcessName, score));
             SendLeaderboardResponse(leaderboard);
 
             return;
         }
-
-        _roundOpen = false;
 
         var character = QuerySenderCharacter();
         if (character is null) {
