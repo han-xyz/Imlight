@@ -165,6 +165,7 @@ public class Wizard {
     public ByteString RadialMenu3Data { get; set; } = new ByteString();
 
     public ByteString CrownShopWishlist { get; set; }
+    public List<TieredSpellProgress> TieredSpells { get; set; } = [];
     /// <summary>
     /// Tracks hatched pets for MSG_PETTOMEPETADDED. Key: pet global ID, Value: pet template ID.
     /// Runtime-only; not persisted (the pet tome behavior blob handles persistence).
@@ -983,6 +984,27 @@ public class Wizard {
 
         return true;
     }
+
+    public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem reagent) {
+        if (!AlchemyBehavior.RemoveReagents(templateId, count, out reagent)) {
+            return false;
+        }
+
+        // Persistent save.
+        if (reagent.m_quantity <= 0) {
+            WizardReagentCollection.RemoveReagent(reagent);
+        }
+        else {
+            WizardReagentCollection.UpdateReagent(reagent);
+        }
+
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    public void SaveTieredSpells()
+        => WizardCollection.UpdateCharacterTieredSpells(this);
 
     public void SetNameOverride(string newName) {
         PlayerNameBehavior.NameOverride = newName;

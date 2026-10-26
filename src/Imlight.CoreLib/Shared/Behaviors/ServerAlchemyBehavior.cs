@@ -125,6 +125,28 @@ public class ServerAlchemyBehavior : IClientBehaviorProvider<ClientAlchemyBehavi
     }
 
     /// <summary>
+    /// Removes a count of one reagent template from the bag, all or nothing.
+    /// </summary>
+    /// <param name="templateId">The reagent's template ID.</param>
+    /// <param name="count">How many to remove.</param>
+    /// <param name="updatedReagent">The stack after the removal; its quantity is 0 when the stack is gone.</param>
+    /// <returns><c>false</c>, with nothing removed, when the bag holds fewer than <paramref name="count"/>.</returns>
+    public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem updatedReagent) {
+        updatedReagent = GetReagent(templateId);
+        if (updatedReagent is null || updatedReagent.m_quantity < count) {
+            return false;
+        }
+
+        updatedReagent.m_quantity -= count;
+        if (updatedReagent.m_quantity <= 0) {
+            Reagents.Remove(updatedReagent);
+            ReagentItemIds?.Remove(updatedReagent.m_globalID);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Checks if the reagent bag contains a reagent with the specified global ID.
     /// </summary>
     /// <param name="globalId">The global ID of the reagent to check.</param>

@@ -1,0 +1,240 @@
+/*
+ * Imlight
+ * Copyright (C) 2025 Revive101
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * ========================================================================
+ * TIERED SPELL LEDGER TESTS
+ * ========================================================================
+ * 
+ * PURPOSE:
+ * Behaviour tests for spellement upgrades: the upgrade decision table, refunds, multiple paths, reset and
+ * which tier a wizard may cast.
+ * 
+ * USAGE EXAMPLE:
+ * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj --filter TieredSpellLedgerTests
+ * 
+ * NOTE:
+ * 
+ * TODO:
+ * 
+ * Created by: Han
+ * Version: KALI 1.0
+ * Last Updated: 10/26/2026
+ */
+
+using System.Collections.Generic;
+using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.TieredSpells;
+using Imlight.CoreLib.WizardData.Models.Player;
+using Xunit;
+
+namespace Imlight.Tests;
+
+public sealed class TieredSpellLedgerTests {
+
+    private const uint FireCatId = 100;
+    private const uint FireCatTwoId = 200;
+    private const uint FireCatThreeId = 300;
+    private const uint ReturnRate = 100;
+
+    private static readonly TieredSpellTemplate s_fireCat = new() {
+        m_name = "Fire Cat",
+        m_nextTierSpells = ["Fire Cat - T02 - B", "Fire Cat - T02"],
+    };
+
+    private static readonly TieredSpellTemplate s_fireCatTwo = new() {
+        m_name = "Fire Cat - T02",
+        m_shardCost = 75,
+        m_newShardCost = 50,
+        m_nextTierSpells = ["Fire Cat - T03 - A"],
+    };
+
+    private static readonly TieredSpellTemplate s_fireCatThree = new() {
+        m_name = "Fire Cat - T03 - A",
+        m_shardCost = 115,
+        m_newShardCost = 100,
+    };
+
+    [Theory]
+    [InlineData(false, "Fire Cat - T02", -1, 50, TieredSpellUpgradeOutcome.NotTrained)]
+    [InlineData(true, "Fire Cat - T03 - A", -1, 500, TieredSpellUpgradeOutcome.NotNextTier)]
+    [InlineData(true, "Fire Cat - T02", 2, 500, TieredSpellUpgradeOutcome.RequirementFailed)]
+    [InlineData(true, "Fire Cat - T02", -1, 49, TieredSpellUpgradeOutcome.NotEnoughShards)]
+    [InlineData(true, "Fire Cat - T02", -1, 50, TieredSpellUpgradeOutcome.Upgraded)]
+    public void Upgrade_DecisionTable(bool isTrained, string nextName, int failedRequirementIndex, int shardsOwned,
+        TieredSpellUpgradeOutcome expected) {
+        var next = new TieredSpellTemplate { m_name = nextName, m_shardCost = 75, m_newShardCost = 50 };
+
+        var decision = TieredSpellLedger.DecideUpgrade(isTrained, s_fireCat, next, failedRequirementIndex, shardsOwned);
+
+        Assert.Equal(expected, decision.Outcome);
+        Assert.Equal(expected == TieredSpellUpgradeOutcome.RequirementFailed ? 2 : TieredSpellLedger.NoFailedRequirement,
+            decision.FailedRequirementIndex);
+    }
+
+    [Fact]
+    public void Upgrade_RetiredTier_Refused() {
+        var retired = new TieredSpellTemplate { m_name = "Fire Cat - T02", m_newShardCost = 50, m_retired = true };
+
+        var decision = TieredSpellLedger.DecideUpgrade(true, s_fireCat, retired, TieredSpellLedger.NoFailedRequirement, 500);
+
+        Assert.Equal(TieredSpellUpgradeOutcome.Retired, decision.Outcome);
+    }
+
+    [Fact]
+    public void Upgrade_Success_DebitsTheNewShardCostOnce() {
+        var decision = TieredSpellLedger.DecideUpgrade(true, s_fireCat, s_fireCatTwo, TieredSpellLedger.NoFailedRequirement, 80);
+        var progress = NewProgress();
+
+        TieredSpellLedger.ApplyUpgrade(progress, FireCatId, FireCatTwoId, decision.Cost);
+
+        Assert.Equal(50, decision.Cost);
+        Assert.Equal(FireCatTwoId, progress.CurrentSpellId);
+        Assert.Equal([new TieredSpellUnlock { SpellId = FireCatTwoId, FromSpellId = FireCatId, ShardsSpent = 50 }],
+            progress.Unlocks, UnlockComparer.Instance);
+    }
+
+    [Fact]
+    public void FirstFailedRequirement_ReportsTheFailingIndex() {
+        var passing = new Requirement();
+        var failing = new Requirement();
+        var negated = new Requirement { m_applyNOT = true };
+        var list = new RequirementList { m_requirements = [passing, negated, failing] };
+
+        var index = TieredSpellLedger.FirstFailedRequirement(list, requirement => requirement != failing && requirement != negated);
+
+        Assert.Equal(2, index);
+        Assert.Equal(1, TieredSpellLedger.FirstFailedRequirement(list, requirement => requirement != failing));
+        Assert.Equal(TieredSpellLedger.NoFailedRequirement,
+            TieredSpellLedger.FirstFailedRequirement(list, requirement => requirement != negated));
+        Assert.Equal(TieredSpellLedger.NoFailedRequirement, TieredSpellLedger.FirstFailedRequirement(null, _ => false));
+    }
+
+    [Theory]
+    [InlineData(100u, 150)]
+    [InlineData(50u, 75)]
+    public void Refund_ReturnsTheRateOfTheShardsSpentAbove(uint returnRate, int expected) {
+        var progress = UpgradedToThree();
+
+        Assert.True(TieredSpellLedger.TryRefund(progress, FireCatThreeId, FireCatId, returnRate, out var returned));
+
+        Assert.Equal(expected, returned);
+        Assert.Equal(FireCatId, progress.CurrentSpellId);
+        Assert.Empty(progress.Unlocks);
+    }
+
+    [Fact]
+    public void Refund_OneTier_KeepsTheTierBelow() {
+        var progress = UpgradedToThree();
+
+        Assert.True(TieredSpellLedger.TryRefund(progress, FireCatThreeId, FireCatTwoId, ReturnRate, out var returned));
+
+        Assert.Equal(100, returned);
+        Assert.Equal(FireCatTwoId, progress.CurrentSpellId);
+        Assert.Single(progress.Unlocks);
+    }
+
+    [Fact]
+    public void Refund_TargetNotBelowTheCurrentTier_Refused() {
+        var progress = UpgradedToThree();
+
+        Assert.False(TieredSpellLedger.TryRefund(progress, FireCatTwoId, FireCatThreeId, ReturnRate, out var returned));
+        Assert.False(TieredSpellLedger.TryRefund(progress, FireCatThreeId, 999, ReturnRate, out _));
+
+        Assert.Equal(0, returned);
+        Assert.Equal(FireCatThreeId, progress.CurrentSpellId);
+        Assert.Equal(2, progress.Unlocks.Count);
+    }
+
+    [Fact]
+    public void RefundForMultiplePaths_ListedTopTiers_Refunded() {
+        var progress = UpgradedToThree();
+
+        Assert.True(TieredSpellLedger.TryRefundSpells(progress, [FireCatTwoId, FireCatThreeId], ReturnRate, out var returned));
+
+        Assert.Equal(150, returned);
+        Assert.Equal(FireCatId, progress.CurrentSpellId);
+        Assert.Empty(progress.Unlocks);
+    }
+
+    [Fact]
+    public void RefundForMultiplePaths_ListNotTheTopOfThePath_Refused() {
+        var progress = UpgradedToThree();
+
+        Assert.False(TieredSpellLedger.TryRefundSpells(progress, [FireCatTwoId], ReturnRate, out _));
+        Assert.False(TieredSpellLedger.TryRefundSpells(progress, [], ReturnRate, out _));
+
+        Assert.Equal(FireCatThreeId, progress.CurrentSpellId);
+    }
+
+    [Theory]
+    [InlineData(true, FireCatThreeId, 0)]
+    [InlineData(false, FireCatId, 150)]
+    public void PrepForMultiplePaths_KeepsOrResets(bool keepProgression, uint expectedSpell, int expectedReturned) {
+        var progress = UpgradedToThree();
+
+        var returned = TieredSpellLedger.PrepForMultiplePaths(progress, keepProgression, ReturnRate);
+
+        Assert.Equal(expectedReturned, returned);
+        Assert.Equal(expectedSpell, progress.CurrentSpellId);
+        Assert.True(progress.DonePrepForMultiplePaths);
+    }
+
+    [Fact]
+    public void Reset_ReturnsToTierOneWithEveryShard() {
+        var progress = UpgradedToThree();
+
+        Assert.Equal(150, TieredSpellLedger.Reset(progress, ReturnRate));
+
+        Assert.Equal(FireCatId, progress.CurrentSpellId);
+        Assert.Empty(progress.Unlocks);
+    }
+
+    [Theory]
+    [InlineData(FireCatId, true)]
+    [InlineData(FireCatTwoId, true)]
+    [InlineData(FireCatThreeId, false)]
+    [InlineData(999u, false)]
+    public void CastTier_AcceptedOnlyForTrainedTiers(uint selected, bool expected) {
+        var progress = NewProgress();
+        TieredSpellLedger.ApplyUpgrade(progress, FireCatId, FireCatTwoId, 50);
+
+        Assert.Equal(expected, TieredSpellLedger.IsTrainedTier([progress], selected));
+    }
+
+    private static TieredSpellProgress NewProgress()
+        => new() { GroupIndex = 4, TierOneSpellId = FireCatId, CurrentSpellId = FireCatId };
+
+    private static TieredSpellProgress UpgradedToThree() {
+        var progress = NewProgress();
+        TieredSpellLedger.ApplyUpgrade(progress, FireCatId, FireCatTwoId, s_fireCatTwo.m_newShardCost);
+        TieredSpellLedger.ApplyUpgrade(progress, FireCatTwoId, FireCatThreeId, s_fireCatThree.m_newShardCost);
+
+        return progress;
+    }
+
+    private sealed class UnlockComparer : IEqualityComparer<TieredSpellUnlock> {
+
+        internal static readonly UnlockComparer Instance = new();
+
+        public bool Equals(TieredSpellUnlock? x, TieredSpellUnlock? y)
+            => x?.SpellId == y?.SpellId && x?.FromSpellId == y?.FromSpellId && x?.ShardsSpent == y?.ShardsSpent;
+
+        public int GetHashCode(TieredSpellUnlock obj) => obj.SpellId.GetHashCode();
+
+    }
+
+}
