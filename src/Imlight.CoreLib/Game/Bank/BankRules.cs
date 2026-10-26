@@ -38,7 +38,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -62,7 +62,7 @@ internal static class BankRules {
     private const string JEWEL_ADJECTIVE = "Jewel";
     private const string NO_TRADE_ADJECTIVE = "FLAG_NoTrade";
     private const uint NO_TRADE_ITEM_FLAG = 1;
-    private const int LOCK_BIT = unchecked((int) 0x80000000);
+    internal const int LOCK_BIT = unchecked((int) 0x80000000);
 
     /// <summary>
     /// Tells what kind of item a bank request is about.

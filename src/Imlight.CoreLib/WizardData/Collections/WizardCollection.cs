@@ -574,6 +574,13 @@ public static class WizardCollection {
         );
     }
 
+    public static void UpdateCharacterTutorialTips(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character => {
+            character.ReadTutorialTips = [.. wizard.ReadTutorialTips];
+            character.TutorialTipData = wizard.TutorialTipData;
+        });
+    }
+
     /// <summary>
     /// Updates the training points of a wizard.
     /// </summary>

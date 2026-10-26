@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty, Joji
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -74,6 +74,10 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new InteractService(parentActor));
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_SELLMODIFIER))]
+    private void ReceiveSellModifierRequest(WIZARD2_53_PROTOCOL.MSG_SELLMODIFIER message)
+        => SendToSocket(new WIZARD2_53_PROTOCOL.MSG_SELLMODIFIER { SellModifier = SELL_MODIFIER });
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_SHOPBUYREQUEST))]
     private void ReceiveShopBuyRequest(WIZARD_12_PROTOCOL.MSG_SHOPBUYREQUEST message) {
