@@ -68,6 +68,7 @@ using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.Game.Rentals;
+using Imlight.CoreLib.Game.Pet.Progression;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Services;
@@ -476,6 +477,11 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
         var playerObj = GetActiveGameObject();
         if (playerObj is null) {
             return;
+        }
+
+        // The client reads the pet's level, XP and talents from this behavior, so every summon sends it.
+        if (PetBehaviorUpdate.TryCreate(petItem, out var behaviorUpdate)) {
+            SendToSocket(behaviorUpdate);
         }
 
         // The generic "PetObject" template (ID 2) is used for all pet zone entities.

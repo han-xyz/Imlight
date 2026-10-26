@@ -38,10 +38,13 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
+using Imcodec.Wad;
 using Imlight.Common;
 using Imlight.CoreLib.Game.PvP;
 using Imlight.CoreLib.Game.Requirements;
@@ -52,6 +55,7 @@ using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 using Type = System.Type;
+using AdvancedPetsConfig = Imlight.CoreLib.Game.Pet.Config.AdvancedPetsConfig;
 
 namespace Imlight.Tests;
 
@@ -155,10 +159,26 @@ public sealed class RequirementTests {
     [InlineData(true, 55, true)]
     [InlineData(true, 60, false)]
     public void ReqEnergy_ComparesEnergyOrItsPercentOfMax(bool isPercent, float required, bool expected) {
+        LoadAdvancedPetsConfig();
         var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) { m_energyMax = 20 }, PetOwnerBehavior = new ServerPetOwnerBehavior() };
         wizard.PetOwnerBehavior.SetEnergy(11);
 
         Assert.Equal(expected, Evaluate(new ReqEnergy { m_isPercent = isPercent, m_numericValue = required, m_operatorType = OPERATOR_TYPE.OPERATOR_GREATER_THAN_EQ }, wizard));
+    }
+
+    // Setting the energy schedules the next energy tick, whose interval comes from Pets/AdvancedPetsConfig.xml.
+    private static void LoadAdvancedPetsConfig() {
+        var serializer = new ObjectSerializer(true, SerializerFlags.SerializeFlags);
+        Assert.True(serializer.Serialize(new Imcodec.ObjectProperty.TypeCache.AdvancedPetsConfig { m_energyTick = 60 }, (PropertyFlags) BindSerializer.BiNDDefaultFlags, out var serialized));
+        byte[] bytes = [.. BitConverter.GetBytes(BindSerializer.BiNDMagic), .. (byte[]) serialized];
+        var file = new FileEntry {
+            Offset = 0,
+            UncompressedSize = (uint) bytes.Length,
+            CompressedSize = (uint) bytes.Length,
+            FileName = "Pets/AdvancedPetsConfig.xml",
+        };
+        RootArchiveLoader.UseRootWad(new Archive(new Dictionary<string, FileEntry> { [file.FileName] = file }, new MemoryStream(bytes), version: 1));
+        _ = AdvancedPetsConfig.Instance;
     }
 
     [Theory]

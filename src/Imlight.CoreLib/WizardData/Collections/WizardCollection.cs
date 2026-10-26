@@ -160,6 +160,7 @@ public static class WizardCollection {
             // Delete related items/dynamods/quests data/etc.
             WizardItemCollection.DeleteInventory(id);
             WizardPetSnackCollection.DeleteSnackBag(id);
+            WizardPetCollection.DeleteAll(id);
             DynamodCollection.DeleteAllDynamodSets(id);
             WizardReagentCollection.DeleteReagentBag(id);
 

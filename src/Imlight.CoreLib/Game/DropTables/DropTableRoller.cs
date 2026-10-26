@@ -36,6 +36,24 @@ public static class DropTableRoller {
     private static readonly ConcurrentDictionary<string, byte> s_warnedTableNames = new();
 
     /// <summary>
+    /// Keeps the drop table names that SpiralDB has.
+    /// </summary>
+    /// <param name="names">The drop table names.</param>
+    /// <returns>The names SpiralDB has, in order. A name it lacks is left out and logged the first time.</returns>
+    internal static string[] KeepKnownTables(IEnumerable<string> names) {
+        List<string> known = [];
+        foreach (var name in names) {
+            if (DropTableCollection.GetDropTable(name) is not null) {
+                known.Add(name);
+            } else if (s_warnedTableNames.TryAdd(name, 0)) {
+                Logger.Warning("The loot table {Table} is not in SpiralDB, so it is skipped.", Logger.Args(name));
+            }
+        }
+
+        return [.. known];
+    }
+
+    /// <summary>
     /// Rolls multiple drop tables with requirement validation against the provided player context
     /// </summary>
     /// <param name="dropTableNames">Array of drop table names to roll</param>

@@ -42,6 +42,7 @@ using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.Cryptography;
+using Imcodec.MessageLayer;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
@@ -337,6 +338,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY))]
     private void ReceiveStartSigilEntry(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY message) {
         if (_transferGate.IsQueued || _activeSigilEntry is not null) {
+            // A minigame sigil already seated the player, so it gets the seat back.
+            message.SigilRef?.Tell(new ZONE_102_PROTOCOL.MSG_SIGILOCCUPANTLEFT { CharId = GetActiveWizard().CharId });
+
             return;
         }
 
@@ -347,7 +351,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         StartSigilCountdown(message);
 
         var wizard = GetActiveWizard();
-        if (!GroupRegistry.TryGetGroup(wizard.CharId, out var group)) {
+        if (message.SigilRef is not null || !GroupRegistry.TryGetGroup(wizard.CharId, out var group)) {
             return;
         }
 
@@ -378,23 +382,38 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         );
 
         _activeSigilEntry = message;
-        DungeonRunBook.Shared.Wait(GetActiveWizard().CharId, message.DestinationZone);
+        if (message.SigilRef is null) {
+            DungeonRunBook.Shared.Wait(GetActiveWizard().CharId, message.DestinationZone);
+        }
 
         SnapPlayerToSigilFace(message);
+        StartSigilCountdown(message);
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMERSTART {
-            Time = SIGIL_COUNTDOWN_SECONDS,
-            SigilGID = message.SigilGID,
-            Teleport = 0,
-        });
-
-        Timers.StartSingleTimer(
-            SIGIL_ENTER_TIMER_KEY,
-            new ZONE_102_PROTOCOL.MSG_SIGILENTER(),
-            TimeSpan.FromSeconds(SIGIL_COUNTDOWN_SECONDS));
+        StartSigilTimer(message);
 
         Logger.Debug("Dungeon sigil countdown started for '{Zone}'.",
             Logger.Args(message.DestinationZone));
+    }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_SIGILPARTNERJOINED))]
+    private void ReceiveSigilPartnerJoined(ZONE_102_PROTOCOL.MSG_SIGILPARTNERJOINED message) {
+        if (_activeSigilEntry?.SigilRef is null) {
+            return;
+        }
+
+        _activeSigilEntry.PartnerCharId = message.PartnerCharId;
+        _activeSigilEntry.RoomOwnerCharId = message.RoomOwnerCharId;
+        StartSigilTimer(_activeSigilEntry);
+    }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_SIGILPARTNERLEFT))]
+    private void ReceiveSigilPartnerLeft(ZONE_102_PROTOCOL.MSG_SIGILPARTNERLEFT message) {
+        if (_activeSigilEntry?.SigilRef is null) {
+            return;
+        }
+
+        _activeSigilEntry.PartnerCharId = 0;
+        _activeSigilEntry.RoomOwnerCharId = 0;
     }
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_SIGILENTER))]
@@ -419,13 +438,28 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         var entry = _activeSigilEntry;
         _activeSigilEntry = null;
+        var roomOwner = entry.RoomOwnerCharId != 0 ? entry.RoomOwnerCharId : wizard.CharId;
+        if (entry.SigilRef is not null) {
+            entry.SigilRef.Tell(new ZONE_102_PROTOCOL.MSG_SIGILOCCUPANTLEFT { CharId = wizard.CharId, Entered = true });
+            TellOtherServices(new ZONE_102_PROTOCOL.MSG_SIGILROOMENTERING {
+                DestinationZone = entry.DestinationZone,
+                RoomOwnerCharId = roomOwner,
+                PartnerCharId = entry.PartnerCharId,
+                ReturnZone = wizard.Zone,
+                ReturnLocation = entry.SigilLoc,
+            });
+        }
 
         // The client attaches again after the transfer; the run sends that attach to the owner's container.
-        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone, wizard.Zone);
+        // A minigame sigil's room is shared with its partner and stays outside the dungeon runs.
+        var instance = entry.SigilRef is null
+            ? DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone, wizard.Zone)
+            : new InstanceEntry(roomOwner, entry.PartnerCharId == 0);
 
         Logger.Debug("Entering dungeon instance '{Zone}' (owner {CharId}, reset {Reset}).",
             Logger.Args(entry.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
 
+        // A shared instance is not reset: the other player may already be in it.
         var tpMsg = new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
             DestinationZone = entry.DestinationZone,
             DestinationLocation = entry.DestinationLoc,
@@ -1431,6 +1465,31 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         ReceiveZoneBroadcast(broadcastWrapper);
     }
 
+    private void StartSigilTimer(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry) {
+        var seconds = entry.CountdownSeconds > 0 ? entry.CountdownSeconds : SIGIL_COUNTDOWN_SECONDS;
+        SendSigilTimerMessage(entry, new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMERSTART {
+            Time = seconds,
+            SigilGID = entry.SigilGID,
+            Teleport = 0,
+        });
+
+        Timers.StartSingleTimer(
+            SIGIL_ENTER_TIMER_KEY,
+            new ZONE_102_PROTOCOL.MSG_SIGILENTER(),
+            TimeSpan.FromSeconds(seconds));
+    }
+
+    private void SendSigilTimerMessage(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, IMessage message) {
+        // A minigame sigil's countdown shows for everyone in the zone.
+        if (entry.SigilRef is null) {
+            SendToSocket(message);
+
+            return;
+        }
+
+        ZoneBroadcast(message, isSelfless: false);
+    }
+
     private void CancelSigilCountdown() {
         var entry = _activeSigilEntry;
         _activeSigilEntry = null;
@@ -1442,7 +1501,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         DungeonRunBook.Shared.StopWaiting(GetActiveWizard().CharId, entry.DestinationZone);
 
-        SendToSocket(new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMEREND { SigilGID = entry.SigilGID });
+        entry.SigilRef?.Tell(new ZONE_102_PROTOCOL.MSG_SIGILOCCUPANTLEFT { CharId = GetActiveWizard().CharId });
+        SendSigilTimerMessage(entry, new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMEREND { SigilGID = entry.SigilGID });
 
         // Give the player their mount back.
         SessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT());
@@ -1517,26 +1577,12 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return false;
         }
 
-        var template = SigilFactory.GetSigilTemplate(entry.SigilType);
-        var subCircles = template?.m_subCircles;
-        if (subCircles is null || subCircles.Count == 0) {
-            return false;
-        }
-
-        // Player faces only (dungeon-entry sigils shouldn't carry monster circles, but filter defensively).
-        var playerSlots = new List<SigilSubCircle>();
-        foreach (var sc in subCircles) {
-            if (sc is null || sc.m_locationType == "MonsterCircle") {
-                continue;
-            }
-
-            playerSlots.Add(sc);
-        }
+        var playerSlots = SigilFactory.GetPlayerCircles(entry.SigilType);
         if (playerSlots.Count == 0) {
             return false;
         }
 
-        var slot = playerSlots[0];
+        var slot = playerSlots[Math.Clamp(entry.SlotIndex, 0, playerSlots.Count - 1)];
         var pad = Util.GetVectorFromCompactString(entry.SigilLoc);
 
         double sigilRotation = pad.W;

@@ -68,6 +68,8 @@ public class GameServiceFactory : ServiceFactory {
         typeof(CantripService),
         typeof(TrainService),
         typeof(PetService),
+        typeof(HatchingService),
+        typeof(PetGamesService),
         typeof(MinigameService),
         typeof(FriendsService),
         typeof(GroupService),
