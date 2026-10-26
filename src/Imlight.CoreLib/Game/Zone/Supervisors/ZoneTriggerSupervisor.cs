@@ -320,8 +320,7 @@ internal sealed class ZoneTriggerSupervisor(Core.Zone zone) : ZoneEntitySupervis
     private static bool HasTeleportResult(Trigger trigger)
         => trigger.m_results?.m_results?.Any(result => result is ResTeleport) == true;
 
-    private static Trigger PickTeleportTrigger(List<(Trigger Trigger, IActorRef Actor)> passing, ZONE_102_PROTOCOL.MSG_POSTEVENT message) {
-        // ReqHasQuest also passes for a completed quest: prefer the trigger naming a currently active quest, else the last passing one.
+    private Trigger PickTeleportTrigger(List<(Trigger Trigger, IActorRef Actor)> passing, ZONE_102_PROTOCOL.MSG_POSTEVENT message) {
         var teleports = passing.Where(x => HasTeleportResult(x.Trigger)).Select(x => x.Trigger).ToList();
         if (teleports.Count <= 1) {
             return teleports.FirstOrDefault();
@@ -333,11 +332,47 @@ internal sealed class ZoneTriggerSupervisor(Core.Zone zone) : ZoneEntitySupervis
                 .Select(q => q.QuestName).ToHashSet();
         }
 
+        var winner = ChooseTeleportTrigger(teleports, activeQuests, out var reason);
+        Logger.Debug("Zone {0}: teleport trigger {1} chosen among {2} passing ({3}).",
+            Logger.Args(Zone.ZonePath, winner.m_triggerName, teleports.Count, reason));
+
+        return winner;
+    }
+
+    // ReqHasQuest also passes for a completed quest, and a ReqHasGoal that is not DontCare only passes for the goal state it names.
+    internal static Trigger ChooseTeleportTrigger(IReadOnlyList<Trigger> teleports, ISet<string> activeQuests, out string reason) {
         var qualifying = teleports
             .Where(t => CollectRequiredQuests(t.m_requirements).Any(activeQuests.Contains))
             .ToList();
+        if (qualifying.Count == 1) {
+            reason = "names an active quest";
 
-        return qualifying.Count == 1 ? qualifying[0] : teleports[^1];
+            return qualifying[0];
+        }
+
+        var specific = teleports.Where(t => HasSpecificRequirement(t.m_requirements)).ToList();
+        if (specific.Count > 0) {
+            reason = "has a quest or goal requirement that passed";
+
+            return specific[^1];
+        }
+
+        reason = "no specific requirement, the last one";
+
+        return teleports[^1];
+    }
+
+    private static bool HasSpecificRequirement(RequirementList list) {
+        if (list?.m_requirements is null) {
+            return false;
+        }
+
+        return list.m_requirements.Any(requirement => requirement switch {
+            RequirementList nested => HasSpecificRequirement(nested),
+            ReqHasQuest hasQuest => !hasQuest.m_applyNOT,
+            ReqHasGoal hasGoal => !hasGoal.m_applyNOT && hasGoal.m_requiredStatus != GoalStatusRequirement.DontCare,
+            _ => false,
+        });
     }
 
     private static IEnumerable<string> CollectRequiredQuests(RequirementList list) {
