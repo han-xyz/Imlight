@@ -40,7 +40,7 @@
  * 
  * Created by: Joji
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -56,6 +56,7 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Game.Elixirs;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
@@ -77,6 +78,8 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
 
     private const string ELIXIR_TICK_TIMER_KEY = "elixir-tick";
     private const int ELIXIR_SAVE_INTERVAL_SECONDS = 30;
+
+    private bool _hasLoggedSetFormat;
 
     private readonly CoreObjectSerializer _itemSerializer = new(
         versionable: false,
@@ -369,6 +372,85 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
                 PlayerGID = wizard.GameObjectID
             }, false);
         }
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_CREATENEWEQUIPMENTSET))]
+    private void ReceiveCreateNewEquipmentSet(WIZARD2_53_PROTOCOL.MSG_CREATENEWEQUIPMENTSET message) {
+        var wizard = GetActiveWizard();
+        var set = new EquipmentSetRecord {
+            Name = message.SetName,
+            Items = wizard.EquipmentBehavior.SlotList?
+                .Where(slot => slot.ItemId.Value != 0 && slot.SlotType != EquipmentSlotType.Elixir)
+                .Select(slot => new EquipmentSetItem { ItemId = slot.ItemId.Value, SlotName = slot.SlotType.ToString() })
+                .ToList() ?? []
+        };
+
+        if (!EquipmentSets.TrySave(wizard.EquipmentSets, set)) {
+            Logger.Debug("Character {CharId} already keeps {Count} equipment sets, so set {SetName} was not saved.",
+                Logger.Args(wizard.CharId, EquipmentSets.MaxSets, message.SetName));
+
+            return;
+        }
+
+        WizardCollection.UpdateCharacterEquipmentSets(wizard);
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_EQUIPSET))]
+    private void ReceiveEquipSet(WIZARD2_53_PROTOCOL.MSG_EQUIPSET message) {
+        var wizard = GetActiveWizard();
+        if (!TryFindEquipmentSet(wizard, (byte[]) message.Set, out var set)) {
+            return;
+        }
+
+        var ownedIds = wizard.InventoryBehavior.Items.Select(item => item.m_globalID.Full)
+            .Concat(wizard.EquipmentBehavior.SlotList?.Select(slot => slot.ItemId.Value) ?? [])
+            .ToHashSet();
+        var missingItems = EquipmentSets.MissingItems(set, ownedIds);
+        if (missingItems.Count > 0) {
+            Logger.Warning("Character {CharId} applied equipment set {SetName}, but no longer owns items {ItemIds}, so it was not applied.",
+                Logger.Args(wizard.CharId, set.Name, string.Join(',', missingItems)));
+
+            return;
+        }
+
+        foreach (var item in set.Items.Where(item => wizard.EquipmentBehavior.GetItem(item.ItemId) is null)) {
+            ReceiveEquipItem(new GAME_5_PROTOCOL.MSG_EQUIPITEM {
+                IsEquip = 1,
+                ItemID = item.ItemId,
+                SlotName = item.SlotName
+            });
+        }
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_DELETEEQUIPMENTSET))]
+    private void ReceiveDeleteEquipmentSet(WIZARD2_53_PROTOCOL.MSG_DELETEEQUIPMENTSET message) {
+        var wizard = GetActiveWizard();
+        if (!TryFindEquipmentSet(wizard, (byte[]) message.Set, out var set)) {
+            return;
+        }
+
+        wizard.EquipmentSets.Remove(set);
+        WizardCollection.UpdateCharacterEquipmentSets(wizard);
+    }
+
+    private bool TryFindEquipmentSet(Wizard wizard, byte[] setBytes, out EquipmentSetRecord set) {
+        set = null;
+        if (!_hasLoggedSetFormat) {
+            _hasLoggedSetFormat = true;
+            Logger.Information("First equipment set string from the client ({Length} bytes): {Hex}",
+                Logger.Args(setBytes.Length, EquipmentSets.HexPreview(setBytes)));
+        }
+
+        if (!EquipmentSets.TryParseName(setBytes, out var name)) {
+            Logger.Debug("Equipment set string {Hex} is not a set name, so the request was ignored.",
+                Logger.Args(EquipmentSets.HexPreview(setBytes)));
+
+            return false;
+        }
+
+        set = wizard.EquipmentSets.Find(existing => existing.Name == name);
+
+        return set is not null;
     }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_EXPIRERENTAL))]

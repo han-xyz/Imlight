@@ -568,6 +568,12 @@ public static class WizardCollection {
         );
     }
 
+    public static void UpdateCharacterEquipmentSets(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character =>
+            character.EquipmentSets = wizard.EquipmentSets
+        );
+    }
+
     /// <summary>
     /// Updates the training points of a wizard.
     /// </summary>
