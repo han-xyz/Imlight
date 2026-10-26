@@ -331,9 +331,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private void ReceiveCompletePersona(QUEST_MESSAGES_52_PROTOCOL.MSG_COMPLETEPERSONA message) {
         // Live's client sends this when a persona goal's completion dialog ends, naming the quest and goal.
         _clientReportsPersonaCompletion = true;
-        if (_npcRefresh.DialogClosed(out var personaNames)) {
-            SendNpcRefresh(personaNames);
-        }
+        NoteDialogClosed("MSG_COMPLETEPERSONA");
 
         var pending = _pendingGoalCompletions
             .FirstOrDefault(p => p.QuestId == message.QuestID && p.GoalId == message.GoalID);
@@ -354,9 +352,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
-        if (_npcRefresh.DialogClosed(out var personaNames)) {
-            SendNpcRefresh(personaNames);
-        }
+        NoteDialogClosed("MSG_COMPLETEDIALOG");
 
         if (_clientReportsPersonaCompletion || _pendingGoalCompletions.Count == 0) {
             return;
@@ -1345,7 +1341,23 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN))]
     private void ReceiveDialogShown(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN message)
-        => _npcRefresh.DialogShown();
+        => NoteDialogShown("MSG_DIALOGSHOWN");
+
+    private void NoteDialogShown(string source) {
+        _npcRefresh.DialogShown();
+        Logger.Debug("NPC refresh gate of {Session}: dialog shown ({Source}), {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, source, _npcRefresh.OpenDialogs));
+    }
+
+    private void NoteDialogClosed(string signal) {
+        var released = _npcRefresh.DialogClosed(out var personaNames);
+        Logger.Debug("NPC refresh gate of {Session}: dialog closed ({Signal}), {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, signal, _npcRefresh.OpenDialogs));
+
+        if (released) {
+            SendNpcRefresh(personaNames);
+        }
+    }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH))]
     private void ReceiveRequestNpcRefresh(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH message)
@@ -1363,6 +1375,11 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         // Safety net only: a dialog whose close never arrives must not hold the NPC options back for good.
+        if (_npcRefresh.IsWaitingForDialog) {
+            Logger.Debug("NPC refresh gate of {Session}: refresh held, {OpenDialogs} open",
+                Logger.Args(SessionActor.ActorRef.Path.Name, _npcRefresh.OpenDialogs));
+        }
+
         if (_npcRefresh.IsWaitingForDialog && !Timers.IsTimerActive(NpcRefreshDialogTimerKey)) {
             Timers.StartSingleTimer(NpcRefreshDialogTimerKey,
                 new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH { DialogTimedOut = true },
@@ -1372,6 +1389,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     private void SendNpcRefresh(IReadOnlyList<string> personaNames) {
         Timers.Cancel(NpcRefreshDialogTimerKey);
+        Logger.Debug("NPC refresh gate of {Session}: refresh flushed for {Targets}, {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, string.Join(", ", personaNames.Select(name => name ?? "every NPC")),
+                _npcRefresh.OpenDialogs));
 
         var zoneActor = SessionActor.GetZoneActor();
         var playerObject = GetActiveGameObject();
@@ -1945,7 +1965,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         };
 
         SendToSocket(dialogMsg);
-        _npcRefresh.DialogShown();
+        NoteDialogShown(completionType);
     }
 
     private void RemoveDungeonQuestsOutsideZone(Wizard wizard) {

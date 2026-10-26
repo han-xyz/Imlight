@@ -50,6 +50,8 @@ internal sealed class NpcRefreshGate {
 
     public bool IsWaitingForDialog => IsPending && _openDialogs > 0;
 
+    public int OpenDialogs => _openDialogs;
+
     private bool IsPending => _everyNpc || _personaNames.Count > 0;
 
     public bool Request(string personaName = null) {
