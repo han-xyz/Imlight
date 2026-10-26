@@ -34,7 +34,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 21.10.2026
+ * Last Updated: 27.10.2026
  */
 using Akka.Actor;
 using Imcodec.CoreObject;
@@ -81,6 +81,26 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                 CharacterID = wizard.CharId,
                 MailType = 1
             });
+        }
+    }
+
+    internal static GAME_5_PROTOCOL.MSG_NEW_MAIL NewMailNotice(Wizard wizard) {
+        if (wizard.Account?.GiftMailbox is not { Count: > 0 }) {
+            return null;
+        }
+
+        return new GAME_5_PROTOCOL.MSG_NEW_MAIL {
+            AccountMail = 0,
+            CharacterID = wizard.CharId,
+            MailType = 1
+        };
+    }
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_CHECK_MAIL))]
+    private void ReceiveCheckMail(GAME_5_PROTOCOL.MSG_CHECK_MAIL message) {
+        var notice = NewMailNotice(GetActiveWizard());
+        if (notice is not null) {
+            SendToSocket(notice);
         }
     }
 

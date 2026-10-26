@@ -33,7 +33,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/18/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -41,6 +41,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Akka.Actor;
+using Imcodec.IO;
 using Imcodec.Cryptography;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
@@ -84,6 +85,23 @@ internal class PvPRatingService(SessionActor sessionActor) : MessageService(sess
         }
 
         SendEloData(wizard);
+    }
+
+    internal static GAME_5_PROTOCOL.MSG_LADDER EmptyLadder(ulong characterId) => new() {
+        CharacterID = characterId,
+        LadderData = new ByteString(),
+        TourneyCredits = 0,
+        TourneyHostingCredits = 0,
+        PvPNoMatchIgnoreList = 0
+    };
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_GETLADDER))]
+    private void ReceiveGetLadder(GAME_5_PROTOCOL.MSG_GETLADDER message)
+        => SendToSocket(EmptyLadder(message.CharacterID));
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_GET_RANKINGS))]
+    private void ReceiveGetRankings(GAME_5_PROTOCOL.MSG_GET_RANKINGS message) {
+        // Rankings arrive as one MSG_RANKING per row; with no ranked games tracked there are no rows to send.
     }
 
     [MessageHandler(typeof(PVP_111_PROTOCOL.MSG_RATEDRESULT))]
