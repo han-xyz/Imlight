@@ -1164,6 +1164,20 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Sent by an instance <see cref="Zone"/> to its <see cref="World.InstanceContainer"/> when it gains its first wizard
+    /// or loses its last, so the container never drops a copy with wizards in it.
+    /// </summary>
+    public sealed class MSG_INSTANCEZONEOCCUPANCY : IServerMessage {
+
+        public byte MessageOrder { get; } = 97;
+        public byte ServiceID { get; } = 102;
+
+        public string ZoneName;
+        public bool HasPlayers;
+
+    }
+
+    /// <summary>
     /// Sent by <see cref="World.GameWorld"/> to an <see cref="World.InstanceContainer"/>: drop the loaded
     /// copy of <see cref="ZoneName"/> (stop the zone actor) so the next transfer builds a fresh instance.
     /// </summary>

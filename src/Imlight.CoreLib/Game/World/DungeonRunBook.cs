@@ -43,6 +43,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Imlight.CoreLib.Game.Groups;
 
@@ -54,7 +55,7 @@ namespace Imlight.CoreLib.Game.World;
 /// <param name="findGroup">Gets a wizard's current group, or null when they are not grouped.</param>
 /// <param name="idleLimit">How long a run with nobody inside lives; zero or less keeps it.</param>
 /// <param name="clock">The current time.</param>
-internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<TimeSpan> idleLimit, Func<DateTimeOffset> clock) {
+internal sealed partial class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<TimeSpan> idleLimit, Func<DateTimeOffset> clock) {
 
     /// <summary>
     /// The book the game server uses.
@@ -129,14 +130,14 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
 
     /// <summary>
     /// Routes a transfer that leaves <paramref name="sourceZoneName"/> into the run owner's container, when the wizard
-    /// belongs to a live run that has reached that zone; otherwise null. The first transfer to a zone new to the run
-    /// resets it, so a copy left by an earlier run of the same owner is not reused; a copy anyone is still inside is never
-    /// reset.
+    /// belongs to a live run that has reached that zone and the destination is a floor of the run's dungeon; otherwise
+    /// null. The first transfer to a zone new to the run asks for a reset, so a copy left by an earlier run of the same
+    /// owner is not reused; a copy anyone is still inside is never reset, and the container refuses it too.
     /// </summary>
     internal InstanceEntry RouteTransfer(ulong charId, string sourceZoneName, string destinationZoneName) {
         lock (_lock) {
             var run = FindRunOf(charId);
-            if (run is null || !run.Zones.Contains(sourceZoneName)) {
+            if (run is null || !run.Zones.Contains(sourceZoneName) || !IsFloorOf(run, destinationZoneName)) {
                 return null;
             }
 
@@ -223,6 +224,15 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     private bool IsOccupied(ulong ownerCharId, string zoneName)
         => _copiesByWizard.Values.Any(copy => copy.OwnerCharId == ownerCharId
                                               && string.Equals(copy.ZoneName, zoneName, StringComparison.OrdinalIgnoreCase));
+
+    // Floors of one dungeon differ only in a trailing number: WC_Sunken_City_T1..T3, WC_Golem_Tower_1..5, Tower1.
+    private static bool IsFloorOf(DungeonRun run, string zoneName)
+        => run.Zones.Any(zone => string.Equals(FloorStem(zone), FloorStem(zoneName), StringComparison.OrdinalIgnoreCase));
+
+    private static string FloorStem(string zoneName) => FloorNumber().Replace(zoneName, string.Empty);
+
+    [GeneratedRegex(@"(?:_?T)?\d+$")]
+    private static partial Regex FloorNumber();
 
     private DungeonRun FindRunOf(ulong charId)
         => LiveRuns().FirstOrDefault(run => run.Members.Contains(charId));

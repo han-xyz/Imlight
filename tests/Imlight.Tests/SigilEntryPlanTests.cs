@@ -193,9 +193,16 @@ public sealed class DungeonRunBookTests {
     }
 
     [Fact]
+    public void RouteTransfer_ToAnInteriorOutsideTheDungeon_IsNotRouted() {
+        EnterTogether();
+
+        Assert.Null(_book.RouteTransfer(Member, Floor1, "Interiors/Shop"));
+    }
+
+    [Fact]
     public void RouteTransfer_AfterAStreetHop_DoesNotFollowAgain() {
         EnterTogether();
-        Assert.Equal(Leader, _book.RouteTransfer(Member, Floor1, Street)?.OwnerCharId);
+        Assert.Null(_book.RouteTransfer(Member, Floor1, Street));
         _book.Arrived(Member, Street, isInstance: false, fromRunZone: true);
 
         Assert.Null(_book.RouteTransfer(Member, Street, Floor2));
@@ -294,6 +301,27 @@ public sealed class ZoneInstanceOwnersRunRouteTests {
     [Fact]
     public void Resolve_RunRoute_SendsTheAttachToTheRunOwnersPrivateCopy() {
         Assert.Equal((80ul, true), ZoneInstanceOwners.Resolve(7, "Tests/RunFloor", houseOwnerCharId: 0, runOwnerOf: (_, _) => 80));
+    }
+
+}
+
+public sealed class InstanceZoneOccupancyTests {
+
+    [Fact]
+    public void MayDrop_ZoneWithPlayers_IsRefused() {
+        var occupancy = new InstanceZoneOccupancy();
+        occupancy.Report("Dungeon/Floor1", hasPlayers: true);
+
+        Assert.False(occupancy.MayDrop("dungeon/floor1"));
+    }
+
+    [Fact]
+    public void MayDrop_ZoneTheLastPlayerLeft_IsAllowed() {
+        var occupancy = new InstanceZoneOccupancy();
+        occupancy.Report("Dungeon/Floor1", hasPlayers: true);
+        occupancy.Report("Dungeon/Floor1", hasPlayers: false);
+
+        Assert.True(occupancy.MayDrop("Dungeon/Floor1"));
     }
 
 }

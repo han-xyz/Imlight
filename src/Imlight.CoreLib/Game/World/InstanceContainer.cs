@@ -61,6 +61,7 @@ internal sealed class InstanceContainer(ulong instanceOwnerId, bool removeWhenEm
     private readonly Dictionary<string, IActorRef> _zones = [];
     private readonly Dictionary<string, uint> _zoneDynamicIds = [];
     private readonly Zone.Core.InstanceQuestProgress _questProgress = new();
+    private readonly InstanceZoneOccupancy _occupancy = new();
 
     public static Props Props(ulong instanceOwnerId, bool removeWhenEmpty)
         => Akka.Actor.Props.Create(() => new InstanceContainer(instanceOwnerId, removeWhenEmpty));
@@ -121,6 +122,13 @@ internal sealed class InstanceContainer(ulong instanceOwnerId, bool removeWhenEm
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_DROPINSTANCEZONE))]
     public void ReceiveDropInstanceZone(ZONE_102_PROTOCOL.MSG_DROPINSTANCEZONE message) {
+        if (!_occupancy.MayDrop(message.ZoneName)) {
+            Logger.Information("Keeping instance zone {ZoneName} (owner {OwnerId}): wizards are still in it.",
+                Logger.Args(message.ZoneName, _instanceOwnerId));
+
+            return;
+        }
+
         if (!_zones.Remove(message.ZoneName, out var zoneActor)) {
             return;
         }
@@ -142,6 +150,10 @@ internal sealed class InstanceContainer(ulong instanceOwnerId, bool removeWhenEm
             Context.Parent.Tell(new ZONE_102_PROTOCOL.MSG_MATCHCONTAINEREMPTY { OwnerId = _instanceOwnerId });
         }
     }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_INSTANCEZONEOCCUPANCY))]
+    public void ReceiveInstanceZoneOccupancy(ZONE_102_PROTOCOL.MSG_INSTANCEZONEOCCUPANCY message)
+        => _occupancy.Report(message.ZoneName, message.HasPlayers);
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_INSTANCECONTAINERIDLE))]
     public void ReceiveContainerIdle(ZONE_102_PROTOCOL.MSG_INSTANCECONTAINERIDLE message) {

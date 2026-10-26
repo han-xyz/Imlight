@@ -238,6 +238,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         }
 
         _players.Add(message.PlayerActor);
+        ReportOccupancy();
         _activitySinceIdleRequest = true;
         Timers.Cancel(IDLE_EXPIRE_TIMER);
         InformZoneSupervisors(message.PlayerActor, message);
@@ -268,6 +269,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         // The leaver is counted until the supervisors are told: the Players target is gated on a non-empty set.
         InformZoneSupervisors(message.PlayerActor, message);
         _players.Remove(message.PlayerActor);
+        ReportOccupancy();
         _pendingPlayerMoves.RemoveAll(move => move.PlayerActor.Equals(message.PlayerActor));
         ReleaseObjectIdentifier(message.MobileId);
         ScheduleIdleExpiryIfEmpty();
@@ -613,6 +615,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
             }
             else if (pendingEvent is ZONE_102_PROTOCOL.MSG_ADDPLAYER addPlayer) {
                 _players.Add(playerActor);
+                ReportOccupancy();
                 _activitySinceIdleRequest = true;
                 Timers.Cancel(IDLE_EXPIRE_TIMER);
                 InformZoneSupervisors(playerActor, addPlayer);
@@ -630,6 +633,15 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         }
         
         _pendingPlayerEvents.Clear();
+    }
+
+    private void ReportOccupancy() {
+        if (IsInstance && _players.Count <= 1) {
+            Context.Parent.Tell(new ZONE_102_PROTOCOL.MSG_INSTANCEZONEOCCUPANCY {
+                ZoneName = ZonePath,
+                HasPlayers = _players.Count > 0,
+            });
+        }
     }
 
     private void ScheduleIdleExpiryIfEmpty() {
