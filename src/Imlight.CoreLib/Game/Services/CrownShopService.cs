@@ -301,6 +301,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         TellOtherServices(new COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN {
             Owner = SessionActor.ActorRef,
             CreatureTid = creatureTid,
+            IsPvPEnabled = HenchmanPurchase.IsPvPEnabled(itemTemplate),
             Item = message.Item,
             Currency = message.Type,
             Cost = amountToPay

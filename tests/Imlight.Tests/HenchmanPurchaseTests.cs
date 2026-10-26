@@ -82,7 +82,28 @@ public sealed class HenchmanPurchaseTests {
     }
 
     [Theory]
+    [InlineData(false, false, true, null)]
+    [InlineData(true, true, true, null)]
+    [InlineData(true, false, true, HenchmanSummonResult.InPvP)]
+    [InlineData(false, false, false, HenchmanSummonResult.NotPlanningPhase)]
+    [InlineData(true, false, false, HenchmanSummonResult.InPvP)]
+    public void Refusal_FollowsPvPAndDuelPhase(bool isPvPDuel, bool isPvPEnabled, bool isPlanningPhase,
+                                               HenchmanSummonResult? expected) {
+        Assert.Equal(expected, HenchmanPurchase.Refusal(isPvPDuel, isPvPEnabled, isPlanningPhase));
+    }
+
+    [Fact]
+    public void PvPEnabled_IsReadFromTheElixir() {
+        var item = new WizItemTemplate { m_behaviors = [new ElixirBehaviorTemplate { m_PvPEnabled = true }] };
+
+        Assert.True(HenchmanPurchase.IsPvPEnabled(item));
+        Assert.False(HenchmanPurchase.IsPvPEnabled(new WizItemTemplate { m_behaviors = [new ElixirBehaviorTemplate()] }));
+    }
+
+    [Theory]
     [InlineData(HenchmanSummonResult.NoFreeSlot, "Error_HenchmenSigilFull")]
+    [InlineData(HenchmanSummonResult.InPvP, "Error_HenchmenInPVP")]
+    [InlineData(HenchmanSummonResult.NotPlanningPhase, "Error_HenchmenPlanningPhase")]
     [InlineData(HenchmanSummonResult.NotInDuel, "Error_NotInCombat")]
     [InlineData(HenchmanSummonResult.Failed, "Error_PriceLockMismatch")]
     public void Complete_SummonRefused_DebitsNothing(HenchmanSummonResult result, string expectedError) {

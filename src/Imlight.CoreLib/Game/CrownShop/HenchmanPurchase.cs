@@ -58,6 +58,8 @@ public enum HenchmanSummonResult {
     NoFreeSlot,
     NotInDuel,
     Failed,
+    InPvP,
+    NotPlanningPhase,
 }
 
 internal static class HenchmanPurchase {
@@ -65,6 +67,8 @@ internal static class HenchmanPurchase {
     private static readonly int s_errorSigilFull = (int) StringHash.Compute("Error_HenchmenSigilFull");
     private static readonly int s_errorNotInCombat = (int) StringHash.Compute("Error_NotInCombat");
     private static readonly int s_errorPurchase = (int) StringHash.Compute("Error_PriceLockMismatch");
+    private static readonly int s_errorInPvP = (int) StringHash.Compute("Error_HenchmenInPVP");
+    private static readonly int s_errorPlanningPhase = (int) StringHash.Compute("Error_HenchmenPlanningPhase");
 
     public static CrownShopPurchaseRoute Route(bool isInDuel, bool isCombatOnly, bool isHenchman) {
         if (!isInDuel) {
@@ -89,6 +93,20 @@ internal static class HenchmanPurchase {
         return creatureTemplateId != 0;
     }
 
+    public static bool IsPvPEnabled(CoreTemplate itemTemplate)
+        => itemTemplate?.m_behaviors.OfType<ElixirBehaviorTemplate>().Any(elixir => elixir.m_PvPEnabled) == true;
+
+    /// <summary>
+    /// Why the duel refuses a henchman before any slot is looked at, or null when it may summon.
+    /// </summary>
+    public static HenchmanSummonResult? Refusal(bool isPvPDuel, bool isPvPEnabled, bool isPlanningPhase) {
+        if (isPvPDuel && !isPvPEnabled) {
+            return HenchmanSummonResult.InPvP;
+        }
+
+        return isPlanningPhase ? null : HenchmanSummonResult.NotPlanningPhase;
+    }
+
     /// <summary>
     /// Runs <paramref name="debit"/> only when the henchman was summoned.
     /// </summary>
@@ -97,6 +115,8 @@ internal static class HenchmanPurchase {
         HenchmanSummonResult.Summoned => debit(),
         HenchmanSummonResult.NoFreeSlot => s_errorSigilFull,
         HenchmanSummonResult.NotInDuel => s_errorNotInCombat,
+        HenchmanSummonResult.InPvP => s_errorInPvP,
+        HenchmanSummonResult.NotPlanningPhase => s_errorPlanningPhase,
         _ => s_errorPurchase,
     };
 

@@ -301,6 +301,7 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
 
         public IActorRef Owner;
         public uint CreatureTid;
+        public bool IsPvPEnabled;
         public ulong Item;
         public int Currency;
         public int Cost;

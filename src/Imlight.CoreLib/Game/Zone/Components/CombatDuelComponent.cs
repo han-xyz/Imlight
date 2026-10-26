@@ -798,7 +798,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN))]
     private void ReceiveSummonHenchman(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN message) {
-        var result = SummonHenchman(message.CreatureTid, message.Owner, out var slotIndex);
+        var result = SummonHenchman(message.CreatureTid, message.IsPvPEnabled, message.Owner, out var slotIndex);
         message.Owner.Tell(new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
             Request = message,
             Result = result,
@@ -1080,11 +1080,16 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     /// Summons a bought henchman at once into a free slot on the side of <paramref name="owner"/>.
     /// </summary>
     /// <param name="slotIndex">The henchman's sub-circle when summoned, otherwise -1.</param>
-    internal HenchmanSummonResult SummonHenchman(uint creatureTid, IActorRef owner, out int slotIndex) {
+    internal HenchmanSummonResult SummonHenchman(uint creatureTid, bool isPvPEnabled, IActorRef owner, out int slotIndex) {
         slotIndex = -1;
         var ownerCircle = SubCircles?.FirstOrDefault(x => x.ParticipantActor == owner);
         if (!_isActive || ownerCircle is null) {
             return HenchmanSummonResult.NotInDuel;
+        }
+
+        var refusal = HenchmanPurchase.Refusal(Duel.m_bPVP, isPvPEnabled, Duel.m_duelPhase == kDuelPhase.kPhase_Planning);
+        if (refusal is not null) {
+            return refusal.Value;
         }
 
         if (FreeMinionSlot(ownerCircle) is null) {
