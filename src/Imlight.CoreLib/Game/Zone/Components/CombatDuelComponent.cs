@@ -1138,6 +1138,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         try {
             if (!AssignParticipantToSubCircle(slot, minionActor, minionObj, isSummonedMinion: true,
                                               minionOwnerSubCircle: caster.SlotIndex)) {
+                minionActor.Tell(PoisonPill.Instance);
+
                 return null;
             }
         }
