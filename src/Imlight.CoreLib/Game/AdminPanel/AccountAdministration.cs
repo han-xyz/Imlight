@@ -17,6 +17,7 @@
  */
 
 using System;
+using System.Globalization;
 using Imlight.Common;
 using Imlight.CoreLib.Auth;
 using Imlight.CoreLib.WizardData;
@@ -27,6 +28,11 @@ using Imlight.CoreLib.WizardData.Models.Player;
 namespace Imlight.CoreLib.Game.AdminPanel;
 
 internal sealed record AdminActionResult(bool Succeeded, string Message);
+
+/// <summary>
+/// The outcome of a Crowns change. <paramref name="Problem"/> is set when the outcome is unknown.
+/// </summary>
+internal sealed record CrownChange(bool Applied, int Before, int After, string Problem = null);
 
 /// <summary>
 /// The staff account actions shared by the admin panel and the chat commands.
@@ -150,6 +156,58 @@ internal static class AccountAdministration {
 
         return account is null ? Refuse($"No account named {username?.Trim()}.") : new(true, $"Found {account.Username}.");
     }
+
+    /// <summary>
+    /// Adds a signed amount of Crowns to an account; a negative amount takes Crowns away.
+    /// </summary>
+    /// <param name="adjustOnline">Applies the change through the account's online session and returns the outcome,
+    /// or returns null when the account is not online.</param>
+    internal static AdminActionResult AdjustCrowns(Account actor, Wizard character, string username, int change,
+                                                   Func<ulong, int, CrownChange> adjustOnline, out CrownChange balance) {
+        balance = null;
+        if (!CanActOn(actor, AuthLevel.Administrator, username, out var target, out var refusal)) {
+            return refusal;
+        }
+
+        if (change == 0) {
+            return Refuse("Enter an amount of Crowns other than 0.");
+        }
+
+        balance = adjustOnline(target.AccountId, change);
+        if (balance is null) {
+            var applied = AccountCollection.AdjustCrowns(target.AccountId,
+                stored => TryAdjustCrowns(stored, change, out var after) ? after : null, out var before);
+            balance = new(applied, before, applied ? before + change : before);
+        }
+
+        if (balance.Problem is not null) {
+            return Refuse(balance.Problem);
+        }
+
+        if (!balance.Applied) {
+            return Refuse(change < 0 && balance.Before + (long) change < 0
+                ? $"{target.Username} has only {FormatCrowns(balance.Before)} Crowns."
+                : "That is more Crowns than an account can hold.");
+        }
+
+        var signedChange = (change > 0 ? "+" : "-") + FormatCrowns(Math.Abs((long) change));
+        Audit(actor, character, AdminAuditAction.CrownsChanged,
+            $"{target.Username}: {balance.Before} -> {balance.After} ({signedChange})");
+
+        return new(true, $"{target.Username} now has {FormatCrowns(balance.After)} Crowns ({signedChange}).");
+    }
+
+    /// <summary>
+    /// Adds a signed change to a balance unless it would go below zero or past the largest balance.
+    /// </summary>
+    internal static bool TryAdjustCrowns(int before, int change, out int after) {
+        var result = (long) before + change;
+        after = result is >= 0 and <= int.MaxValue ? (int) result : before;
+
+        return result is >= 0 and <= int.MaxValue;
+    }
+
+    internal static string FormatCrowns(long crowns) => crowns.ToString("N0", CultureInfo.InvariantCulture);
 
     private static bool CanAct(Account actor, AuthLevel required, out AdminActionResult refusal) {
         refusal = null;

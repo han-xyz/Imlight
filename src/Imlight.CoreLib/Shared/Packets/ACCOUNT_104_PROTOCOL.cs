@@ -44,4 +44,28 @@ public sealed class ACCOUNT_104_PROTOCOL : IServerProtocol {
 
     }
 
+    /// <summary>
+    /// Asks an online player's session to add a signed amount to its account's Crowns, so the change cannot race
+    /// a Crown Shop purchase. The session answers with <see cref="MSG_CROWNSADJUSTED"/>.
+    /// </summary>
+    public class MSG_ADJUSTCROWNS : IServerMessage {
+
+        public byte MessageOrder { get; } = 2;
+        public byte ServiceID { get; } = 104;
+
+        public int Change;
+
+    }
+
+    public class MSG_CROWNSADJUSTED : IServerMessage {
+
+        public byte MessageOrder { get; } = 3;
+        public byte ServiceID { get; } = 104;
+
+        public bool Applied;
+        public int Before;
+        public int After;
+
+    }
+
 }

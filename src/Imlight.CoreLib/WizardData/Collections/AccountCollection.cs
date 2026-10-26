@@ -438,6 +438,28 @@ public static class AccountCollection {
         });
     }
 
+    /// <summary>
+    /// Adds a signed amount to the crowns balance of an account that is not online.
+    /// </summary>
+    /// <param name="accountId">The unique identifier of the account to update.</param>
+    /// <param name="adjust">Given the stored balance, returns the new one, or null to leave it unchanged.</param>
+    /// <param name="before">The stored balance before the change.</param>
+    /// <returns>true if the balance changed; otherwise, false.</returns>
+    public static bool AdjustCrowns(ulong accountId, Func<int, int?> adjust, out int before) {
+        var stored = 0;
+        var changed = false;
+        UpdateAccount(accountId, acc => {
+            stored = acc.Crowns;
+            if (adjust(stored) is int after) {
+                acc.Crowns = after;
+                changed = true;
+            }
+        });
+        before = stored;
+
+        return changed;
+    }
+
     public static bool AddGiftMail(ulong accountId, Mail mail) {
         return UpdateAccount(accountId, acc => {
             acc.GiftMailbox ??= new();
