@@ -19,6 +19,8 @@
 using System;
 using Raven.Client;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Session;
+using Raven.Client.Exceptions;
 using Imlight.CoreLib.WizardData.Databases;
 using Imcodec.IO;
 
@@ -91,14 +93,22 @@ public static class ClientKeyCollection {
 
         var pair = session.Load<ClientKeyPair>(SessionKeyDocumentId(accountId));
         if (pair is not null && pair.IsExpired(DateTime.UtcNow, s_sessionKeyLifetime)) {
-            session.Delete(pair);
-            session.SaveChanges();
+            DeleteIfUnchanged(session, pair);
             pair = null;
         }
 
         var keyForThisMachine = pair?.MachineId == machineId ? pair.ClientKey2 : null;
 
         return keyForThisMachine;
+    }
+
+    private static void DeleteIfUnchanged(IDocumentSession session, ClientKeyPair expiredPair) {
+        try {
+            session.Delete(SessionKeyDocumentId(expiredPair.AccountId), session.Advanced.GetChangeVectorFor(expiredPair));
+            session.SaveChanges();
+        } catch (ConcurrencyException) {
+            // A login replaced or removed the row after it was read; that row is not ours to delete.
+        }
     }
 
     private static string SessionKeyDocumentId(ulong accountId)
