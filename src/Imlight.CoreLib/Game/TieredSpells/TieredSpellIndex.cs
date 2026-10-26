@@ -92,9 +92,18 @@ internal sealed class TieredSpellIndex : RootSingleResourceSingleton<TieredSpell
             .Select((group, index) => new IndexedTieredSpellGroup(
                 group.m_tierOneSpell.ToString(),
                 group.m_shardType.Full,
-                [.. spellsByGroup[index]]))
+                [.. spellsByGroup[index]],
+                group.m_returnRate,
+                group.m_goldResetNonSubscribers,
+                group.m_crownsResetNonSubscribers))
             .ToList();
     }
+
+    /// <summary>
+    /// The index of the group a spell is a tier of, or TieredSpellLedger.NoGroup.
+    /// </summary>
+    internal int GroupIndexOf(string spellName)
+        => TieredSpellLedger.ResolveGroup(Groups, spellName, spellName);
 
     public void DisposeStream() => Stream.Dispose();
 

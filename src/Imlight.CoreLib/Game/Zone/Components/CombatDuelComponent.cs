@@ -62,6 +62,8 @@ using Imlight.CoreLib.Game.PvP;
 using Imlight.CoreLib.Game.PvP.Arena;
 using Imlight.CoreLib.Game.PvP.Data;
 using Imlight.CoreLib.Game.Sigils;
+using Imlight.CoreLib.Game.Spells;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
@@ -70,7 +72,6 @@ using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.WizardData.Models.World;
-using Imcodec.Cryptography;
 
 namespace Imlight.CoreLib.Game.Zone.Components;
 
@@ -552,7 +553,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
                     }
                 }
                 else {
-                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget);
+                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget, message.SelectedTieredSpellID, message.TieredSpells);
                 }
                 break;
             case CombatMoveType.Flee:
@@ -1836,7 +1837,20 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
     }
 
-    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget) {
+    private static uint? CastTierOf(Spell dealt, int selectedTieredSpellId, IReadOnlyList<TieredSpellProgress> tieredSpells) {
+        var index = TieredSpellIndex.Instance;
+        var selectedSpellId = (uint) Math.Max(selectedTieredSpellId, 0);
+        var selectedGroupIndex = selectedSpellId == 0 ? TieredSpellLedger.NoGroup : index.GroupIndexOf(SpellNameOf(selectedSpellId));
+
+        return TieredSpellLedger.CastTier(tieredSpells, dealt.m_templateID, index.GroupIndexOf(SpellNameOf(dealt.m_templateID)),
+            selectedSpellId, selectedGroupIndex);
+    }
+
+    private static string SpellNameOf(uint templateId)
+        => (CoreObjectFactory.GetCoreTemplate(templateId) as SpellTemplate)?.m_name.ToString();
+
+    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget, int selectedTieredSpellId,
+        IReadOnlyList<TieredSpellProgress> tieredSpells) {
         var spell = caster.GetSpellFromLastHand((byte) spellSelection);
         if (spell is null) {
             Logger.Warning("Duel {0} | Slot {1} | Attack received for an empty hand slot ({2}).",
@@ -1845,6 +1859,24 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             CombatResolver.AddCombatMove(CombatMoveType.Pass, caster, null, null);
 
             return;
+        }
+
+        var castSpellId = CastTierOf(spell, selectedTieredSpellId, tieredSpells);
+        if (castSpellId is null) {
+            Logger.Warning("Duel {0} | Slot {1} | Dealt tier {2} is no longer trained; passing.",
+                Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, spell.m_templateID));
+
+            CombatResolver.AddCombatMove(CombatMoveType.Pass, caster, null, null);
+
+            return;
+        }
+
+        if (castSpellId != spell.m_templateID) {
+            spell = SpellFactory.GetSpell(castSpellId.Value) ?? spell;
+        }
+        else if (selectedTieredSpellId > 0 && selectedTieredSpellId != spell.m_templateID) {
+            Logger.Debug("Duel {0} | Slot {1} | Selected tier {2} is not trained or not of card {3}; casting the card.",
+                Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, selectedTieredSpellId, spell.m_templateID));
         }
 
         if (IsEnchantment(spell)) {

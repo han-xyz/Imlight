@@ -55,4 +55,28 @@ public sealed class ReagentBagTests {
         Assert.Equal(12, normal.m_quantity);
     }
 
+    [Fact]
+    public void AddReagents_OverTheStackLimit_AddsNothing() {
+        var stack = new ClientReagentItem { m_templateID = 7, m_quantity = ServerAlchemyBehavior.MaxReagentStack - 5 };
+        var bag = new ServerAlchemyBehavior { Reagents = [stack], ReagentItemIds = [] };
+
+        Assert.False(bag.AddReagents(7, 6, () => new ClientReagentItem(), out _));
+
+        Assert.Equal(ServerAlchemyBehavior.MaxReagentStack - 5, stack.m_quantity);
+    }
+
+    [Fact]
+    public void AddReagents_GrowsTheStackOrStartsOne() {
+        var stack = new ClientReagentItem { m_templateID = 7, m_quantity = 3 };
+        var bag = new ServerAlchemyBehavior { Reagents = [stack], ReagentItemIds = [] };
+
+        Assert.True(bag.AddReagents(7, 50, () => new ClientReagentItem(), out var grown));
+        Assert.True(bag.AddReagents(8, 40, () => new ClientReagentItem { m_templateID = 8 }, out var started));
+
+        Assert.Same(stack, grown);
+        Assert.Equal(53, stack.m_quantity);
+        Assert.Equal(40, started.m_quantity);
+        Assert.Same(started, bag.GetReagent(8));
+    }
+
 }

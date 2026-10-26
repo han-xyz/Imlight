@@ -26,7 +26,9 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Bank;
 using Imlight.CoreLib.Game.Cantrips;
+using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
@@ -309,6 +311,33 @@ internal class CommandModifyProtocol : CommandProtocol {
         Context.SessionActor.Tell(updateMessage, null);
 
         InformSenderClient($"Added reagent {reagentObj.m_debugName} to reagent bag.");
+    }
+
+    [Command("addreagents")]
+    [AuthRequired(AuthLevel.QualityAssurance)]
+    private void AddReagentsCommand(string templateId, string count) {
+        if (!ulong.TryParse(templateId, out var templateIdLong)
+            || CoreObjectFactory.GetCoreTemplate(templateIdLong) is not ReagentItemTemplate) {
+            InformSenderClient("Invalid reagent id.");
+
+            return;
+        }
+
+        if (!int.TryParse(count, out var countInt) || countInt <= 0) {
+            InformSenderClient("Invalid count.");
+
+            return;
+        }
+
+        var held = Context.Character.AlchemyBehavior.GetReagent(templateIdLong)?.m_quantity ?? 0;
+        var granted = Math.Min(countInt, ServerAlchemyBehavior.MaxReagentStack - held);
+        if (granted <= 0 || !LootGranter.GrantReagents(Context.SessionActor, Context.Character, templateIdLong, granted)) {
+            InformSenderClient("The reagent stack is full.");
+
+            return;
+        }
+
+        InformSenderClient($"Added {granted} of {countInt} reagents {templateIdLong} to reagent bag.");
     }
 
     [Command("name")]

@@ -25,6 +25,7 @@ using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Zone.Components;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
+using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Shared.Packets; 
 
@@ -122,6 +123,7 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
         public uint RawSpellTarget;
         public int ShadowPactTarget;
         public int SelectedTieredSpellID;
+        public IReadOnlyList<TieredSpellProgress> TieredSpells;
 
     }
 

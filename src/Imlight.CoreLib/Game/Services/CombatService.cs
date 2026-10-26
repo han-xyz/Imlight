@@ -42,6 +42,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.IO;
@@ -52,6 +53,8 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.DropTables;
+using Imlight.CoreLib.Game.Housing.Items;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -267,10 +270,22 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             RawSpellTarget = message.SpellTarget,
             TimeLeft = message.TimeLeft,
             ShadowPactTarget = message.ShadowPactTarget, // -1 (If not used(?))
-            SelectedTieredSpellID = message.SelectedTieredSpellID
+            SelectedTieredSpellID = message.SelectedTieredSpellID,
+            TieredSpells = TieredSpellSnapshot(),
         };
 
         _currentDuelActor.Tell(msg);
+    }
+
+    private List<TieredSpellProgress> TieredSpellSnapshot() {
+        var wizard = GetActiveWizard();
+        if (wizard is null) {
+            return [];
+        }
+
+        lock (HousingItems.BackpackLock(wizard)) {
+            return [.. wizard.TieredSpells.Select(TieredSpellLedger.Copy)];
+        }
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_NOAGGROGRACEOVER))]

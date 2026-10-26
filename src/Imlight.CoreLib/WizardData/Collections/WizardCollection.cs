@@ -541,6 +541,12 @@ public static class WizardCollection {
         });
     }
 
+    public static void UpdateCharacterTieredSpells(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character =>
+            character.TieredSpells = wizard.TieredSpells
+        );
+    }
+
     public static void UpdateCharacterCSWishlist(Wizard wizard) {
         UpdateCharacter(wizard.CharId, character =>
             character.CrownShopWishlist = wizard.CrownShopWishlist

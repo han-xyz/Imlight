@@ -165,6 +165,7 @@ public class Wizard {
     public ByteString RadialMenu3Data { get; set; } = new ByteString();
 
     public ByteString CrownShopWishlist { get; set; }
+    public List<TieredSpellProgress> TieredSpells { get; set; } = [];
     /// <summary>
     /// Tracks hatched pets for MSG_PETTOMEPETADDED. Key: pet global ID, Value: pet template ID.
     /// Runtime-only; not persisted (the pet tome behavior blob handles persistence).
@@ -983,6 +984,49 @@ public class Wizard {
 
         return true;
     }
+
+    public bool AddReagents(ulong templateId, int count, out ClientReagentItem stack) {
+        if (!AlchemyBehavior.AddReagents(templateId, count, () => NewReagentStack(templateId), out stack)) {
+            return false;
+        }
+
+        // Persistent save. The stored stack takes the bag's quantity, whether the stack is new or grown.
+        WizardReagentCollection.AddReagent(stack);
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    private ClientReagentItem NewReagentStack(ulong templateId) {
+        if (CoreObjectFactory.FinalizeCoreObject(templateId) is not ClientReagentItem stack) {
+            return null;
+        }
+
+        stack.m_characterId = (GID) CharId;
+
+        return stack;
+    }
+
+    public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem reagent) {
+        if (!AlchemyBehavior.RemoveReagents(templateId, count, out reagent)) {
+            return false;
+        }
+
+        // Persistent save.
+        if (reagent.m_quantity <= 0) {
+            WizardReagentCollection.RemoveReagent(reagent);
+        }
+        else {
+            WizardReagentCollection.UpdateReagent(reagent);
+        }
+
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    public void SaveTieredSpells()
+        => WizardCollection.UpdateCharacterTieredSpells(this);
 
     public void SetNameOverride(string newName) {
         PlayerNameBehavior.NameOverride = newName;
