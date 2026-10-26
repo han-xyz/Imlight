@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -43,7 +43,10 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Wad;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Pet.Config;
+using Imlight.CoreLib.Game.Pet.Progression;
 using Imlight.CoreLib.Shared.Resources;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -120,6 +123,33 @@ public sealed class PetItemBehaviorTests {
 
         Assert.Contains(extraName, pet.m_inactiveBehaviors);
     }
+
+    [RootWadFact]
+    public void CreatedPet_HasMaximumHappiness() {
+        LoadGameData();
+
+        Assert.True(new Wizard { CharId = OwnerId }.TryCreateItem(ZappyGlowbugTemplateId, out var pet));
+
+        Assert.Equal((uint) PetRules.MaximumHappiness, PetItemOf(pet).m_maximumHappiness);
+    }
+
+    [RootWadFact]
+    public void StoredPet_CompletedOnLoadHasMaximumHappinessInTemplateSlots() {
+        LoadGameData();
+        var pet = new WizClientObjectItem {
+            m_templateID = ZappyGlowbugTemplateId,
+            m_inactiveBehaviors = [new ClientPetItemBehavior { m_level = 3 }, new ClientPetNameBehavior { m_nameKeys = 42 }],
+        };
+
+        CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+
+        Assert.True(PetProgression.EnsureInitialized(pet));
+        Assert.Equal((uint) PetRules.MaximumHappiness, PetItemOf(pet).m_maximumHappiness);
+        Assert.Equal(s_glowbugSlotTypes, pet.m_inactiveBehaviors.Select(behavior => behavior?.GetType()));
+    }
+
+    private static ClientPetItemBehavior PetItemOf(WizClientObjectItem pet)
+        => pet.m_inactiveBehaviors.OfType<ClientPetItemBehavior>().Single();
 
     private static void LoadGameData() {
         InitializeQuietLogging();

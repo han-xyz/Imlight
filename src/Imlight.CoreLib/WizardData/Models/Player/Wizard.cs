@@ -450,8 +450,13 @@ public class Wizard {
     public bool TryCreateItem(ulong templateId, out WizClientObjectItem item) {
         if (templateId <= uint.MaxValue && PetFactory.IsPetTemplate((uint) templateId)) {
             item = PetFactory.CreateHatchedPet(CharId, (uint) templateId);
+            if (item is null) {
+                return false;
+            }
 
-            return item is not null;
+            PetProgression.EnsureInitialized(item);
+
+            return true;
         }
 
         // The template may be a spell, a missing template or anything else that is not an item.
