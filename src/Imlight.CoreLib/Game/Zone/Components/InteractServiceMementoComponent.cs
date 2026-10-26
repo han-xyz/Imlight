@@ -173,6 +173,9 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     internal ServiceOptionBase FindSentOption(ulong playerId, IServiceComponent owner, uint localIndex)
         => _optionTable.TryGetSentOption(playerId, owner, localIndex, out var option) ? option : null;
 
+    internal bool TryFindServiceIndex(ulong playerId, IServiceComponent owner, out uint serviceIndex)
+        => _optionTable.TryFindServiceIndex(playerId, owner, out serviceIndex);
+
     internal void ResendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId) {
         SendLeaveServiceRange(playerActor);
         SendServiceOptions(playerActor, wizard, playerId, reinteract: 2);

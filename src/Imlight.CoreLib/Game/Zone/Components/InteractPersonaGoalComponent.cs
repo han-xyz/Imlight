@@ -431,10 +431,19 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return;
         }
 
+        var questOffer = Entity.GetComponentOfType<InteractQuestOfferComponent>();
+        if (questOffer is null
+            || !serviceMementoComponent.TryFindServiceIndex(message.PlayerObject.m_globalID.Full, questOffer, out var serviceIndex)) {
+            Logger.Debug("Dropping delayed quest offer of NPC {Npc}: no quest offer listed for the player",
+                Logger.Args(Entity.ActiveGameObject.m_debugName));
+
+            return;
+        }
+
         var questOfferMsg = new ZONE_102_PROTOCOL.MSG_ZONEINTERACTION {
             GlobalID = Entity.ActiveGameObject.m_nMobileID,
-            ServiceName = "QuestOfferService",
-            ServiceIndex = 0,
+            ServiceName = questOffer.ServiceName,
+            ServiceIndex = serviceIndex,
             PlayerActor = message.PlayerActor,
             PlayerCharacter = message.PlayerCharacter,
             PlayerObject = message.PlayerObject,

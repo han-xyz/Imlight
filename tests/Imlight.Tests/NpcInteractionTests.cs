@@ -98,6 +98,18 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
+    public void OptionTable_FindServiceIndex_ReturnsOwnersFirstFlatIndex() {
+        var vendor = new FakeService();
+        var offer = new FakeService();
+        var table = new ServiceOptionTable();
+        table.Build(FirstPlayer, [(vendor, [new EquipmentShopOption()]), (offer, [new EquipmentShopOption(), new EquipmentShopOption()])]);
+
+        Assert.True(table.TryFindServiceIndex(FirstPlayer, offer, out var index));
+        Assert.Equal(1u, index);
+        Assert.False(table.TryFindServiceIndex(FirstPlayer, new FakeService(), out _));
+    }
+
+    [Fact]
     public void Vendor_NoInventory_OffersNoShopOption() {
         var vendor = new InteractVendorComponent(null!);
 
