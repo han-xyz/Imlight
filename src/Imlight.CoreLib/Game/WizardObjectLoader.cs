@@ -21,6 +21,7 @@ using Imcodec.IO;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.CoreLib.Game.Bank;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -78,7 +79,7 @@ public static class WizardObjectLoader {
 
     public static void RemoveOwnerOnlyData(WizClientObject clientObject) {
         if (CoreObjectFactory.FindBehaviorInstance<HiddenQuestsBehavior>(clientObject, out var hiddenQuestsBehavior)) {
-            hiddenQuestsBehavior.m_hiddenQuestsData = ByteString.Empty;
+            hiddenQuestsBehavior.m_hiddenQuestsData = HiddenQuestsBlob.Empty;
         }
     }
 
@@ -219,7 +220,9 @@ public static class WizardObjectLoader {
 
     public static void SetHiddenQuestsBehavior(WizClientObject clientObject, Wizard character) {
         if (CoreObjectFactory.FindBehaviorInstance<HiddenQuestsBehavior>(clientObject, out var hiddenQuestsBehavior)) {
-            hiddenQuestsBehavior.m_hiddenQuestsData = character.HiddenQuestsData;
+            hiddenQuestsBehavior.m_hiddenQuestsData = character.HiddenQuestsData.IsEmpty
+                ? HiddenQuestsBlob.Empty
+                : character.HiddenQuestsData;
         }
     }
 
