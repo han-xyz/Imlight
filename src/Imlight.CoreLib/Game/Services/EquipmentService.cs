@@ -40,7 +40,7 @@
  * 
  * Created by: Joji
  * Version: KALI 1.0
- * Last Updated: 10/15/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -689,6 +689,29 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
+    private void UseBackpackExpansion(Wizard wizard, WizClientObjectItem item, ElixirBehaviorTemplate elixirTemplate) {
+        var result = BackpackExpansion.TryUse(wizard, item, () => WizardCollection.UpdateCharacterItems(wizard));
+        if (result == BackpackExpansionResult.AtLimit) {
+            InformGameClient("Your backpack cannot be expanded any further.");
+            return;
+        }
+
+        if (result != BackpackExpansionResult.Expanded) {
+            Logger.Warning("Player {0} could not use backpack elixir {1}: {2}.",
+                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), item.m_globalID, result));
+            return;
+        }
+
+        WizardItemCollection.RemoveItem(wizard.CharId, item.m_globalID);
+
+        SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_REMOVEITEM {
+            GlobalID = wizard.GameObjectID,
+            ItemID = item.m_globalID
+        });
+        SendToSocket(BackpackExpansion.ExtraInventoryUpdate(wizard));
+        PlaySound(elixirTemplate.m_equipSound);
+    }
+
     private void EquipElixirFromInventory(Wizard wizard,
                                           WizClientObjectItem item,
                                           WizItemTemplate itemTemplate,
@@ -737,6 +760,11 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
                 (zone, effects, isPrivate, ownerCharId, location) => Teleport(zone, effects, isPrivate, ownerCharId, location),
                 PlaySound
             );
+            return;
+        }
+
+        if (BackpackExpansion.IsBackpackExpansion(item.m_templateID)) {
+            UseBackpackExpansion(wizard, item, elixirTemplate);
             return;
         }
 

@@ -244,6 +244,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
+        if (!isGift && BackpackExpansion.IsBackpackExpansion(message.Item) && !BackpackExpansion.MayPurchase(wizard, message.Count)) {
+            SendPurchaseError(s_errorMaxElixirs, message.Item, wizard.IsInDuel);
+            return;
+        }
+
         if (!isGift && !HasInventorySpaceFor(wizard, itemTemplate, message.Count)) {
             SendPurchaseError(s_errorInvFull, message.Item, wizard.IsInDuel);
             return;
@@ -811,6 +816,17 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         var durationSeconds = 0u;
         if (!string.IsNullOrEmpty(elixirTemplate.m_expireTime)) {
             _ = uint.TryParse(elixirTemplate.m_expireTime.ToString(), out durationSeconds);
+        }
+
+        if (BackpackExpansion.IsBackpackExpansion(templateId)) {
+            var result = BackpackExpansion.TryExpand(wizard, () => WizardCollection.UpdateCharacterItems(wizard));
+            if (result != BackpackExpansionResult.Expanded) {
+                return false;
+            }
+
+            SendToSocket(BackpackExpansion.ExtraInventoryUpdate(wizard));
+            PlaySound(elixirTemplate.m_equipSound);
+            return true;
         }
 
         // Case 1: Instant refill (duration == 0).
