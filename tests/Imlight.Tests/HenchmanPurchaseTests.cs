@@ -43,6 +43,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Combat;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Groups;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.Game.Zone.Components;
 using Xunit;
 
@@ -206,6 +207,17 @@ public sealed class HenchmanPurchaseTests {
         } finally {
             GroupRegistry.Withdraw(channel, [fighter, groupMate]);
         }
+    }
+
+    [Theory]
+    [InlineData(100, -40, true, 60)]
+    [InlineData(100, -100, true, 0)]
+    [InlineData(100, -150, false, 100)]
+    [InlineData(100, 400, true, 500)]
+    [InlineData(int.MaxValue, 1, false, int.MaxValue)]
+    public void CrownsDelta_AppliesToTheStoredBalanceOrRefuses(int stored, int delta, bool applied, int expected) {
+        Assert.Equal(applied, Account.TryApplyCrownsDelta(stored, delta, out var balance));
+        Assert.Equal(expected, balance);
     }
 
     [Theory]

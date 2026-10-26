@@ -394,18 +394,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return 0;
         }
 
-        var crowns = wizard.Account.Crowns;
-        if (crowns < amount) {
-            return s_errorNotEnoughCrowns;
-        }
-
-        if (!wizard.Account.SetCrowns(crowns - amount)) {
-            Logger.Error("Could not save the crowns debit for account {0}.", Logger.Args(wizard.AccountId));
-            wizard.Account.Crowns = crowns;
-            return s_errorPurchase;
-        }
-
-        return 0;
+        return wizard.Account.TryAdjustCrowns(-amount) ? 0 : s_errorNotEnoughCrowns;
     }
 
     private static void Refund(Wizard wizard, int currency, int amount) {
@@ -414,7 +403,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (!wizard.Account.SetCrowns(wizard.Account.Crowns + amount)) {
+        if (!wizard.Account.TryAdjustCrowns(amount)) {
             Logger.Error("Could not save the refund of {0} crowns for account {1}.", Logger.Args(amount, wizard.AccountId));
         }
     }

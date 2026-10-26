@@ -483,6 +483,20 @@ public static class AccountCollection {
         });
     }
 
+    public static bool TryAdjustCrowns(ulong accountId, int delta, out int balance) {
+        // Applied to the stored balance under the account's write lane, never to a session's cached copy,
+        // so two sessions of one account cannot overwrite each other's spend or refund.
+        var applied = false;
+        var stored = 0;
+        var found = UpdateAccount(accountId, acc => {
+            applied = Account.TryApplyCrownsDelta(acc.Crowns, delta, out stored);
+            acc.Crowns = stored;
+        });
+
+        balance = stored;
+        return found && applied;
+    }
+
     public static bool AddGiftMail(ulong accountId, Mail mail) {
         return UpdateAccount(accountId, acc => {
             acc.GiftMailbox ??= new();
