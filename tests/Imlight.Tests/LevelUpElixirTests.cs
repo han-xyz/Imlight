@@ -21,7 +21,8 @@
  * 
  * PURPOSE:
  * Behaviour tests for the backpack space a level-up or world elixir needs
- * for the items and gear it gives the player's school.
+ * for the items and gear it gives the player's school, and the quest-start
+ * message for the quests it adds.
  * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
@@ -32,11 +33,16 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
+using System.Linq;
+using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Elixirs;
+using Imlight.CoreLib.Game.Services;
+using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -60,6 +66,22 @@ public sealed class LevelUpElixirTests {
     [Fact]
     public void InventorySlotsNeeded_SchoolWithoutData_CountsAllSchoolOnly() {
         Assert.Equal(2, LevelUpElixirHelper.InventorySlotsNeeded(s_elixir, "Storm"));
+    }
+
+    [Fact]
+    public void QuestStartMessage_ShowsStoredRewards() {
+        var template = new QuestTemplate { m_questName = "Elixir Entry", m_goals = [], m_startGoals = [] };
+        var started = QuestService.StartQuestInstance(template, 1,
+            _ => new DropTableResult { Items = [new DropItemResult { ItemId = "4242", Quantity = 1 }] },
+            _ => true);
+
+        var message = LevelUpElixirHelper.BuildQuestStartingMessage(started, template, new Wizard { CharId = 1 });
+
+        var serializer = new ObjectSerializer(Versionable: false, Behaviors: SerializerFlags.None);
+        Assert.True(serializer.Deserialize<LootInfoList>((byte[]) message.Rewards, 1u, out var loot));
+        Assert.NotNull(loot);
+        var item = Assert.IsType<ItemLootInfo>(Assert.Single(loot.m_loot));
+        Assert.Equal(4242UL, (ulong) item.m_itemID);
     }
 
 }
