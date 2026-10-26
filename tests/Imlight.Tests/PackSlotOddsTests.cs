@@ -111,17 +111,49 @@ public sealed class PackSlotOddsTests {
     }
 
     [Fact]
+    public void ResolveSlot_SkipsAnUntieredSlotThatMissesItsRollChance() {
+        var shards = Table("WC-Shards", rollChance: 0.5);
+
+        Assert.Null(Resolve(shards, [shards], 0.9));
+    }
+
+    [Fact]
+    public void ResolveSlot_FallsBackWithinTheSlotsOwnHoard() {
+        var skyvernWildcard = Table("SkyvernHoardLT-Wildcard");
+        var ninjaWildcard = Table("NinjaLorePackLT-Wildcard");
+        var ninjaRare = Table("NinjaLorePackLT-Rare");
+        var skyvernRare = Table("SkyvernHoardLT-Rare");
+        var skyvernUncommon = Table("SkyvernHoardLT-UnCommon");
+        var ninjaUncommon = Table("NinjaLorePackLT-UnCommon");
+        IReadOnlyList<DropTable> set84 =
+            [skyvernWildcard, ninjaWildcard, ninjaRare, skyvernRare, skyvernUncommon, ninjaUncommon, Table("NinjaLorePackLT-UnCommon")];
+
+        Assert.Same(skyvernRare, Resolve(skyvernWildcard, set84, 0.5, 0.01));
+        Assert.Same(ninjaRare, Resolve(ninjaWildcard, set84, 0.5, 0.01));
+        Assert.Same(skyvernUncommon, Resolve(skyvernRare, set84, 0.5));
+        Assert.Same(ninjaUncommon, Resolve(ninjaRare, set84, 0.5));
+    }
+
+    [Fact]
+    public void ResolveSlot_WrapsToAnEarlierTableOfTheSameHoard() {
+        var uncommon = Table("ImmortalsLorePackLT-Uncommon");
+        var rare = Table("ImmortalsLorePackLT-Rare");
+
+        Assert.Same(uncommon, Resolve(rare, [uncommon, Table("NinjaLorePackLT-Uncommon"), rare], 0.5));
+    }
+
+    [Fact]
     public void ResolveSlot_UsesTheTableChanceWhenTheDataSetsOne() {
         var uncommon = Table("Set-Uncommon", rollChance: 0.98, noneChance: 0.02);
 
-        Assert.Same(uncommon, Resolve(uncommon, [uncommon, s_common], 0.5));
+        Assert.Same(uncommon, Resolve(uncommon, [uncommon, Table("Set-Common")], 0.5));
     }
 
     [Fact]
     public void ResolveSlot_IgnoresPityWhenTheDataLeavesItAtZero() {
         var pity = new PackPity();
         for (var i = 0; i < 10; i++) {
-            Assert.Same(s_common, PackSlotOdds.ResolveSlot(s_rare, [s_rare, s_common], PackTierChances.Default,
+            Assert.Same(s_common, PackSlotOdds.ResolveSlot(0, [s_rare, s_common], PackTierChances.Default,
                 new FixedRandom(0.99, 0.99), pity));
         }
     }
@@ -130,13 +162,14 @@ public sealed class PackSlotOddsTests {
     public void ResolveSlot_GrantsRareAfterThePityCountOfFailedGates() {
         var rare = Table("Set-Rare", pityCounter: 2);
         var pity = new PackPity();
-        IReadOnlyList<DropTable> pack = [rare, s_common];
+        var common = Table("Set-Common");
+        IReadOnlyList<DropTable> pack = [rare, common];
 
         var resolved = Enumerable.Range(0, 4)
-            .Select(_ => PackSlotOdds.ResolveSlot(rare, pack, PackTierChances.Default, new FixedRandom(0.99, 0.99), pity))
+            .Select(_ => PackSlotOdds.ResolveSlot(0, pack, PackTierChances.Default, new FixedRandom(0.99, 0.99), pity))
             .ToList();
 
-        Assert.Equal([s_common, s_common, rare, s_common], resolved);
+        Assert.Equal([common, common, rare, common], resolved);
     }
 
     [Fact]
@@ -159,8 +192,19 @@ public sealed class PackSlotOddsTests {
         Assert.InRange(secondPicks, 4_800, 5_200);
     }
 
-    private static DropTable Resolve(DropTable slot, IReadOnlyList<DropTable> pack, params double[] rolls)
-        => PackSlotOdds.ResolveSlot(slot, pack, PackTierChances.Default, new FixedRandom(rolls), new PackPity());
+    private static DropTable? Resolve(DropTable slot, IReadOnlyList<DropTable> pack, params double[] rolls)
+        => PackSlotOdds.ResolveSlot(pack.ToList().IndexOf(slot), pack, PackTierChances.Default, new FixedRandom(rolls),
+            new PackPity());
+
+    [Fact]
+    public void PickWeighted_IsUniformWhenNoItemHasAPositiveWeight() {
+        List<DropItem> items = [new() { ItemId = "1", Weight = 0 }, new() { ItemId = "2", Weight = -1 }];
+        var random = new Random(52);
+
+        var firstPicks = Enumerable.Range(0, 10_000).Count(_ => DropTableRoller.PickWeighted(items, random) == 0);
+
+        Assert.InRange(firstPicks, 4_800, 5_200);
+    }
 
     private static DropTable Table(string name, double rollChance = 1.0, double noneChance = 0.0, double pityCounter = 0.0)
         => new() { Name = name, RollChance = rollChance, NoneChance = noneChance, PityCounter = pityCounter };

@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- *
  * ========================================================================
  * PACK SLOT ODDS
  * ========================================================================
@@ -29,7 +28,8 @@
  * 
  * NOTE:
  * The tier comes from the slot's table name. A table whose RollChance or NoneChance differs from 1 and 0 uses its
- * own chance instead of the [Packs] one.
+ * own chance instead of the [Packs] one. A slot falls back only within its own hoard, the tables whose names share
+ * its prefix (combo packs list two hoards). Pity counts live in memory and reset on restart.
  * 
  * TODO:
  * 
@@ -41,6 +41,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Imlight.Common;
 using Imlight.CoreLib.WizardData.Models.World;
 
@@ -84,15 +85,26 @@ internal sealed record PackTierChances(double Wildcard, double Rare, double Unco
 /// </summary>
 internal sealed class PackPity {
 
+    private readonly Lock _lock = new();
     private int _failedRareGates;
 
-    internal bool IsDue(int threshold) => threshold > 0 && _failedRareGates >= threshold;
+    internal bool IsDue(int threshold) {
+        lock (_lock) {
+            return threshold > 0 && _failedRareGates >= threshold;
+        }
+    }
 
-    internal void Record(bool passed) => _failedRareGates = passed ? 0 : _failedRareGates + 1;
+    internal void Record(bool passed) {
+        lock (_lock) {
+            _failedRareGates = passed ? 0 : _failedRareGates + 1;
+        }
+    }
 
 }
 
 internal static class PackSlotOdds {
+
+    private static readonly string[] s_tierWords = ["Wildcard", "Uncommon", "Rare", "Common"];
 
     /// <summary>
     /// The tier a pack slot table carries in its name, or <c>null</c> for a table that names none.
@@ -118,19 +130,27 @@ internal static class PackSlotOdds {
     }
 
     /// <summary>
-    /// The table a slot rolls this opening: the slot's own table when its tier gate passes, else the first table of
-    /// the next lower tier in the pack whose gate passes. The lowest tier the pack carries needs no gate. A slot with
-    /// no tier in its name keeps its own table.
+    /// The table the slot at <paramref name="slotIndex"/> rolls this opening: the slot's own table when its tier gate
+    /// passes, else a table of the next lower tier in the slot's hoard whose gate passes, taking the nearest one after
+    /// the slot and wrapping around. The lowest tier the hoard carries needs no gate. A slot with no tier in its name
+    /// keeps its own table, or yields <c>null</c> when it misses the table's own <see cref="DropTable.RollChance"/>.
     /// </summary>
-    internal static DropTable ResolveSlot(DropTable slotTable, IReadOnlyList<DropTable> packTables,
-                                          PackTierChances chances, Random random, PackPity pity) {
+    internal static DropTable? ResolveSlot(int slotIndex, IReadOnlyList<DropTable> packTables,
+                                           PackTierChances chances, Random random, PackPity pity) {
+        var slotTable = packTables[slotIndex];
         if (TierOf(slotTable.Name) is not { } slotTier) {
-            return slotTable;
+            return random.NextDouble() > slotTable.RollChance ? null : slotTable;
         }
+
+        var hoard = HoardOf(slotTable.Name);
+        var hoardTablesAfterSlot = Enumerable.Range(1, packTables.Count - 1)
+            .Select(offset => packTables[(slotIndex + offset) % packTables.Count])
+            .Where(table => HoardOf(table.Name).Equals(hoard, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         var candidates = new List<(PackTier Tier, DropTable Table)> { (slotTier, slotTable) };
         for (var tier = slotTier - 1; tier >= PackTier.Common; tier--) {
-            var tierTable = packTables.FirstOrDefault(table => TierOf(table.Name) == tier);
+            var tierTable = hoardTablesAfterSlot.FirstOrDefault(table => TierOf(table.Name) == tier);
             if (tierTable is not null) {
                 candidates.Add((tier, tierTable));
             }
@@ -143,6 +163,16 @@ internal static class PackSlotOdds {
         }
 
         return candidates[^1].Table;
+    }
+
+    private static string HoardOf(string tableName) {
+        var tierStart = s_tierWords
+            .Select(word => tableName.IndexOf(word, StringComparison.OrdinalIgnoreCase))
+            .Where(index => index >= 0)
+            .DefaultIfEmpty(tableName.Length)
+            .Min();
+
+        return tierStart == 0 ? string.Empty : tableName[..(tableName.LastIndexOf('-', tierStart - 1) + 1)];
     }
 
     private static bool PassesGate(PackTier tier, DropTable table, PackTierChances chances, Random random, PackPity pity) {

@@ -141,11 +141,16 @@ public static class PackManager {
         }
 
         var chances = PackTierChances.FromConfiguration();
-        var pity = s_pity.GetOrAdd((wizard.Account.AccountId, packTemplateId), _ => new PackPity());
+        var pity = packTables.Any(table => table.PityCounter > 0)
+            ? s_pity.GetOrAdd((wizard.Account.AccountId, packTemplateId), _ => new PackPity())
+            : new PackPity();
         for (var i = 0; i < count; i++) {
             var rolledDrops = new List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)>();
-            foreach (var slotTable in packTables) {
-                var slotLoot = PackSlotOdds.ResolveSlot(slotTable, packTables, chances, Random.Shared, pity);
+            for (var slotIndex = 0; slotIndex < packTables.Count; slotIndex++) {
+                if (PackSlotOdds.ResolveSlot(slotIndex, packTables, chances, Random.Shared, pity) is not { } slotLoot) {
+                    continue;
+                }
+
                 var tableName = slotLoot.Name;
                 var droppedItems = DropTableRoller.RollTableItems(slotLoot, sessionActorRef, wizard.GameObject, wizard, Random.Shared);
                 foreach (var droppedItem in droppedItems) {
