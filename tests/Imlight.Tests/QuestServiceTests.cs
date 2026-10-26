@@ -197,29 +197,74 @@ public sealed class QuestServiceTests {
 
     [Fact]
     public void TurnIn_KillsOutstandingAndPersonaLast_NotReady() {
-        var quest = QuestWithKillThenPersona();
+        var template = KillThenPersonaQuest();
+        var quest = new QuestInstance(template, 1);
         quest.StartGoal("Kill");
         quest.StartGoal("TalkToNpc");
 
-        Assert.False(quest.IsReadyForTurnIn());
+        Assert.False(quest.IsReadyForTurnIn(template));
     }
 
     [Fact]
     public void TurnIn_KillsDoneAndPersonaActive_Ready() {
-        var quest = QuestWithKillThenPersona();
+        var template = KillThenPersonaQuest();
+        var quest = new QuestInstance(template, 1);
         quest.StartGoal("Kill");
         quest.CompleteGoal("Kill");
         quest.StartGoal("TalkToNpc");
 
-        Assert.True(quest.IsReadyForTurnIn());
+        Assert.True(quest.IsReadyForTurnIn(template));
     }
 
     [Fact]
     public void TurnIn_UntakenBranchGoalAndPersonaActive_Ready() {
-        var quest = QuestWithKillThenPersona();
+        var template = KillThenPersonaQuest();
+        var quest = new QuestInstance(template, 1);
         quest.StartGoal("TalkToNpc");
 
-        Assert.True(quest.IsReadyForTurnIn());
+        Assert.True(quest.IsReadyForTurnIn(template));
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    public void TurnIn_OneOrBranchDoneOtherStarted_ReadyWhenRequiredCountMet(int requiredOrCount, bool expected) {
+        var template = EmptyQuest("Two Paths");
+        template.m_goals = [
+            new BountyGoalTemplate { m_goalName = "KillPirates", m_goalType = GOAL_TYPE.GOAL_TYPE_BOUNTY, m_bountyTotal = 2 },
+            new BountyGoalTemplate { m_goalName = "KillRats", m_goalType = GOAL_TYPE.GOAL_TYPE_BOUNTY, m_bountyTotal = 2 },
+            new PersonaGoalTemplate { m_goalName = "TalkToNpc", m_goalType = GOAL_TYPE.GOAL_TYPE_PERSONA },
+        ];
+        template.m_goalLogic = [
+            new GoalCompleteLogic { m_goalsOR = ["KillPirates", "KillRats"], m_requiredORCount = requiredOrCount, m_goalsToAdd = ["TalkToNpc"] },
+        ];
+        var quest = new QuestInstance(template, 1);
+        quest.StartGoal("KillPirates");
+        quest.StartGoal("KillRats");
+        quest.CompleteGoal("KillPirates");
+        quest.StartGoal("TalkToNpc");
+
+        Assert.Equal(expected, quest.IsReadyForTurnIn(template));
+    }
+
+    [Fact]
+    public void NextGoals_NoGoalLogic_StartsGoalsInOrderThenCompletes() {
+        var template = EmptyQuest("No Logic");
+        template.m_goals = [
+            new PersonaGoalTemplate { m_goalName = "First", m_goalType = GOAL_TYPE.GOAL_TYPE_PERSONA },
+            new PersonaGoalTemplate { m_goalName = "Second", m_goalType = GOAL_TYPE.GOAL_TYPE_PERSONA },
+        ];
+        template.m_startGoals = ["First"];
+        var quest = new QuestInstance(template, 1);
+        quest.CompleteGoal("First");
+
+        Assert.True(QuestService.DetermineNextGoals(template, quest, out var nextGoals));
+        Assert.Equal(["Second"], nextGoals.Select(g => (string) g.m_goalName));
+
+        quest.StartGoal("Second");
+        quest.CompleteGoal("Second");
+
+        Assert.False(QuestService.DetermineNextGoals(template, quest, out _));
     }
 
     [Fact]
@@ -333,14 +378,14 @@ public sealed class QuestServiceTests {
     private static QuestTemplate EmptyQuest(string name)
         => new() { m_questName = name, m_goals = [], m_startGoals = [] };
 
-    private static QuestInstance QuestWithKillThenPersona() {
+    private static QuestTemplate KillThenPersonaQuest() {
         var template = EmptyQuest("Pesky Pirates");
         template.m_goals = [
             new BountyGoalTemplate { m_goalName = "Kill", m_goalType = GOAL_TYPE.GOAL_TYPE_BOUNTY, m_bountyTotal = 2 },
             new PersonaGoalTemplate { m_goalName = "TalkToNpc", m_goalType = GOAL_TYPE.GOAL_TYPE_PERSONA },
         ];
 
-        return new QuestInstance(template, 1);
+        return template;
     }
 
 }

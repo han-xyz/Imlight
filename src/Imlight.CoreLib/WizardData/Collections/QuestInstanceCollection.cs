@@ -31,11 +31,16 @@ namespace Imlight.CoreLib.WizardData.Collections;
 public static class QuestInstanceCollection {
 
     public const string CollectionName = "QuestInstances";
-    private static readonly IDocumentStore s_store;
-    private static readonly TimeSpan s_nonStaleWaitTimeout = TimeSpan.FromSeconds(2);
+    private const byte DefaultNonStaleWaitSeconds = 2;
 
-    static QuestInstanceCollection() {
-        s_store = PlayerDatabase.Instance.Store;
+    private static IDocumentStore Store => PlayerDatabase.Instance.Store;
+
+    internal static TimeSpan NonStaleWaitTimeout {
+        get {
+            var seconds = ConfigurationManager.Settings["Database.DatabaseWaitForNonStaleResultsTimeout"].AsByte(DefaultNonStaleWaitSeconds);
+
+            return TimeSpan.FromSeconds(seconds > 0 ? seconds : DefaultNonStaleWaitSeconds);
+        }
     }
 
     /// <summary>
@@ -48,7 +53,7 @@ public static class QuestInstanceCollection {
             return false;
         }
 
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         session.Store(questInstance);
         var metadata = session.Advanced.GetMetadataFor(questInstance);
@@ -67,17 +72,17 @@ public static class QuestInstanceCollection {
     /// <param name="questName">The name of the quest instance to remove.</param>
     /// <returns>True if at least one quest instance was removed, false otherwise.</returns>
     public static bool RemoveQuestInstance(ulong charId, string questName) {
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         List<QuestInstance> questInstances;
         try {
             questInstances = session.Query<QuestInstance>(collectionName: CollectionName)
-                .Customize(query => query.WaitForNonStaleResults(s_nonStaleWaitTimeout))
+                .Customize(query => query.WaitForNonStaleResults(NonStaleWaitTimeout))
                 .Where(q => q.OwnerCharId == charId && q.QuestName == questName)
                 .ToList();
         } catch (Exception ex) when (ex is TimeoutException or RavenTimeoutException) {
             Logger.Warning("The QuestInstances index was still stale after {Seconds} s; quest {QuestName} of character {CharId} not removed.",
-                Logger.Args(s_nonStaleWaitTimeout.TotalSeconds, questName, charId));
+                Logger.Args(NonStaleWaitTimeout.TotalSeconds, questName, charId));
 
             return false;
         }
@@ -100,7 +105,7 @@ public static class QuestInstanceCollection {
     /// <param name="questInstanceID">The ID of the quest instance to remove.</param>
     /// <returns>True if the quest instance was removed successfully, false otherwise.</returns>
     public static bool RemoveQuestInstance(ulong questInstanceID) {
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
@@ -120,7 +125,7 @@ public static class QuestInstanceCollection {
     /// <param name="goalName">The name of the goal to start.</param>
     /// <returns>True if the goal was started successfully, false otherwise.</returns>
     public static bool StartQuestGoal(ulong questInstanceID, string goalName) {
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
@@ -145,7 +150,7 @@ public static class QuestInstanceCollection {
     /// <param name="goalName">The name of the goal to increment.</param>
     /// <returns>True if the goal was incremented successfully, false otherwise.</returns>
     public static bool IncrementQuestGoal(ulong questInstanceID, string goalName) {
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
@@ -170,7 +175,7 @@ public static class QuestInstanceCollection {
     /// <param name="goalName">The name of the goal to complete.</param> 
     /// <returns>True if the goal was completed successfully, false otherwise.</returns>
     public static bool CompleteQuestGoal(ulong questInstanceID, string goalName) {
-        using var session = s_store.OpenSession();
+        using var session = Store.OpenSession();
 
         var questInstance = FindQuestInstance(session, questInstanceID);
         if (questInstance == null) {
@@ -191,11 +196,11 @@ public static class QuestInstanceCollection {
     private static QuestInstance FindQuestInstance(IDocumentSession session, ulong questInstanceID) {
         try {
             return session.Query<QuestInstance>(collectionName: CollectionName)
-                .Customize(query => query.WaitForNonStaleResults(s_nonStaleWaitTimeout))
+                .Customize(query => query.WaitForNonStaleResults(NonStaleWaitTimeout))
                 .FirstOrDefault(q => q.ID == questInstanceID);
         } catch (Exception ex) when (ex is TimeoutException or RavenTimeoutException) {
             Logger.Warning("The QuestInstances index was still stale after {Seconds} s; quest instance {QuestInstanceId} not found.",
-                Logger.Args(s_nonStaleWaitTimeout.TotalSeconds, questInstanceID));
+                Logger.Args(NonStaleWaitTimeout.TotalSeconds, questInstanceID));
 
             return null;
         }
