@@ -65,10 +65,12 @@ public sealed class IslandLimitTests {
         }
     }
 
+    private const string QuietLogging = "[Logging]\nLogPath = ./logs/log.txt\nLogLevel = ERROR\nLogFormat = {Message:lj}{NewLine}\nSeqSinkUrl = http://localhost:5341\n";
+
     private static int IslandLimitWith(string ini) {
         var iniFilePath = Path.GetTempFileName();
         try {
-            File.WriteAllText(iniFilePath, ini);
+            File.WriteAllText(iniFilePath, QuietLogging + ini);
             ConfigurationManager.Initialize(iniFilePath);
 
             return new ServerWizGameStats(MagicSchool.Fire, 1).m_maximumNumberOfIslands;
