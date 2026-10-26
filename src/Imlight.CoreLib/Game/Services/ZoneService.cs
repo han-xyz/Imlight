@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty, Jeff
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -465,6 +465,30 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         SendTeleportEffects();
         ReceiveZoneTransferRequest(tpMsg);
+    }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_TEAMUPENTER))]
+    private void ReceiveTeamUpEnter(ZONE_102_PROTOCOL.MSG_TEAMUPENTER message) {
+        var wizard = GetActiveWizard();
+        if (wizard is null || wizard.IsInDuel || _transferGate.IsQueued || _activeSigilEntry is not null) {
+            Logger.Debug("Team-up entry to '{Zone}' skipped: the wizard is busy.", Logger.Args(message.DestinationZone));
+
+            return;
+        }
+
+        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, message.DestinationZone, wizard.Zone);
+        Logger.Debug("Entering team-up dungeon '{Zone}' (owner {CharId}, reset {Reset}).",
+            Logger.Args(message.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
+
+        SendTeleportEffects();
+        ReceiveZoneTransferRequest(new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
+            DestinationZone = message.DestinationZone,
+            DestinationLocation = message.DestinationLoc,
+            SendToClient = true,
+            IsPrivate = true,
+            OwnerCharId = instance.OwnerCharId,
+            ResetInstance = instance.ResetInstance,
+        });
     }
 
     private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {

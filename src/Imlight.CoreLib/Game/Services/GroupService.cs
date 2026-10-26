@@ -40,7 +40,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/15/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -95,6 +95,32 @@ internal class GroupService(SessionActor sessionActor) : MessageService(sessionA
             InviterCharId = wizard.CharId,
             TargetCandidateIds = GetInviteeCandidates(message),
             CharIdsIgnoringInviter = BuddyRelationshipCollection.GetCharactersWhoBlocked(wizard.CharId)
+        });
+    }
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_PARTYREQUESTMEMBERZONES))]
+    private void ReceivePartyRequestMemberZones(GAME_5_PROTOCOL.MSG_PARTYREQUESTMEMBERZONES message) {
+        var charId = GetActiveWizard().CharId;
+
+        SendToSocket(new GAME_5_PROTOCOL.MSG_PARTYSUBMITMEMBERZONES {
+            PartyMemberZones = GroupRegistry.TryGetGroup(charId, out var group) ? PartyMemberZones.Format(group, charId, CurrentZoneOf, BuddyRelationshipCollection.HasBlocked)
+                : string.Empty,
+            DestinationCharacterID = charId
+        });
+    }
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_PARTYZONEREQUEST))]
+    private void ReceivePartyZoneRequest(GAME_5_PROTOCOL.MSG_PARTYZONEREQUEST message) {
+        GroupRegistry.TryGetGroup(message.CharacterID, out var group);
+        if (!PartyMemberZones.CanQuery(GetActiveWizard().CharId, message.CharacterID, group, BuddyRelationshipCollection.HasBlocked)) {
+            group = null;
+        }
+
+        SendToSocket(new GAME_5_PROTOCOL.MSG_PARTYZONEREQUESTRESPONSE {
+            CharacterID = message.CharacterID,
+            PartyID = group?.GroupId ?? 0,
+            PartyTotalSize = (uint) (group?.Members.Count ?? 0),
+            FromAdventureParty = 0
         });
     }
 
@@ -285,6 +311,9 @@ internal class GroupService(SessionActor sessionActor) : MessageService(sessionA
 
         return [.. candidates.Where(candidate => candidate != 0).Distinct()];
     }
+
+    private static string CurrentZoneOf(ulong charId)
+        => OnlinePlayerCollection.GetOnlinePlayer(charId)?.CurrentZone;
 
     private string GetRealmName()
         => AskServer<SERVER_100_PROTOCOL.MSG_SERVERINFO>(new SERVER_100_PROTOCOL.MSG_QUERYSERVER())?.RealmName;
