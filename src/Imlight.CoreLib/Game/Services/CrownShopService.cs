@@ -303,7 +303,9 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         var purchaseId = GenerateRandomUlong() | 1;
-        var error = _henchmanPurchase.Begin(purchaseId, () => TryDebit(wizard, message.Type, amountToPay));
+        var error = _henchmanPurchase.Begin(purchaseId,
+            () => TryDebit(wizard, message.Type, amountToPay),
+            () => Refund(wizard, message.Type, amountToPay));
         if (error != 0) {
             SendPurchaseError(error, message.Item, wizard.IsInDuel);
             return;
@@ -331,8 +333,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     private void ReceiveHenchmanSummoned(COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED message) {
         var wizard = GetActiveWizard();
         var request = message.Request;
-        var refund = () => Refund(wizard, request.Currency, request.Cost);
-        if (!_henchmanPurchase.TryFinish(request.PurchaseId, message.Result, refund, out var error)) {
+        if (!_henchmanPurchase.TryFinish(request.PurchaseId, message.Result, out var error)) {
             Logger.Warning("Henchman purchase {0} of item {1} answered {2} after it was settled.",
                 Logger.Args(request.PurchaseId, request.Item, message.Result));
             if (message.Result == HenchmanSummonResult.Summoned) {
@@ -366,6 +367,16 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             Gifted = 0,
             Type = request.Currency
         });
+    }
+
+    protected override void OnPreDispose() {
+        Timers.Cancel(HenchmanSummonTimeoutKey);
+        if (_henchmanPurchase.TryAbandon()) {
+            Logger.Warning("Session {SessionId} closed with a henchman purchase in flight; payment refunded.",
+                Logger.Args(SessionActor.SessionID));
+        }
+
+        base.OnPreDispose();
     }
 
     private static bool HasInventorySpaceFor(Wizard wizard, CoreTemplate itemTemplate, int count) {

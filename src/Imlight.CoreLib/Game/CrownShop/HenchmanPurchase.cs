@@ -120,17 +120,15 @@ internal static class HenchmanPurchase {
 
 }
 
-/// <summary>
-/// One session's henchman purchase in flight: paid before the summon is asked for, refunded unless it succeeds.
-/// </summary>
+// One session's henchman purchase in flight: paid before the summon is asked for, refunded unless it succeeds.
 internal sealed class HenchmanPurchaseFlow {
 
     private ulong _pendingPurchaseId;
+    private System.Action _refund;
 
     public bool IsPending => _pendingPurchaseId != 0;
 
-    /// <returns>0 when paid and pending, the purchase error while another purchase is pending, or the error from <paramref name="debit"/>.</returns>
-    public int Begin(ulong purchaseId, Func<int> debit) {
+    public int Begin(ulong purchaseId, Func<int> debit, System.Action refund) {
         if (IsPending) {
             return HenchmanPurchase.PurchaseError;
         }
@@ -141,26 +139,40 @@ internal sealed class HenchmanPurchaseFlow {
         }
 
         _pendingPurchaseId = purchaseId;
+        _refund = refund;
         return 0;
     }
 
-    /// <summary>
-    /// Settles the pending purchase with the duel's answer, running <paramref name="refund"/> unless it was summoned.
-    /// </summary>
-    /// <returns>False when <paramref name="purchaseId"/> is not the pending purchase; nothing is refunded then.</returns>
-    public bool TryFinish(ulong purchaseId, HenchmanSummonResult result, System.Action refund, out int error) {
+    public bool TryFinish(ulong purchaseId, HenchmanSummonResult result, out int error) {
         error = 0;
+        // An answer for a purchase already settled (timed out or abandoned) must not refund twice.
         if (!IsPending || purchaseId != _pendingPurchaseId) {
             return false;
         }
 
-        _pendingPurchaseId = 0;
+        var refund = Settle();
         if (result != HenchmanSummonResult.Summoned) {
             refund();
             error = HenchmanPurchase.ErrorFor(result);
         }
 
         return true;
+    }
+
+    public bool TryAbandon() {
+        if (!IsPending) {
+            return false;
+        }
+
+        Settle()();
+        return true;
+    }
+
+    private System.Action Settle() {
+        var refund = _refund;
+        _pendingPurchaseId = 0;
+        _refund = null;
+        return refund;
     }
 
 }
