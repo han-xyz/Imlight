@@ -90,7 +90,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -123,8 +123,22 @@ internal class FriendsService(SessionActor sessionActor) : MessageService(sessio
     private const float QUERY_TELEPORT_WIZARD_TIMEOUT_IN_SECONDS = 2;
     private readonly uint _englishLocaleHash = StringHash.Compute("English");
 
+    private const string MaxFriendsKey = "Character.MaxFriends";
+    private const int DefaultMaxFriends = 100;
+
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new FriendsService(parentActor));
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_REQUESTMAXFRIENDS))]
+    private void ReceiveRequestMaxFriends(GAME_5_PROTOCOL.MSG_REQUESTMAXFRIENDS message) {
+        var maxFriends = ConfigurationManager.GetValue(MaxFriendsKey, DefaultMaxFriends);
+
+        SendToSocket(new GAME_5_PROTOCOL.MSG_REQUESTMAXFRIENDS {
+            RequestingPlayerGID = GetActiveWizard().CharId,
+            MaximumFriends = maxFriends,
+            MaximumSubscriberFriends = maxFriends
+        });
+    }
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_BUDDYREQUESTLIST))]
     private void ReceiveBuddyRequestList(GAME_5_PROTOCOL.MSG_BUDDYREQUESTLIST message) {
