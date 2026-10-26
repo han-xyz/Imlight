@@ -125,7 +125,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
     private bool _isLoading;
     private readonly HashSet<IActorRef> _players = [];
     private const string IDLE_EXPIRE_TIMER = "instance-idle-expire";
-    private const int DEFAULT_INSTANCE_IDLE_MINUTES = 10;
+    private const int DEFAULT_INSTANCE_IDLE_MINUTES = 30;
     private const int PUBLIC_ZONE_IDLE_MINUTES = 10; // todo: tune
     private bool _activitySinceIdleRequest;
     private readonly List<ZONE_102_PROTOCOL.MSG_PLAYERMOVE> _pendingPlayerMoves = [];
@@ -630,9 +630,9 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
             return;
         }
 
-        // Instance.IdleMinutes of 0 or less disables the instance expiry; a join cancels the timer.
+        // Zone.InstanceIdleMinutes of 0 or less disables the instance expiry; a join cancels the timer.
         var minutes = IsInstance
-            ? ConfigurationManager.GetValue("Instance.IdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES)
+            ? ConfigurationManager.GetValue("Zone.InstanceIdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES)
             : PUBLIC_ZONE_IDLE_MINUTES;
         if (minutes <= 0) {
             return;
