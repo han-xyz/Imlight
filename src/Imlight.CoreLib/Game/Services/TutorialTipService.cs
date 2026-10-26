@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Keeps the tutorial tips a character has read, so a read tip stays read after relog.
+ * Keeps the tutorial tips a character has read and the tip log blob the client sends, per character.
  * 
  * USAGE EXAMPLE:
  * Internal service attached to SessionActor; the client sends MSG_READTUTORIALTIP when a tip is read and
@@ -28,9 +28,11 @@
  * 
  * NOTE:
  * MSG_DISMISSTUTORIALTIP is the server's message to the client, so it is not handled here.
+ * The log reply stays empty until a capture of MSG_UPDATETUTORIALTIPLOG or TutorialLogBehavior.m_tutorialTipData
+ * shows its layout; the client's own blob is kept raw for that capture.
  * 
  * TODO:
- * - The log is sent as little-endian u32 tip ids; no retail capture of MSG_UPDATETUTORIALTIPLOG confirms the layout.
+ * - Is the log a bit array sized by MSG_REQUESTTUTORIALTIPLOG's TutorialTipCount?
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -38,7 +40,6 @@
  */
 
 using System;
-using System.Buffers.Binary;
 using Akka.Actor;
 using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
@@ -53,8 +54,9 @@ namespace Imlight.CoreLib.Game.Services;
 internal sealed class TutorialTipService(SessionActor sessionActor) : MessageService(sessionActor) {
 
     internal const int MaxReadTips = 1024;
+    internal const int MaxTipLogBytes = 4096;
 
-    internal static Props Props(SessionActor parentActor)
+    protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new TutorialTipService(parentActor));
 
     internal static bool TryRecordReadTip(Wizard wizard, uint tipId) {
@@ -66,14 +68,19 @@ internal sealed class TutorialTipService(SessionActor sessionActor) : MessageSer
         return true;
     }
 
-    internal static ByteString EncodeTipLog(Wizard wizard) {
-        var bytes = new byte[wizard.ReadTutorialTips.Count * sizeof(uint)];
-        for (var i = 0; i < wizard.ReadTutorialTips.Count; i++) {
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * sizeof(uint)), wizard.ReadTutorialTips[i]);
+    internal static bool TryStoreTipLog(Wizard wizard, ByteString tipLogData) {
+        if (tipLogData.Length > MaxTipLogBytes) {
+            return false;
         }
 
-        return new ByteString(bytes);
+        wizard.TutorialTipData = tipLogData;
+        return true;
     }
+
+    internal static WIZARD2_53_PROTOCOL.MSG_UPDATETUTORIALTIPLOG TipLogReply(Wizard wizard) => new() {
+        GlobalID = wizard.GameObjectID,
+        TutorialTipData = new ByteString()
+    };
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_READTUTORIALTIP))]
     private void ReceiveReadTutorialTip(WIZARD2_53_PROTOCOL.MSG_READTUTORIALTIP message) {
@@ -92,10 +99,27 @@ internal sealed class TutorialTipService(SessionActor sessionActor) : MessageSer
             return;
         }
 
-        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_UPDATETUTORIALTIPLOG {
-            GlobalID = message.GlobalID,
-            TutorialTipData = EncodeTipLog(wizard)
-        });
+        SendToSocket(TipLogReply(wizard));
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_UPDATETUTORIALTIPLOG))]
+    private void ReceiveTutorialTipLogUpdate(WIZARD2_53_PROTOCOL.MSG_UPDATETUTORIALTIPLOG message) {
+        var wizard = GetActiveWizard();
+        if (wizard is null) {
+            return;
+        }
+
+        if (!TryStoreTipLog(wizard, message.TutorialTipData)) {
+            Logger.Warning("Rejected tutorial tip log from character {Id}: {Length} bytes is over the {Max} byte limit.",
+                Logger.Args(wizard.CharId, message.TutorialTipData.Length, MaxTipLogBytes));
+            return;
+        }
+
+        byte[] blob = message.TutorialTipData;
+        Logger.Debug("Tutorial tip log of character {Id}: {Length} bytes, starts {Head}",
+            Logger.Args(wizard.CharId, blob.Length, Convert.ToHexString(blob.AsSpan(0, Math.Min(blob.Length, 16)))));
+
+        WizardCollection.UpdateCharacterTutorialTips(wizard);
     }
 
 }

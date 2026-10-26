@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Behaviour tests for the per-character log of read tutorial tips and its wire encoding.
+ * Behaviour tests for the per-character tutorial tip log: read tip ids, the raw client blob, and the reply.
  * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
@@ -34,6 +34,7 @@
  * Last Updated: 10/27/2026
  */
 
+using Imcodec.IO;
 using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
@@ -43,19 +44,14 @@ namespace Imlight.Tests;
 public sealed class TutorialTipLogTests {
 
     [Fact]
-    public void ReadTipsRoundTripAsLittleEndianIdsOnce() {
+    public void ReadTipsAreKeptOnce() {
         var wizard = new Wizard { CharId = 1 };
 
         Assert.True(TutorialTipService.TryRecordReadTip(wizard, 7));
         Assert.True(TutorialTipService.TryRecordReadTip(wizard, 300));
         Assert.False(TutorialTipService.TryRecordReadTip(wizard, 7));
 
-        Assert.Equal(new byte[] { 7, 0, 0, 0, 0x2C, 1, 0, 0 }, (byte[]) TutorialTipService.EncodeTipLog(wizard));
-    }
-
-    [Fact]
-    public void NoReadTipsEncodeAsAnEmptyLog() {
-        Assert.True(TutorialTipService.EncodeTipLog(new Wizard { CharId = 1 }).IsEmpty);
+        Assert.Equal([7U, 300U], wizard.ReadTutorialTips);
     }
 
     [Fact]
@@ -67,6 +63,28 @@ public sealed class TutorialTipLogTests {
 
         Assert.False(TutorialTipService.TryRecordReadTip(wizard, TutorialTipService.MaxReadTips));
         Assert.Equal(TutorialTipService.MaxReadTips, wizard.ReadTutorialTips.Count);
+    }
+
+    [Fact]
+    public void TheLogReplyIsEmptyAndAddressedToThePlayerObject() {
+        var wizard = new Wizard { CharId = 1 };
+        TutorialTipService.TryRecordReadTip(wizard, 7);
+
+        var reply = TutorialTipService.TipLogReply(wizard);
+
+        Assert.True(reply.TutorialTipData.IsEmpty);
+        Assert.Equal(wizard.GameObjectID, reply.GlobalID);
+    }
+
+    [Fact]
+    public void ClientTipLogIsStoredRawUpToTheCap() {
+        var wizard = new Wizard { CharId = 1 };
+        var atCap = new ByteString(new byte[TutorialTipService.MaxTipLogBytes]);
+
+        Assert.True(TutorialTipService.TryStoreTipLog(wizard, atCap));
+        Assert.Equal(atCap, wizard.TutorialTipData);
+        Assert.False(TutorialTipService.TryStoreTipLog(wizard, new ByteString(new byte[TutorialTipService.MaxTipLogBytes + 1])));
+        Assert.Equal(atCap, wizard.TutorialTipData);
     }
 
 }
