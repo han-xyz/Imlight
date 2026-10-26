@@ -19,6 +19,7 @@
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Shared.Utilities;
 using Imlight.CoreLib.WizardData.Models.World;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
@@ -126,7 +127,7 @@ public class QuestInstance {
         return false;
     }
 
-    public bool IsReadyForTurnIn() {
+    public bool IsReadyForTurnIn(QuestTemplate qTemplate) {
         if (GoalProgress.Length == 0) {
             return false;
         }
@@ -137,9 +138,14 @@ public class QuestInstance {
             && turnInGoal.DoesPlayerHaveGoal()
             && !turnInGoal.IsGoalCompleted()
             && GoalProgress
-                .Where(goal => goal.GoalType != GOAL_TYPE.GOAL_TYPE_PERSONA && goal.DoesPlayerHaveGoal())
-                .All(goal => goal.IsGoalCompleted());
+                .Where(goal => goal.GoalType != GOAL_TYPE.GOAL_TYPE_PERSONA && goal.DoesPlayerHaveGoal() && !goal.IsGoalCompleted())
+                .All(goal => IsAlternativeOfCompletedOrBranch(qTemplate, goal.GoalName));
     }
+
+    private bool IsAlternativeOfCompletedOrBranch(QuestTemplate qTemplate, string goalName)
+        => (qTemplate.m_goalLogic ?? []).Any(logic => logic.m_goalsOR is { Count: > 0 } alternatives
+            && alternatives.Any(alternative => (string) alternative == goalName)
+            && alternatives.Count(alternative => IsGoalCompleted(alternative)) >= Math.Max(logic.m_requiredORCount, 1));
 
 }
 

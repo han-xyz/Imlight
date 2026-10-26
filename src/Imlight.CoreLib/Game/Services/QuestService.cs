@@ -57,6 +57,7 @@ using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.WizardData.Models.World;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -90,6 +91,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private const string NpcRefreshFlushTimerKey = "npc-refresh-flush";
     private static readonly TimeSpan NPC_REFRESH_SETTLE_DELAY = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PERSONA_TRANSITION_DELAY = TimeSpan.FromMilliseconds(1500);
+    private static readonly ConcurrentDictionary<string, byte> s_questsWarnedWithoutGoalLogic = new();
 
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
     private readonly List<QuestTemplate> _cachedQuestTemplates = [];
@@ -1116,7 +1118,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             AssociatedWorlds = serializedWorlds,
             NoQuestHelper = qTemplate.m_noQuestHelper ? (byte) 1 : (byte) 0,
             Mainline = qTemplate.m_mainline ? (byte) 1 : (byte) 0,
-            ReadyToTurnIn = qInstance.IsReadyForTurnIn() ? (byte) 1 : (byte) 0,
+            ReadyToTurnIn = qInstance.IsReadyForTurnIn(qTemplate) ? (byte) 1 : (byte) 0,
             SkipQHAutoSelect = 0,
             PetOnlyQuest = qTemplate.m_playAsYourPetNPC ? (byte) 1 : (byte) 0,
             ActivityType = 0, // ?
@@ -1677,17 +1679,17 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         return prepDialogList?.m_dialogEntries.FirstOrDefault()?.m_picture ?? "";
     }
 
-    private static bool DetermineNextGoals(QuestTemplate qTemplate,
-                                          QuestInstance qinstance,
-                                          out GoalTemplate[] newGoalTemplates) {
+    internal static bool DetermineNextGoals(QuestTemplate qTemplate,
+                                           QuestInstance qinstance,
+                                           out GoalTemplate[] newGoalTemplates) {
         var goalLogic = qTemplate.m_goalLogic;
         if (goalLogic == null || goalLogic.Count == 0) {
-            Logger.Error("Quest '{0}' has no goal logic defined.",
-                Logger.Args(qTemplate.m_questName));
+            if (s_questsWarnedWithoutGoalLogic.TryAdd(qTemplate.m_questName, 0)) {
+                Logger.Warning("Quest {QuestName} has no goal logic; its goals run in order.",
+                    Logger.Args(qTemplate.m_questName));
+            }
 
-            newGoalTemplates = null;
-
-            return false;
+            return DetermineNextGoalInOrder(qTemplate, qinstance, out newGoalTemplates);
         }
 
         var allGoalsToAdd = new List<GoalTemplate>();
@@ -1808,6 +1810,25 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         newGoalTemplates = [];
 
         return false;
+    }
+
+    private static bool DetermineNextGoalInOrder(QuestTemplate qTemplate,
+                                                 QuestInstance qinstance,
+                                                 out GoalTemplate[] newGoalTemplates) {
+        newGoalTemplates = [];
+        if (qinstance.GoalProgress.Any(g => g.DoesPlayerHaveGoal() && !g.IsGoalCompleted())) {
+            return true;
+        }
+
+        var nextGoal = qTemplate.m_goals.FirstOrDefault(gTemplate => !qinstance.GoalProgress
+            .Any(g => g.GoalName == gTemplate.m_goalName && g.DoesPlayerHaveGoal()));
+        if (nextGoal is null) {
+            return false;
+        }
+
+        newGoalTemplates = [nextGoal];
+
+        return true;
     }
 
     private static ClientTagList GetClientTagList(string[] tags)
