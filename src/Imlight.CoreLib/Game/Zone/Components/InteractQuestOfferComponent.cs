@@ -292,6 +292,7 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         };
 
         playerActor.Tell(dialogMsg);
+        playerActor.Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
     private void SendQuestOfferDialog(IActorRef playerActor, QuestTemplate quest, Wizard playerCharacter) {

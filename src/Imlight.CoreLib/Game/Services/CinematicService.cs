@@ -41,7 +41,7 @@
  *
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/23/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -368,6 +368,7 @@ internal class CinematicService(SessionActor sessionActor) : MessageService(sess
             PersonaName = "",
             PersonaIcon = "",
         });
+        TellOtherServices(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
     private static WizClientObject BuildActor(uint templateId, WizCinematicActorTemplate cinematic,

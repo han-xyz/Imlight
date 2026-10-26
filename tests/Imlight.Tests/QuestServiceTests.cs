@@ -76,6 +76,28 @@ public sealed class QuestServiceTests {
     }
 
     [Fact]
+    public void NpcRefresh_CloseOfAnotherDialog_DoesNotRelease() {
+        var gate = new NpcRefreshGate();
+        gate.DialogShown();
+        gate.DialogShown();
+        gate.Request();
+
+        Assert.False(gate.DialogClosed(out _));
+        Assert.True(gate.DialogClosed(out _));
+    }
+
+    [Fact]
+    public void NpcRefresh_StrayClose_DoesNotConsumeALaterDialog() {
+        var gate = new NpcRefreshGate();
+        Assert.False(gate.DialogClosed(out _));
+        gate.DialogShown();
+
+        gate.Request();
+
+        Assert.False(gate.TryTake(out _));
+    }
+
+    [Fact]
     public void NpcRefresh_PersonaOnly_TargetsThatPersona() {
         var gate = new NpcRefreshGate();
 

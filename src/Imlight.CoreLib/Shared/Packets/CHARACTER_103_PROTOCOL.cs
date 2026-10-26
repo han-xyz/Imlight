@@ -339,6 +339,17 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Sent to a player's session by anything outside the QuestService that shows the player an actor dialog, so the
+    /// QuestService holds its NPC option refresh until that dialog's close.
+    /// </summary>
+    public sealed class MSG_DIALOGSHOWN : IServerMessage {
+
+        public byte MessageOrder { get; } = 53;
+        public byte ServiceID { get; } = 103;
+
+    }
+
+    /// <summary>
     /// Sent by the ResCinematicActor handler to the player's session: the CinematicService plays it.
     /// </summary>
     public sealed class MSG_PLAYCINEMATICACTOR : IServerMessage {

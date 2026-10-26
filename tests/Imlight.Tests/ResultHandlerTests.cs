@@ -237,6 +237,14 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.Equal("GH2-HFJORD-NPC15_Persona", request.PersonaName);
     }
 
+    [Fact]
+    public void ResActorDialog_ReportsTheDialogToTheSession() {
+        Assert.True(Execute<ResActorDialogHandler>(new ResActorDialog()));
+
+        Assert.IsType<WIZARD_12_PROTOCOL.MSG_ACTORDIALOG>(_player.Receive(s_timeout));
+        Assert.IsType<CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN>(_player.Receive(s_timeout));
+    }
+
     private bool Execute<THandler>(Result result) where THandler : ActorBase
         => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));
 

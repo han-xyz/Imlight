@@ -200,6 +200,7 @@ internal class CommandQuest : CommandProtocol {
         };
 
         Context.SessionActor.Tell(dialogMsg);
+        Context.SessionActor.Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
     private LootInfoList GetQuestRewardsFromTemplate(QuestTemplate qTemplate) {

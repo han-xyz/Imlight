@@ -48,6 +48,7 @@ using Imlight.Common;
 using Imlight.CoreLib.Game.Madlibs;
 using Imlight.CoreLib.Game.WizBang;
 using Imlight.CoreLib.Game.Zone.Core;
+using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -269,6 +270,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         };
 
         playerActor.Tell(dialogMsg);
+        playerActor.Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
 }

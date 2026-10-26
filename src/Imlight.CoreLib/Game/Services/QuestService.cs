@@ -87,6 +87,8 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     private static readonly TimeSpan PENDING_GOAL_DIALOG_TIMEOUT = TimeSpan.FromMinutes(2);
     private const string NpcRefreshDialogTimerKey = "npc-refresh-dialog";
+    private const string NpcRefreshFlushTimerKey = "npc-refresh-flush";
+    private static readonly TimeSpan NPC_REFRESH_SETTLE_DELAY = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PERSONA_TRANSITION_DELAY = TimeSpan.FromMilliseconds(1500);
 
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
@@ -329,6 +331,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private void ReceiveCompletePersona(QUEST_MESSAGES_52_PROTOCOL.MSG_COMPLETEPERSONA message) {
         // Live's client sends this when a persona goal's completion dialog ends, naming the quest and goal.
         _clientReportsPersonaCompletion = true;
+        if (_npcRefresh.DialogClosed(out var personaNames)) {
+            SendNpcRefresh(personaNames);
+        }
 
         var pending = _pendingGoalCompletions
             .FirstOrDefault(p => p.QuestId == message.QuestID && p.GoalId == message.GoalID);
@@ -1332,10 +1337,15 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private void RefreshNpcOptions(string personaName = null) {
+        // The settle delay lets dialogs that results and zone triggers show for the same change be reported first.
         if (_npcRefresh.Request(personaName)) {
-            Self.Tell(new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH());
+            Timers.StartSingleTimer(NpcRefreshFlushTimerKey, new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH(), NPC_REFRESH_SETTLE_DELAY);
         }
     }
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN))]
+    private void ReceiveDialogShown(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN message)
+        => _npcRefresh.DialogShown();
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH))]
     private void ReceiveRequestNpcRefresh(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH message)
