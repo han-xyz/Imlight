@@ -23,7 +23,7 @@
  * Decides when a pet's WizardPets record is dropped because the pet left the character.
  * 
  * USAGE EXAMPLE:
- * if (PetRecordRules.DropsRecordOnMove(from, to)) { WizardPetCollection.Delete(charId, petId); }
+ * if (PetRecordRules.DropsRecordOnMove(PetRecordRules.IsPet(item), from, to)) { WizardPetCollection.Delete(charId, petId); }
  * 
  * NOTE:
  * - Discarding and selling always drop the record; a move between the character's own containers keeps it.
@@ -35,7 +35,9 @@
  * Last Updated: 10/27/2026
  */
 
+using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Bank;
+using Imlight.CoreLib.Shared.Items;
 
 namespace Imlight.CoreLib.Game.Pet;
 
@@ -47,10 +49,19 @@ internal static class PetRecordRules {
     /// <summary>
     /// Tells whether a bank move takes a pet away from the character.
     /// </summary>
-    /// <param name="from">Where the pet was.</param>
-    /// <param name="to">Where the pet goes.</param>
-    /// <returns>True for a deposit into the account's shared bank, where another character can take it.</returns>
-    internal static bool DropsRecordOnMove(BankContainer from, BankContainer to)
-        => to == BankContainer.SharedBank && from != BankContainer.SharedBank;
+    /// <param name="isPet">True if the moved item is a pet; other items have no record.</param>
+    /// <param name="from">Where the item was.</param>
+    /// <param name="to">Where the item goes.</param>
+    /// <returns>True for a pet deposited into the account's shared bank, where another character can take it.</returns>
+    internal static bool DropsRecordOnMove(bool isPet, BankContainer from, BankContainer to)
+        => isPet && to == BankContainer.SharedBank && from != BankContainer.SharedBank;
+
+    /// <summary>
+    /// Tells whether an item is a pet, so it can have a record.
+    /// </summary>
+    /// <param name="item">The item, or null.</param>
+    /// <returns>True if the item's template is a pet template.</returns>
+    internal static bool IsPet(WizClientObjectItem item)
+        => item is not null && PetFactory.IsPetTemplate(ItemHelper.GetTemplateId(item));
 
 }

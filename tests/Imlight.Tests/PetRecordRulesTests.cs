@@ -26,14 +26,15 @@ namespace Imlight.Tests;
 public sealed class PetRecordRulesTests {
 
     [Theory]
-    [InlineData((int) BankContainer.Backpack, (int) BankContainer.SharedBank, true)]
-    [InlineData((int) BankContainer.Bank, (int) BankContainer.SharedBank, true)]
-    [InlineData((int) BankContainer.Backpack, (int) BankContainer.Bank, false)]
-    [InlineData((int) BankContainer.Bank, (int) BankContainer.Backpack, false)]
-    [InlineData((int) BankContainer.SharedBank, (int) BankContainer.Backpack, false)]
-    [InlineData((int) BankContainer.SharedBank, (int) BankContainer.Bank, false)]
-    public void DropsRecordOnMove_OnlyADepositIntoTheSharedBank(int from, int to, bool expected) {
-        Assert.Equal(expected, PetRecordRules.DropsRecordOnMove((BankContainer) from, (BankContainer) to));
+    [InlineData(true, (int) BankContainer.Backpack, (int) BankContainer.SharedBank, true)]
+    [InlineData(false, (int) BankContainer.Backpack, (int) BankContainer.SharedBank, false)]
+    [InlineData(true, (int) BankContainer.Bank, (int) BankContainer.SharedBank, true)]
+    [InlineData(true, (int) BankContainer.Backpack, (int) BankContainer.Bank, false)]
+    [InlineData(true, (int) BankContainer.Bank, (int) BankContainer.Backpack, false)]
+    [InlineData(true, (int) BankContainer.SharedBank, (int) BankContainer.Backpack, false)]
+    [InlineData(true, (int) BankContainer.SharedBank, (int) BankContainer.Bank, false)]
+    public void DropsRecordOnMove_OnlyAPetDepositedIntoTheSharedBank(bool isPet, int from, int to, bool expected) {
+        Assert.Equal(expected, PetRecordRules.DropsRecordOnMove(isPet, (BankContainer) from, (BankContainer) to));
     }
 
 }

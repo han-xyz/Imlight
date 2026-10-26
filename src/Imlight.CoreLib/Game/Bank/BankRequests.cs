@@ -131,6 +131,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
 
     private bool MoveBackpackToShared(string request, WIZARD_12_PROTOCOL.MSG_MOVEINVTOBANK message, BankContainer to) {
         var itemId = message.GlobalID;
+        var isPet = IsOwnPet(itemId);
         var result = BankCollection.TryMoveShared(wizard, new SharedMove(BankContainer.Backpack, to, itemId, message.Quantity));
         if (!result.Success) {
             Deny(request, itemId, $"{result.Denial}: {result.Reason}");
@@ -138,7 +139,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return false;
         }
 
-        DropPetRecordOnMove(BankContainer.Backpack, to, itemId);
+        DropPetRecordOnMove(isPet, BankContainer.Backpack, to, itemId);
 
         Send(BankSync.StorageAdd(wizard, result.Destination, shared: true));
         SendBackpackLeft(result, itemId);
@@ -258,6 +259,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return;
         }
 
+        var isPet = IsOwnPet(itemId);
         var result = BankCollection.TryMoveShared(wizard, new SharedMove(from, to, itemId, 1));
         if (!result.Success) {
             Deny(request, itemId, $"{result.Denial}: {result.Reason}");
@@ -266,7 +268,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return;
         }
 
-        DropPetRecordOnMove(from, to, itemId);
+        DropPetRecordOnMove(isPet, from, to, itemId);
 
         Send(BankSync.StorageAdd(wizard, result.Destination, shared: toShared));
         session.Tell(BankSync.StorageRemove(wizard, itemId, shared: !toShared));
@@ -320,6 +322,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return false;
         }
 
+        var isPet = IsOwnPet(itemId);
         var result = from == BankContainer.SharedBank
             ? BankCollection.TryDeleteShared(wizard, itemId, 1)
             : BankCollection.TryDeleteOwn(wizard, from, itemId);
@@ -329,7 +332,10 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return false;
         }
 
-        WizardPetCollection.Delete(wizard.CharId, itemId);
+        if (isPet) {
+            WizardPetCollection.Delete(wizard.CharId, itemId);
+        }
+
         if (from == BankContainer.Backpack) {
             ItemSync.SendRemoved(session, wizard, itemId);
         } else {
@@ -503,8 +509,11 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
         }
     }
 
-    private void DropPetRecordOnMove(BankContainer from, BankContainer to, ulong itemId) {
-        if (PetRecordRules.DropsRecordOnMove(from, to)) {
+    private bool IsOwnPet(ulong itemId)
+        => PetRecordRules.IsPet(wizard.InventoryBehavior.GetItem(itemId) ?? wizard.StorageBehavior?.GetItem(itemId));
+
+    private void DropPetRecordOnMove(bool isPet, BankContainer from, BankContainer to, ulong itemId) {
+        if (PetRecordRules.DropsRecordOnMove(isPet, from, to)) {
             WizardPetCollection.Delete(wizard.CharId, itemId);
         }
     }

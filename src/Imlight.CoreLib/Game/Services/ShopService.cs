@@ -166,7 +166,10 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        WizardPetCollection.Delete(wizard.CharId, message.GlobalID);
+        if (PetRecordRules.IsPet(item)) {
+            WizardPetCollection.Delete(wizard.CharId, message.GlobalID);
+        }
+
         var template = (WizItemTemplate) CoreObjectFactory.GetCoreTemplate(item.m_templateID);
         var gold = CalculateItemSellValue(template);
 

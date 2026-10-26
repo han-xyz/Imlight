@@ -46,6 +46,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Shared.Items;
+using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Spells;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Resources;
@@ -153,8 +154,11 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
+        var isPet = PetRecordRules.IsPet(wizard.InventoryBehavior.GetItem(message.GlobalID));
         wizard.RemoveItemFromInventory(message.GlobalID);
-        WizardPetCollection.Delete(wizard.CharId, message.GlobalID);
+        if (isPet) {
+            WizardPetCollection.Delete(wizard.CharId, message.GlobalID);
+        }
         SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_REMOVEITEM() {
             GlobalID = wizard.GameObjectID,
             ItemID = message.GlobalID
