@@ -382,13 +382,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         );
 
         _activeSigilEntry = message;
-        if (message.SigilRef is null) {
-            DungeonRunBook.Shared.Wait(GetActiveWizard().CharId, message.DestinationZone);
-        }
-
         SnapPlayerToSigilFace(message);
-
-        StartSigilTimer(message);
+        SigilCountdown.Start(message, GetActiveWizard().CharId, DungeonRunBook.Shared.Wait, StartSigilTimer);
 
         Logger.Debug("Dungeon sigil countdown started for '{Zone}'.",
             Logger.Args(message.DestinationZone));
