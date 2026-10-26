@@ -187,6 +187,14 @@ internal class AuctionHouseService(SessionActor sessionActor) : MessageService(s
         }
         var goldCost = entry.m_buyPrice;
 
+        if (wizard.GameStats.m_currentGold < goldCost) {
+            Logger.Warning("Wizard {0} cannot afford bazaar item {1}, so the purchase is denied.",
+                Logger.Args(wizard.CharId, templateId));
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_SHOPBUYCONFIRM { Failure = 1, WebFailure = 0, Credits = 0 });
+
+            return;
+        }
+
         // A full backpack denies the buy before the stock or the gold is touched.
         if (wizard.InventoryBehavior.FreeSlots < 1 || !wizard.AddItemToInventory(item)) {
             Logger.Warning("Could not add bazaar item {0} to the inventory of {1}, so the purchase is denied.",
