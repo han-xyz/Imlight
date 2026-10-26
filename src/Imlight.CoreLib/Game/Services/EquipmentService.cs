@@ -403,6 +403,18 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
                 if (removal.SlotType == EquipmentSlotType.Pet) {
                     DismissPetEntity();
                 }
+                if (removal.SlotType == EquipmentSlotType.PIITeleportEffect) {
+                    ZoneBroadcast(new WIZARD2_53_PROTOCOL.MSG_UPDATETELEPORTEFFECT {
+                        TeleportEffect = 0,
+                        PlayerGID = wizard.GameObjectID
+                    }, false);
+                }
+                if (removal.SlotType == EquipmentSlotType.PIIVictoryDance) {
+                    ZoneBroadcast(new WIZARD2_53_PROTOCOL.MSG_UPDATEAFTERCOMBATDANCE {
+                        AfterCombatDance = 0,
+                        PlayerGID = wizard.GameObjectID
+                    }, false);
+                }
             }
 
             ItemSync.SendRemoved(SessionActor.ActorRef, wizard, message.ItemId);
