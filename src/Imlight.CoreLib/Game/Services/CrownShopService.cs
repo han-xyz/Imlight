@@ -51,6 +51,7 @@ using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Elixirs;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Game.Packs;
+using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Game.Results;
@@ -277,6 +278,12 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         return requiredSlots == 0 || wizard.InventoryBehavior.HasInventorySpace(requiredSlots);
     }
 
+    private static bool CanHoldReagents(Wizard wizard, ulong reagentTemplateId, int count)
+        => wizard.AlchemyBehavior?.HasReagentSpace(reagentTemplateId, count) ?? false;
+
+    private static bool CanHoldPetSnacks(Wizard wizard, ulong snackTemplateId, int count)
+        => wizard.PetSnackBehavior?.HasSnackSpace(snackTemplateId, count) ?? false;
+
     private static int TryDebit(Wizard wizard, int currency, int amount) {
         if (currency == CrownShopPrice.GoldCurrency) {
             if (wizard.GameStats.m_currentGold < amount) {
@@ -319,24 +326,25 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         switch (itemTemplate) {
             // Pack loot is rolled and cannot be taken back, so packs are the whole grant and opened last.
             case BoosterPackTemplate:
-                for (var i = 0; i < message.Count; i++) {
-                    PackManager.OpenPack(SessionActor.ActorRef, wizard, message.Item);
+                if (!PackManager.OpenPack(SessionActor.ActorRef, wizard, message.Item, (int) message.Count)) {
+                    return s_errorInvFull;
                 }
                 return 0;
 
             case GoldAmountTemplate goldItem:
                 var gold = goldItem.m_goldAmount * message.Count;
-                if (wizard.GameStats.m_currentGold + gold >= wizard.GameStats.m_baseGoldPouch) {
+                if (wizard.GameStats.m_currentGold + gold > wizard.GameStats.m_baseGoldPouch) {
                     return s_errorMaxGold;
                 }
 
                 wizard.AddGold(gold);
                 transaction.OnRollback(() => wizard.RemoveGold(gold));
+                transaction.OnCommit(() => SyncGoldBalance(wizard));
                 return 0;
 
             case LunariAmountTemplate lunariTemplate:
                 var lunari = lunariTemplate.m_lunariAmount * message.Count;
-                if (wizard.GameStats.m_currentEventCurrency1 + lunari >= wizard.GameStats.m_baseEventCurrency1Pouch) {
+                if (wizard.GameStats.m_currentEventCurrency1 + lunari > wizard.GameStats.m_baseEventCurrency1Pouch) {
                     return s_errorMaxLunari;
                 }
 
@@ -359,9 +367,39 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 return s_errorPurchase;
 
             case ItemBundleTemplate itemBundle:
+                var bundleReagentCounts = new Dictionary<ulong, int>();
+                var bundleSnackCounts = new Dictionary<ulong, int>();
+                var bundlePackCounts = new Dictionary<ulong, int>();
+
+                foreach (var bundleSubId in itemBundle.m_bundleItems) {
+                    var bundleSub = CoreObjectFactory.GetCoreTemplate(bundleSubId);
+                    if (bundleSub is ReagentItemTemplate) {
+                        bundleReagentCounts[bundleSubId] = bundleReagentCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
+                    }
+                    else if (bundleSub is PetSnackItemTemplate) {
+                        bundleSnackCounts[bundleSubId] = bundleSnackCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
+                    }
+                    else if (bundleSub is BoosterPackTemplate) {
+                        bundlePackCounts[bundleSubId] = bundlePackCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
+                    }
+                }
+
+                foreach (var (reagentId, needed) in bundleReagentCounts) {
+                    if (!CanHoldReagents(wizard, reagentId, needed)) {
+                        return s_errorInvFull;
+                    }
+                }
+
+                foreach (var (snackId, needed) in bundleSnackCounts) {
+                    if (!CanHoldPetSnacks(wizard, snackId, needed)) {
+                        return s_errorInvFull;
+                    }
+                }
+
                 for (var i = 0; i < message.Count; i++) {
                     foreach (var templateId in itemBundle.m_bundleItems) {
                         var bundleError = CoreObjectFactory.GetCoreTemplate(templateId) switch {
+                            BoosterPackTemplate => 0,
                             ReagentItemTemplate => TryGrantReagent(transaction, wizard, templateId, 1),
                             PetSnackItemTemplate => TryGrantPetSnack(transaction, wizard, templateId, 1),
                             _ => TryAddItemToInventory(transaction, wizard, templateId, message.Texture, message.Decal)
@@ -371,6 +409,13 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                         if (bundleError != 0) {
                             return bundleError;
                         }
+                    }
+                }
+
+                // Pack loot cannot be taken back, so packs open after everything that can.
+                foreach (var (packId, packCount) in bundlePackCounts) {
+                    if (!PackManager.OpenPack(SessionActor.ActorRef, wizard, packId, packCount)) {
+                        return s_errorInvFull;
                     }
                 }
                 return 0;
@@ -385,6 +430,10 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private int TryGrantReagent(GrantTransaction transaction, Wizard wizard, ulong reagentTemplateId, int count) {
+        if (!CanHoldReagents(wizard, reagentTemplateId, count)) {
+            return s_errorInvFull;
+        }
+
         ClientReagentItem reagentObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddReagent(reagentTemplateId, out reagentObj)) {
@@ -424,6 +473,10 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private int TryGrantPetSnack(GrantTransaction transaction, Wizard wizard, ulong snackTemplateId, int count) {
+        if (!CanHoldPetSnacks(wizard, snackTemplateId, count)) {
+            return s_errorInvFull;
+        }
+
         ClientPetSnackItem snackObj = null;
         for (var i = 0; i < count; i++) {
             if (!wizard.AddSnack(snackTemplateId, out snackObj)) {
@@ -513,19 +566,20 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 }
 
                 if (customEmote.m_emoteType == CustomEmoteType.CE_Teleport) {
-                    if(wizard.CountTeleportEffectsUnlocked() >= s_maxTeleportEffects) {
+                    if (wizard.CountTeleportEffectsUnlocked() >= s_maxTeleportEffects) {
                         return s_errorMaxTeleportEffects;
                     }
 
                     transaction.OnCommit(() => wizard.UnlockCustomTeleportEffect(customEmote.m_bitFieldNumber));
                 }
-                else if(customEmote.m_emoteType == CustomEmoteType.CE_Emote) {
+                else if (customEmote.m_emoteType == CustomEmoteType.CE_Emote) {
                     if (wizard.CountEmotesUnlocked() >= s_maxEmotes) {
                         return s_errorMaxEmotes;
                     }
 
                     transaction.OnCommit(() => wizard.UnlockCustomEmote(customEmote.m_bitFieldNumber));
-                }else {
+                }
+                else {
                     Logger.Error("Unknown CustomEmoteType: {0}", Logger.Args(customEmote.m_emoteType));
                 }
             }
@@ -595,7 +649,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         var mail = new Mail {
             m_recipientId = recipientAccountId,
             m_senderId = (GID) sender.CharId,
-            m_messageData = Encoding.Latin1.GetString((byte[]) serializedItem),
+            m_messageData = serializedItem,
             m_expireDuration = 0,
             m_messageType = 2,
             m_timeStamp = (ulong) DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
@@ -642,16 +696,26 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private bool TryAddItemToInventory(GrantTransaction transaction, Wizard wizard, ulong itemTemplateId, int texture, int decal) {
-        if (CoreObjectFactory.FinalizeCoreObject(itemTemplateId) is not WizClientObjectItem item) {
-            Logger.Warning("Cannot add template {0} to inventory because it is not an item.", Logger.Args(itemTemplateId));
-            return false;
+        WizClientObjectItem item;
+        if (PetFactory.IsPetTemplate((uint) itemTemplateId)) {
+            if (!wizard.AddHatchedPetToInventory((uint) itemTemplateId, out item)) {
+                Logger.Warning("Could not add hatched pet {0} to inventory.", Logger.Args(itemTemplateId));
+                return false;
+            }
         }
+        else {
+            item = CoreObjectFactory.FinalizeCoreObject(itemTemplateId) as WizClientObjectItem;
+            if (item is null) {
+                Logger.Warning("Cannot add template {0} to inventory because it is not an item.", Logger.Args(itemTemplateId));
+                return false;
+            }
 
-        item.m_primaryColor = texture;
-        item.m_secondaryColor = decal;
-        if (!wizard.AddItemToInventory(item)) {
-            Logger.Warning("Could not add item {0} to inventory.", Logger.Args(itemTemplateId));
-            return false;
+            item.m_primaryColor = texture;
+            item.m_secondaryColor = decal;
+            if (!wizard.AddItemToInventory(item)) {
+                Logger.Warning("Could not add item {0} to inventory.", Logger.Args(itemTemplateId));
+                return false;
+            }
         }
 
         transaction.OnRollback(() => wizard.RemoveItemFromInventory(item.m_globalID));
