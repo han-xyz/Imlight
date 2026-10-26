@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty, Joji
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -45,6 +45,7 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Spells;
@@ -66,6 +67,12 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_TRASHINVENTORYITEM))]
     private void ReceiveTrashInventoryItem(GAME_5_PROTOCOL.MSG_TRASHINVENTORYITEM message) {
         var wizard = GetActiveWizard();
+        if (!ItemLocks.AllowsRemoval(wizard.LockedItemIds, message.GlobalID)) {
+            Logger.Debug("Item {ItemId} is locked, so it was not trashed.", Logger.Args(message.GlobalID));
+
+            return;
+        }
+
 
         // An active elixir is trashed from its equipment slot. Other equipped items are not in the inventory,
         // and deleting them here would skip their unequip side effects (pet, mount, teleport effect, dance).
@@ -165,11 +172,81 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
         });
     }
 
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_REMOVEITEMREQUEST))]
+    private void ReceiveRemoveItemRequest(GAME_5_PROTOCOL.MSG_REMOVEITEMREQUEST message) {
+        var wizard = GetActiveWizard();
+        var items = wizard.InventoryBehavior.Items
+            .Select(item => (item.m_globalID.Full, item.m_templateID.Full))
+            .ToList();
+
+        foreach (var itemId in ItemLocks.PickDiscards(items, message.ItemTemplateID, message.Quantity, wizard.LockedItemIds)) {
+            var isPet = PetRecordRules.IsPet(wizard.InventoryBehavior.GetItem(itemId));
+            if (!wizard.RemoveItemFromInventory(itemId)) {
+                continue;
+            }
+
+            if (isPet) {
+                WizardPetCollection.Delete(wizard.CharId, itemId);
+            }
+            SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_REMOVEITEM() {
+                GlobalID = wizard.GameObjectID,
+                ItemID = itemId
+            });
+        }
+    }
+
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_FEEDINVENTORYITEM))]
     private void ReceiveFeedInventoryItem(GAME_5_PROTOCOL.MSG_FEEDINVENTORYITEM message) {
         SendToSocket(new GAME_5_PROTOCOL.MSG_FEEDINVENTORYITEM() {
             FedObjectID = message.FedObjectID,
             PetID = message.PetID,
+        });
+    }
+
+    #endregion
+
+    #region Stacks and locks
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_SPLITQUANTITY))]
+    private void ReceiveSplitQuantity(GAME_5_PROTOCOL.MSG_SPLITQUANTITY message)
+        => Logger.Debug("A request to split {Quantity} off item {ItemId} was refused: reagent and snack bags hold one stack per template.",
+            Logger.Args(message.Quantity, message.ItemID));
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_COMBINEINVENTORYITEMS))]
+    private void ReceiveCombineInventoryItems(GAME_5_PROTOCOL.MSG_COMBINEINVENTORYITEMS message)
+        => Logger.Debug("A request to combine items {ItemId} and {OtherItemId} was refused: reagent and snack bags hold one stack per template.",
+            Logger.Args(message.ItemID1, message.ItemID2));
+
+    [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_ADDITEMREQUEST))]
+    private void ReceiveAddItemRequest(GAME_5_PROTOCOL.MSG_ADDITEMREQUEST message)
+        => Logger.Warning("Character {CharId} asked to be given {Quantity} of template {TemplateId}; the client may not add items, so it was refused.",
+            Logger.Args(GetActiveWizard().CharId, message.Quantity, message.ItemTemplateID));
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_REQUESTTOGGLELOCKITEM))]
+    private void ReceiveRequestToggleLockItem(WIZARD_12_PROTOCOL.MSG_REQUESTTOGGLELOCKITEM message) {
+        var wizard = GetActiveWizard();
+        var isOwned = wizard.InventoryBehavior.GetItem(message.ItemGID) is not null
+            || wizard.EquipmentBehavior.GetItem(message.ItemGID) is not null
+            || wizard.StorageBehavior?.GetItem(message.ItemGID) is not null;
+        if (!isOwned) {
+            Logger.Warning("Character {CharId} tried to lock item {ItemId}, which they do not own.",
+                Logger.Args(wizard.CharId, message.ItemGID));
+
+            return;
+        }
+
+        if (ItemLocks.TrySet(wizard.LockedItemIds, message.ItemGID, message.IsLocked != 0)) {
+            WizardCollection.UpdateCharacterLockedItems(wizard);
+        }
+        else {
+            Logger.Debug("Character {CharId} already has {Count} locked items, so item {ItemId} was not locked.",
+                Logger.Args(wizard.CharId, ItemLocks.MaxLockedItems, message.ItemGID));
+        }
+
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_REQUESTTOGGLELOCKITEM() {
+            ItemGID = message.ItemGID,
+            GlobalID = wizard.GameObjectID,
+            IsLocked = ItemLocks.AllowsRemoval(wizard.LockedItemIds, message.ItemGID) ? 0u : 1u
         });
     }
 
@@ -207,6 +284,12 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
 
         // Remove items from inventory and equipment, tally up gold sum.
         foreach (QuickSellItem quickSellItem in quickSellItemList.m_quickSellItemList) {
+            if (!ItemLocks.AllowsRemoval(wizard.LockedItemIds, quickSellItem.m_sellItemGID)) {
+                Logger.Debug("Quick-sell item {ItemId} is locked, so it was not sold.", Logger.Args(quickSellItem.m_sellItemGID));
+
+                continue;
+            }
+
             var item = wizard.InventoryBehavior.GetItem(quickSellItem.m_sellItemGID);
             if (item is not null) {
                 var template = (WizItemTemplate) CoreObjectFactory.GetCoreTemplate(item.m_templateID);

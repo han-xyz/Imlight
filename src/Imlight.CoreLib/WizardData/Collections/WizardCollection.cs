@@ -562,6 +562,18 @@ public static class WizardCollection {
         );
     }
 
+    public static void UpdateCharacterLockedItems(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character =>
+            character.LockedItemIds = wizard.LockedItemIds
+        );
+    }
+
+    public static void UpdateCharacterEquipmentSets(Wizard wizard) {
+        UpdateCharacter(wizard.CharId, character =>
+            character.EquipmentSets = wizard.EquipmentSets
+        );
+    }
+
     /// <summary>
     /// Updates the training points of a wizard.
     /// </summary>
