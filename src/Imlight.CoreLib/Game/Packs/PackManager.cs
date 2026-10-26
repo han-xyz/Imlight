@@ -114,6 +114,29 @@ public static class PackManager {
         return StackRoom.CanHoldStacks(wizard, dropList.Select(drop => ((ulong) drop.ItemTemplateId, drop.ItemTemplate, 1)));
     }
 
+    /// <summary>
+    /// The most backpack slots <paramref name="count"/> openings of the pack can fill: per opening, every slot whose
+    /// possible tables list at least one item that goes to the backpack. Reads the tables only; nothing is rolled.
+    /// </summary>
+    internal static int WorstCaseBackpackSlots(BoosterPackTemplate pack, int count,
+                                               Func<string, DropTable?>? tableOf = null,
+                                               Func<ulong, CoreTemplate?>? templateOf = null) {
+        tableOf ??= DropTableCollection.GetDropTable;
+        templateOf ??= CoreObjectFactory.GetCoreTemplate;
+
+        var packTables = (pack.m_lootTables ?? []).Select(tableName => tableOf(tableName)).OfType<DropTable>().ToList();
+        var slotsPerOpening = Enumerable.Range(0, packTables.Count)
+            .Count(slotIndex => PackSlotOdds.PossibleTables(slotIndex, packTables)
+                .Any(table => table.Items.Any(item => IsBackpackItem(item, templateOf))));
+
+        return slotsPerOpening * count;
+    }
+
+    private static bool IsBackpackItem(DropItem item, Func<ulong, CoreTemplate?> templateOf)
+        => uint.TryParse(item.ItemId, out var itemTemplateId)
+            && templateOf(itemTemplateId) is { } template
+            && template is not (SpellTemplate or ReagentItemTemplate or PetSnackItemTemplate);
+
     private static bool TryRollPacks(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count,
                                      List<RolledPack> rolledPacks) {
         if (count < 1) {

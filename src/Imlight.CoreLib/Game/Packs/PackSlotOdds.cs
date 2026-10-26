@@ -142,6 +142,29 @@ internal static class PackSlotOdds {
             return random.NextDouble() > slotTable.RollChance ? null : slotTable;
         }
 
+        var candidates = FallbackChain(slotIndex, packTables, slotTier);
+
+        foreach (var (tier, table) in candidates.Take(candidates.Count - 1)) {
+            if (PassesGate(tier, table, chances, random, pity)) {
+                return table;
+            }
+        }
+
+        return candidates[^1].Table;
+    }
+
+    /// <summary>
+    /// Every table the slot at <paramref name="slotIndex"/> can roll in some opening: its own and the lower-tier tables
+    /// of its hoard it can fall back to.
+    /// </summary>
+    internal static IReadOnlyList<DropTable> PossibleTables(int slotIndex, IReadOnlyList<DropTable> packTables)
+        => TierOf(packTables[slotIndex].Name) is { } slotTier
+            ? [.. FallbackChain(slotIndex, packTables, slotTier).Select(candidate => candidate.Table)]
+            : [packTables[slotIndex]];
+
+    private static List<(PackTier Tier, DropTable Table)> FallbackChain(int slotIndex, IReadOnlyList<DropTable> packTables,
+                                                                       PackTier slotTier) {
+        var slotTable = packTables[slotIndex];
         var hoard = HoardOf(slotTable.Name);
         var hoardTablesAfterSlot = Enumerable.Range(1, packTables.Count - 1)
             .Select(offset => packTables[(slotIndex + offset) % packTables.Count])
@@ -156,13 +179,7 @@ internal static class PackSlotOdds {
             }
         }
 
-        foreach (var (tier, table) in candidates.Take(candidates.Count - 1)) {
-            if (PassesGate(tier, table, chances, random, pity)) {
-                return table;
-            }
-        }
-
-        return candidates[^1].Table;
+        return candidates;
     }
 
     private static string HoardOf(string tableName) {

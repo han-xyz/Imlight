@@ -36,6 +36,7 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
@@ -45,6 +46,7 @@ using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -141,11 +143,52 @@ public sealed class CrownShopTests : IDisposable {
         Assert.Equal([CrownsOnlyItemId], emotes.ByTemplateId.Keys);
     }
 
-    [Fact]
-    public void BoosterPack_NeedsNoSlotBeforeItsLootIsRolled() {
-        var pack = new BoosterPackTemplate { m_lootTables = [.. Enumerable.Repeat("Table", 60)] };
+    private const uint CardId = 9001;
+    private const uint GearId = 9002;
 
-        Assert.Equal(0, GiftingService.CalculateRequiredInventorySlots(pack, 2));
+    private static CoreTemplate? PackItemTemplate(ulong id) => id == CardId ? new SpellTemplate() : new WizItemTemplate();
+
+    private static DropTable PackTable(string name, uint itemId)
+        => new() { Name = name, Items = [new DropItem { ItemId = itemId.ToString() }] };
+
+    private static int WorstCase(IReadOnlyList<DropTable> tables, int count) {
+        var byName = tables.DistinctBy(table => table.Name).ToDictionary(table => table.Name);
+        var pack = new BoosterPackTemplate { m_lootTables = [.. tables.Select(table => table.Name)] };
+
+        return PackManager.WorstCaseBackpackSlots(pack, count, name => byName.GetValueOrDefault(name), PackItemTemplate);
+    }
+
+    [Fact]
+    public void BoosterPack_SlotsThatOnlyDropTreasureCardsNeedNoBackpackSlot() {
+        var tables = new[] {
+            PackTable("Set-Wildcard", GearId), PackTable("Set-Rare", CardId), PackTable("Set-Uncommon", CardId),
+            PackTable("Set-Common", CardId), PackTable("Set-Common", CardId)
+        };
+
+        Assert.Equal(1, WorstCase(tables, 1));
+    }
+
+    [Fact]
+    public void BoosterPack_EverySlotThatCanDropGearNeedsASlotPerOpening() {
+        var tables = new[] {
+            PackTable("Set-Wildcard", GearId), PackTable("Set-Rare", GearId), PackTable("Set-Common", GearId)
+        };
+
+        Assert.Equal(tables.Length * 2 * 3, WorstCase(tables, 6));
+    }
+
+    [Fact]
+    public void BoosterPack_AFullBackpackIsRefusedFromTheTablesAlone_AndTwentyTwoOfSeventyFiveFit() {
+        var inventory = new ServerWizInventoryBehavior { Items = [] };
+        inventory.ExtraSpace = 75 - inventory.NumItemsAllowed;
+        for (var i = 0; i < 53; i++) {
+            inventory.Items.Add(new WizClientObjectItem());
+        }
+
+        var tables = Enumerable.Range(0, 22).Select(i => PackTable($"Set{i}-Common", GearId)).ToArray();
+
+        Assert.True(inventory.HasInventorySpace(WorstCase(tables, 1)));
+        Assert.False(inventory.HasInventorySpace(WorstCase(tables, 2)));
     }
 
     [Fact]

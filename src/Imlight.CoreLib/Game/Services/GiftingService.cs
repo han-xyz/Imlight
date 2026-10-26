@@ -317,8 +317,11 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
     }
 
     internal static int CalculateRequiredInventorySlots(CoreTemplate itemTemplate, int count) {
+        if (itemTemplate is BoosterPackTemplate pack) {
+            return PackManager.WorstCaseBackpackSlots(pack, count);
+        }
+
         if (itemTemplate is null ||
-            itemTemplate is BoosterPackTemplate ||
             itemTemplate is GoldAmountTemplate ||
             itemTemplate is LunariAmountTemplate ||
             itemTemplate is TourneyTokensAmountTemplate ||
@@ -331,8 +334,10 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             var slotsPerBundle = 0;
             foreach (var templateId in itemBundle.m_bundleItems) {
                 var subTemplate = CoreObjectFactory.GetCoreTemplate(templateId);
-                if (subTemplate is not BoosterPackTemplate &&
-                    subTemplate is not PetSnackItemTemplate &&
+                if (subTemplate is BoosterPackTemplate subPack) {
+                    slotsPerBundle += PackManager.WorstCaseBackpackSlots(subPack, 1);
+                }
+                else if (subTemplate is not PetSnackItemTemplate &&
                     subTemplate is not ReagentItemTemplate &&
                     subTemplate is not TourneyTokensAmountTemplate &&
                     subTemplate is not GoldAmountTemplate &&
