@@ -74,6 +74,15 @@ internal static class SigilEntryPlan {
     }
 
     /// <summary>
+    /// Decides the instance a teleport out of an instanced zone leads to: the owner of the source instance keeps the
+    /// traveller, so a group stays together from floor to floor. A teleport never resets the instance.
+    /// </summary>
+    /// <param name="travellerCharId">The wizard who teleports.</param>
+    /// <param name="sourceOwnerCharId">The owner of the instance the wizard teleports from.</param>
+    internal static SigilEntry FollowTeleport(ulong travellerCharId, ulong sourceOwnerCharId)
+        => new(sourceOwnerCharId, ResetInstance: false);
+
+    /// <summary>
     /// The members told about a countdown, so those standing on the same pad start it together.
     /// </summary>
     internal static IReadOnlyList<GroupMemberSnapshot> CountdownRecipients(ulong entrantCharId, GroupSnapshot group)

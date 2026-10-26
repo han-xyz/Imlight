@@ -227,6 +227,10 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        if (message.SendToClient && message.HouseEntry is null && !message.IsPrivate) {
+            FollowSourceInstance(message);
+        }
+
         if (message.SendToClient && _ownedGroupInstance is { } owned && owned.ZoneName != message.DestinationZone) {
             GroupSigilEntries.Release(owned.GroupId, owned.ZoneName, GetActiveWizard().CharId);
             _ownedGroupInstance = null;
@@ -426,6 +430,20 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         return instance;
+    }
+
+    private void FollowSourceInstance(ZONE_102_PROTOCOL.MSG_ZONETRANSFER message) {
+        var wizard = GetActiveWizard();
+        var (sourceOwnerCharId, _) = ZoneInstanceOwners.Resolve(wizard.CharId, wizard.Zone, houseOwnerCharId: 0);
+        var instance = SigilEntryPlan.FollowTeleport(wizard.CharId, sourceOwnerCharId);
+        if (instance.OwnerCharId == wizard.CharId) {
+            ZoneInstanceOwners.Unfollow(wizard.CharId, message.DestinationZone);
+
+            return;
+        }
+
+        message.OwnerCharId = instance.OwnerCharId;
+        ZoneInstanceOwners.Follow(wizard.CharId, message.DestinationZone, instance.OwnerCharId);
     }
 
     private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {

@@ -86,6 +86,27 @@ public sealed class SigilEntryPlanTests {
         Assert.Equal([Member], recipients.Select(member => member.CharId));
     }
 
+    [Fact]
+    public void FollowTeleport_FromAnotherOwnersInstance_StaysInThatInstanceWithoutReset() {
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), SigilEntryPlan.FollowTeleport(Member, sourceOwnerCharId: Leader));
+    }
+
+    [Fact]
+    public void FollowTeleport_FromOwnInstance_KeepsTheTraveller() {
+        Assert.Equal(new SigilEntry(Member, ResetInstance: false), SigilEntryPlan.FollowTeleport(Member, sourceOwnerCharId: Member));
+    }
+
+    [Fact]
+    public void Resolve_AfterFollow_AttachesToTheOwnerWithoutForcingAPrivateCopy() {
+        const string Street = "Tests/FollowedStreet";
+        ZoneInstanceOwners.Follow(Member, Street, Leader);
+
+        var resolved = ZoneInstanceOwners.Resolve(Member, Street, houseOwnerCharId: 0);
+        ZoneInstanceOwners.Clear(Member, Street);
+
+        Assert.Equal((Leader, false), resolved);
+    }
+
     private static GroupSnapshot Group(params ulong[] charIds)
         => new(10, 20, charIds[0], [.. charIds.Select(Online)], 0, 0);
 

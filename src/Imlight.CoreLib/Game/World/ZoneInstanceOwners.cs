@@ -50,7 +50,7 @@ namespace Imlight.CoreLib.Game.World;
 /// </summary>
 internal static class ZoneInstanceOwners {
 
-    private static readonly ConcurrentDictionary<(ulong CharId, string ZoneName), ulong> s_owners
+    private static readonly ConcurrentDictionary<(ulong CharId, string ZoneName), (ulong OwnerCharId, bool IsPrivate)> s_owners
         = new(new CharacterZoneComparer());
     private static readonly ConcurrentQueue<Func<string, bool>> s_privateZoneTests = new();
 
@@ -61,7 +61,18 @@ internal static class ZoneInstanceOwners {
     /// <param name="zoneName">The zone name, compared without regard to case.</param>
     /// <param name="ownerCharId">The owner of the instance container that holds the zone.</param>
     internal static void Assign(ulong charId, string zoneName, ulong ownerCharId)
-        => s_owners[(charId, zoneName)] = ownerCharId;
+        => s_owners[(charId, zoneName)] = (ownerCharId, true);
+
+    /// <summary>
+    /// Sends <paramref name="charId"/> to the instance owned by <paramref name="ownerCharId"/> when they attach to the zone,
+    /// without asking for a private copy: a public zone stays public, an instanced one is the owner's.
+    /// </summary>
+    /// <param name="charId">The character who attaches.</param>
+    /// <param name="zoneName">The zone name, compared without regard to case.</param>
+    /// <param name="ownerCharId">The owner of the instance container the character travels with.</param>
+    internal static void Follow(ulong charId, string zoneName, ulong ownerCharId)
+        => s_owners.AddOrUpdate((charId, zoneName), (ownerCharId, false),
+            (_, assignment) => assignment.OwnerCharId == ownerCharId ? assignment : (ownerCharId, false));
 
     /// <summary>
     /// Removes the assignment made by <see cref="Assign"/>, so the character attaches to their own instance again.
@@ -72,6 +83,17 @@ internal static class ZoneInstanceOwners {
         => s_owners.TryRemove((charId, zoneName), out _);
 
     /// <summary>
+    /// Removes an assignment made by <see cref="Follow"/>; one made by <see cref="Assign"/> stays.
+    /// </summary>
+    /// <param name="charId">The character who attaches.</param>
+    /// <param name="zoneName">The zone name, compared without regard to case.</param>
+    internal static void Unfollow(ulong charId, string zoneName) {
+        if (s_owners.TryGetValue((charId, zoneName), out var assignment) && !assignment.IsPrivate) {
+            s_owners.TryRemove(KeyValuePair.Create((charId, zoneName), assignment));
+        }
+    }
+
+    /// <summary>
     /// Gets the instance owner assigned to a character for a zone.
     /// </summary>
     /// <param name="charId">The character who attaches.</param>
@@ -80,8 +102,13 @@ internal static class ZoneInstanceOwners {
     /// <returns><c>true</c> when an owner was assigned.</returns>
     internal static bool TryGetOwner(ulong charId, string zoneName, out ulong ownerCharId) {
         ownerCharId = 0;
+        if (zoneName is null || !s_owners.TryGetValue((charId, zoneName), out var assignment)) {
+            return false;
+        }
 
-        return zoneName is not null && s_owners.TryGetValue((charId, zoneName), out ownerCharId);
+        ownerCharId = assignment.OwnerCharId;
+
+        return true;
     }
 
     /// <summary>
@@ -93,9 +120,15 @@ internal static class ZoneInstanceOwners {
     /// <param name="houseOwnerCharId">The owner of the house the character attaches to, or 0 for a zone that is not a house.</param>
     /// <returns>The owner of the container, and whether the zone is private to it.</returns>
     internal static (ulong OwnerCharId, bool IsPrivate) Resolve(ulong charId, string zoneName, ulong houseOwnerCharId) {
-        var hasOwner = houseOwnerCharId != 0 || TryGetOwner(charId, zoneName, out houseOwnerCharId);
+        if (houseOwnerCharId != 0) {
+            return (houseOwnerCharId, true);
+        }
 
-        return (hasOwner ? houseOwnerCharId : charId, hasOwner || IsAlwaysPrivate(zoneName));
+        if (zoneName is not null && s_owners.TryGetValue((charId, zoneName), out var assignment)) {
+            return (assignment.OwnerCharId, assignment.IsPrivate || IsAlwaysPrivate(zoneName));
+        }
+
+        return (charId, IsAlwaysPrivate(zoneName));
     }
 
     /// <summary>
