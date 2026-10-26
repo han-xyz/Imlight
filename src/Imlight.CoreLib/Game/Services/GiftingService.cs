@@ -73,14 +73,9 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
 
     [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE))]
     private void ReceiveAttachComplete(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE message) {
-        var wizard = GetActiveWizard();
-
-        if (wizard.Account?.GiftMailbox != null && wizard.Account.GiftMailbox.Count > 0) {
-            SendToSocket(new GAME_5_PROTOCOL.MSG_NEW_MAIL {
-                AccountMail = 0,
-                CharacterID = wizard.CharId,
-                MailType = 1
-            });
+        var notice = NewMailNotice(GetActiveWizard());
+        if (notice is not null) {
+            SendToSocket(notice);
         }
     }
 
@@ -98,7 +93,12 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_CHECK_MAIL))]
     private void ReceiveCheckMail(GAME_5_PROTOCOL.MSG_CHECK_MAIL message) {
-        var notice = NewMailNotice(GetActiveWizard());
+        var wizard = GetActiveWizard();
+        if (wizard is null) {
+            return;
+        }
+
+        var notice = NewMailNotice(wizard);
         if (notice is not null) {
             SendToSocket(notice);
         }

@@ -54,7 +54,7 @@ internal sealed class AcknowledgedRequestService(SessionActor sessionActor) : Me
 
     private readonly HashSet<Type> _loggedRequests = [];
 
-    internal static Props Props(SessionActor parentActor)
+    protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new AcknowledgedRequestService(parentActor));
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_CONNECTIONSTATS))]
