@@ -1092,6 +1092,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
             return;
         }
+
         Logger.Information("Session {SessionId} SERVERTRANSFER sent -> {Zone} {Ip}:{Port}",
             Logger.Args(SessionActor.SessionID, character.QueuedZoneName, character.GameServerIp, character.GameServerPort));
 
