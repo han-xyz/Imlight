@@ -46,6 +46,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Game.Housing.Access;
 using Imlight.CoreLib.Game.Housing.Houses;
 using Imlight.CoreLib.Game.Housing;
@@ -91,6 +92,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     private const float SIGIL_COUNTDOWN_SECONDS = 10.0f;
     private const float SIGIL_YAW_ERROR_COMPENSATION = 1.58f; // Gamebryo yaw compensation
     private ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY _activeSigilEntry;
+    private ulong _sigilGroupId;
+    private (ulong GroupId, string ZoneName)? _ownedGroupInstance;
 
     private readonly CoreObjectSerializer _effectSerializer = new(
         versionable: false,
@@ -224,6 +227,11 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        if (message.SendToClient && _ownedGroupInstance is { } owned && owned.ZoneName != message.DestinationZone) {
+            GroupSigilEntries.Release(owned.GroupId, owned.ZoneName, GetActiveWizard().CharId);
+            _ownedGroupInstance = null;
+        }
+
         // Sending the server transfer request to the server will allocate and load the zone.
         var zoneDetails = AskServer<ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP>(message);
         var failed = zoneDetails.ErrorCode != 0;
@@ -294,12 +302,46 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        StartSigilCountdown(message);
+
+        var wizard = GetActiveWizard();
+        if (!GroupRegistry.TryGetGroup(wizard.CharId, out var group)) {
+            return;
+        }
+
+        var countdown = new GroupSigilCountdown(message, wizard.Zone);
+        foreach (var member in SigilEntryPlan.CountdownRecipients(wizard.CharId, group)) {
+            member.Session.Tell(countdown);
+        }
+    }
+
+    [MessageHandler(typeof(GroupSigilCountdown))]
+    private void ReceiveGroupSigilCountdown(GroupSigilCountdown message) {
+        if (_transferGate.IsQueued || _activeSigilEntry is not null) {
+            return;
+        }
+
+        var wizard = GetActiveWizard();
+        if (wizard is null || wizard.Zone != message.ZoneName || !IsOnSigilPad(message.Entry, wizard)) {
+            return;
+        }
+
+        StartSigilCountdown(message.Entry);
+    }
+
+    private void StartSigilCountdown(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY message) {
         // Force a dismount.
         SessionActor.ActorRef.Tell(
             new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT { Force = true }
         );
 
         _activeSigilEntry = message;
+        _sigilGroupId = 0;
+        var charId = GetActiveWizard().CharId;
+        if (GroupRegistry.TryGetGroup(charId, out var group)) {
+            _sigilGroupId = group.GroupId;
+            GroupSigilEntries.Wait(group.GroupId, message.DestinationZone, charId);
+        }
 
         SnapPlayerToSigilFace(message);
 
@@ -332,12 +374,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         // If the player walked off the pad during the countdown and the client's walk-off cancel never
         // arrived, drop the transfer instead of yanking them from across the street.
-        var pad = Util.GetVectorFromCompactString(_activeSigilEntry.SigilLoc);
-        var pos = wizard.Location;
-        var dx = pad.X - pos.X;
-        var dy = pad.Y - pos.Y;
-        var dz = pad.Z - pos.Z;
-        if ((dx * dx) + (dy * dy) + (dz * dz) > (_activeSigilEntry.Radius * _activeSigilEntry.Radius)) {
+        if (!IsOnSigilPad(_activeSigilEntry, wizard)) {
             CancelSigilCountdown();
 
             return;
@@ -346,20 +383,59 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         var entry = _activeSigilEntry;
         _activeSigilEntry = null;
 
-        Logger.Information("Entering dungeon instance '{0}' (owner {1})",
-            Logger.Args(entry.DestinationZone, wizard.CharId));
+        var instance = EnterSigilInstance(wizard.CharId, entry.DestinationZone);
+
+        Logger.Information("Entering dungeon instance '{0}' (owner {1}, reset {2})",
+            Logger.Args(entry.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
 
         var tpMsg = new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
             DestinationZone = entry.DestinationZone,
             DestinationLocation = entry.DestinationLoc,
             SendToClient = true,
             IsPrivate = true,
-            OwnerCharId = wizard.CharId,
-            ResetInstance = true,
+            OwnerCharId = instance.OwnerCharId,
+            ResetInstance = instance.ResetInstance,
         };
 
         SendTeleportEffects();
         ReceiveZoneTransferRequest(tpMsg);
+    }
+
+    private SigilEntry EnterSigilInstance(ulong charId, string zoneName) {
+        var groupId = _sigilGroupId;
+        _sigilGroupId = 0;
+
+        var isSameGroup = GroupRegistry.TryGetGroup(charId, out var group) && group.GroupId == groupId;
+        if (groupId != 0 && !isSameGroup) {
+            GroupSigilEntries.StopWaiting(groupId, zoneName, charId);
+        }
+
+        var instance = isSameGroup
+            ? GroupSigilEntries.Enter(charId, group, zoneName)
+            : SigilEntryPlan.Decide(charId, group: null, padOccupants: [], liveOwnerCharId: 0);
+
+        // The client attaches again after the transfer; the assignment sends that attach to the owner's container.
+        if (instance.OwnerCharId == charId) {
+            ZoneInstanceOwners.Clear(charId, zoneName);
+        } else {
+            ZoneInstanceOwners.Assign(charId, zoneName, instance.OwnerCharId);
+        }
+
+        if (isSameGroup && instance.OwnerCharId == charId) {
+            _ownedGroupInstance = (groupId, zoneName);
+        }
+
+        return instance;
+    }
+
+    private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {
+        var pad = Util.GetVectorFromCompactString(entry.SigilLoc);
+        var pos = wizard.Location;
+        var dx = pad.X - pos.X;
+        var dy = pad.Y - pos.Y;
+        var dz = pad.Z - pos.Z;
+
+        return (dx * dx) + (dy * dy) + (dz * dz) <= entry.Radius * entry.Radius;
     }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_LEAVESIGILTIMERWAITING))]
@@ -1322,6 +1398,11 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        if (_sigilGroupId != 0) {
+            GroupSigilEntries.StopWaiting(_sigilGroupId, entry.DestinationZone, GetActiveWizard().CharId);
+            _sigilGroupId = 0;
+        }
+
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMEREND { SigilGID = entry.SigilGID });
 
         // Give the player their mount back.
@@ -1438,6 +1519,16 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         yaw = (float) faceYaw;
 
         return true;
+    }
+
+    /// <summary>
+    /// Tells a group member that another member started the countdown on a sigil pad in <see cref="ZoneName"/>.
+    /// </summary>
+    private sealed record GroupSigilCountdown(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY Entry, string ZoneName) : IServerMessage {
+
+        public byte MessageOrder => 0;
+        public byte ServiceID => 102;
+
     }
 
 }
