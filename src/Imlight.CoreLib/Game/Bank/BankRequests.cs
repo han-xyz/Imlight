@@ -53,6 +53,7 @@ using Imcodec.MessageLayer;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
@@ -136,6 +137,8 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
 
             return false;
         }
+
+        DropPetRecordOnMove(BankContainer.Backpack, to, itemId);
 
         Send(BankSync.StorageAdd(wizard, result.Destination, shared: true));
         SendBackpackLeft(result, itemId);
@@ -263,6 +266,8 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return;
         }
 
+        DropPetRecordOnMove(from, to, itemId);
+
         Send(BankSync.StorageAdd(wizard, result.Destination, shared: toShared));
         session.Tell(BankSync.StorageRemove(wizard, itemId, shared: !toShared));
         session.Tell(BankSync.BankToBankConfirm(message.ClientRequestID, itemId, result.NewId, toShared));
@@ -324,6 +329,7 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
             return false;
         }
 
+        WizardPetCollection.Delete(wizard.CharId, itemId);
         if (from == BankContainer.Backpack) {
             ItemSync.SendRemoved(session, wizard, itemId);
         } else {
@@ -494,6 +500,12 @@ internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> 
         // A storage add the item could not be built for is already logged.
         if (message is not null) {
             session.Tell(message);
+        }
+    }
+
+    private void DropPetRecordOnMove(BankContainer from, BankContainer to, ulong itemId) {
+        if (PetRecordRules.DropsRecordOnMove(from, to)) {
+            WizardPetCollection.Delete(wizard.CharId, itemId);
         }
     }
 

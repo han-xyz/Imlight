@@ -154,6 +154,7 @@ internal class InventoryService(SessionActor sessionActor) : MessageService(sess
         }
 
         wizard.RemoveItemFromInventory(message.GlobalID);
+        WizardPetCollection.Delete(wizard.CharId, message.GlobalID);
         SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_REMOVEITEM() {
             GlobalID = wizard.GameObjectID,
             ItemID = message.GlobalID
