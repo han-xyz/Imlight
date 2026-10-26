@@ -2408,7 +2408,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     }
 
     private int GetBaseEnemyCount() {
-        var baseEnemyCount = _combatSigilObjectInfo?.m_unknown_uint_2 ?? 0;
+        var baseEnemyCount = _combatSigilObjectInfo?.m_baseEnemyCount ?? 0;
         if (baseEnemyCount == ONE_ENEMY_PER_PLAYER_MARKER) {
             return 1;
         }
