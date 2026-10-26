@@ -1118,6 +1118,11 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return HenchmanSummonResult.Failed;
         }
 
+        // Bought in the planning phase, so register it now and let its AI pick a move for this round,
+        // instead of waiting for the next round's AddWaitingCombatParticipants.
+        AddCombatParticipant(slot);
+        slot.ParticipantActor.Tell(new COMBAT_106_PROTOCOL.MSG_NEWROUND { Round = Duel.m_roundNum });
+
         slotIndex = slot.SlotIndex;
         return HenchmanSummonResult.Summoned;
     }
@@ -1673,7 +1678,9 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         return (byte) upFirst.SlotIndex;
     }
 
-    private void AddWaitingCombatParticipants() => EnactActionOnSubCircles(circle => {
+    private void AddWaitingCombatParticipants() => EnactActionOnSubCircles(AddCombatParticipant);
+
+    private void AddCombatParticipant(CombatDuelSubCircle circle) {
         if (circle.AddedToDuel || !circle.Occupied) {
             return;
         }
@@ -1698,7 +1705,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
         circle.AddedToDuel = true;
         Duel.m_flatParticipantList.Add(participant);
-    });
+    }
 
     private void LogStartingPips() {
         var pips = new List<string>();
