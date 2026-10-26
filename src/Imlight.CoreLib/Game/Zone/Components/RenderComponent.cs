@@ -205,11 +205,7 @@ internal sealed class RenderComponent(ZoneEntity entity) : ZoneEntityComponent(e
         // Remove the player from the list of players in range.
         _playersInRange.Remove(suspect);
 
-        if (_playerIgnoreBecauseDynamod.Remove(suspect)) {
-            return;
-        }
-
-        DespawnObjectForPlayer(suspect);
+        _playerIgnoreBecauseDynamod.Remove(suspect);
     }
 
     public override void OnPlayerMove(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
