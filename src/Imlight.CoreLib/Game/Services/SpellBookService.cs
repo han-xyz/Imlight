@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Linq;
@@ -44,6 +44,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Spells;
 using Imlight.CoreLib.Shared.Networking;
+using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
@@ -54,6 +55,85 @@ internal class SpellbookService(SessionActor sessionActor) : MessageService(sess
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new SpellbookService(parentActor));
+
+    private const int ItemLockBit = unchecked((int) 0x80000000);
+    private const uint DeckNameMask = 0x7FFFFFFF;
+
+    internal static bool TryNameDeck(Wizard wizard, ulong deckId, uint deckName, uint deckNameExtension,
+                                     out WizClientObjectItem deck) {
+        if (!TryFindOwnedDeck(wizard, deckId, out deck, out _)) {
+            return false;
+        }
+
+        // The client stores a deck's name in its item pattern; the pattern's top bit is the item lock and stays.
+        deck.m_pattern = (deck.m_pattern & ItemLockBit) | (int) (deckName & DeckNameMask);
+        deck.m_primaryColor = (int) deckNameExtension;
+        return true;
+    }
+
+    internal static bool TrySetDeckArchmastery(Wizard wizard, ulong deckId, uint school, out WizClientObjectItem deck) {
+        if (!TryFindOwnedDeck(wizard, deckId, out deck, out var deckBehavior)) {
+            return false;
+        }
+
+        deckBehavior.m_archmasterySchool = school;
+        return true;
+    }
+
+    private static bool TryFindOwnedDeck(Wizard wizard, ulong deckId, out WizClientObjectItem deck,
+                                         out DeckBehavior deckBehavior) {
+        deck = wizard.InventoryBehavior?.Items?.FirstOrDefault(i => i.m_globalID == deckId)
+            ?? wizard.EquipmentBehavior?.EquippedItems?.FirstOrDefault(i => i.m_globalID == deckId);
+        deckBehavior = null;
+        return deck is not null && CoreObjectFactory.FindBehaviorInstance(deck, out deckBehavior);
+    }
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_SETDECKNAME))]
+    private void ReceiveSetDeckName(WIZARD_12_PROTOCOL.MSG_SETDECKNAME message) {
+        var wizard = GetActiveWizard();
+        if (wizard is null || !TryNameDeck(wizard, message.ItemGID, message.DeckName, message.DeckNameExtension, out var deck)) {
+            return;
+        }
+
+        WizardItemCollection.SaveDeckSettings(deck);
+    }
+
+    [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_SetDeckArchmastery))]
+    private void ReceiveSetDeckArchmastery(WIZARD3_56_PROTOCOL.MSG_SetDeckArchmastery message) {
+        var wizard = GetActiveWizard();
+        if (wizard is null || !TrySetDeckArchmastery(wizard, message.ItemGID, message.School, out var deck)) {
+            return;
+        }
+
+        WizardItemCollection.SaveDeckSettings(deck);
+    }
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_CLEAR_EQUIPPED_DECK))]
+    private void ReceiveClearEquippedDeck(WIZARD_12_PROTOCOL.MSG_CLEAR_EQUIPPED_DECK message) {
+        var wizard = GetActiveWizard();
+        var deckId = wizard?.EquipmentBehavior.SlotList
+            .FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck)?.ItemId;
+        if (deckId is null || wizard.SpellbookBehavior.SpellList is null) {
+            return;
+        }
+
+        // Treasure cards go back to the treasure card book through their own path, so only learned spells are cleared.
+        var learnedSpells = wizard.SpellbookBehavior.SpellList
+            .Where(s => CoreObjectFactory.GetCoreTemplate(s.m_templateID) is SpellTemplate { m_Treasure: false })
+            .SelectMany(s => Enumerable.Repeat(s.m_templateID, (int) s.m_quantity))
+            .ToList();
+        foreach (var templateId in learnedSpells) {
+            if (!wizard.RemoveSpellFromDeck(templateId, deckId.Value)) {
+                continue;
+            }
+
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REMOVESPELLFROMDECK {
+                SpellID = (int) templateId,
+                DeckID = deckId.Value,
+                Success = 1
+            });
+        }
+    }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_ADDSPELLTODECK))]
     private void ReceiveAddSpellToDeck(WIZARD_12_PROTOCOL.MSG_ADDSPELLTODECK message) {

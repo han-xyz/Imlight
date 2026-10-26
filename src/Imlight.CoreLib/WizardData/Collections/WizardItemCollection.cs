@@ -431,6 +431,30 @@ public static class WizardItemCollection {
     }
 
     /// <summary>
+    /// Saves a deck's name and archmastery school onto its stored item.
+    /// </summary>
+    /// <param name="deck">The deck item.</param>
+    /// <returns>True if the deck was found and saved, false otherwise.</returns>
+    public static bool SaveDeckSettings(WizClientObjectItem deck) {
+        using var session = s_store.OpenSession();
+
+        var associatedItem = session.Query<WizClientObjectItem>(collectionName: CollectionName)
+            .FirstOrDefault(x => x.m_globalID == deck.m_globalID && x.m_characterId == deck.m_characterId);
+        if (associatedItem is null
+            || !CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(associatedItem, out var storedDeck)
+            || !CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deck, out var deckBehavior)) {
+            return false;
+        }
+
+        associatedItem.m_pattern = deck.m_pattern;
+        associatedItem.m_primaryColor = deck.m_primaryColor;
+        storedDeck.m_archmasterySchool = deckBehavior.m_archmasterySchool;
+        session.SaveChanges();
+
+        return true;
+    }
+
+    /// <summary>
     /// Saves the expiry of a started rental onto its stored item.
     /// </summary>
     /// <param name="item">The rental item.</param>
