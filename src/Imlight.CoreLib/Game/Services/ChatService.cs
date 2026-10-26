@@ -88,8 +88,12 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         var wizard = GetActiveWizard();
+        if (!TryCleanChatLine(message.Message, wizard, out var cleaned)) {
+            return;
+        }
+
         SendFilteredZoneMessage(new GAME_5_PROTOCOL.MSG_RADIALQUICKCHATEXT {
-            Message = message.Message,
+            Message = cleaned,
             SourceID = GetActiveGameObject().m_globalID,
             SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
             Filter = 0,
@@ -119,8 +123,12 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         var wizard = GetActiveWizard();
+        if (!TryCleanChatLine(message.Message, wizard, out var cleaned)) {
+            return;
+        }
+
         SendFilteredZoneMessage(new WIZARD2_53_PROTOCOL.MSG_RADIALZONECLUSTERQUICKCHATEXT {
-            Message = message.Message,
+            Message = cleaned,
             IsOwner = message.IsOwner,
             SourceID = GetActiveGameObject().m_globalID,
             SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
@@ -208,7 +216,7 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         var wizard = GetActiveWizard();
         var account = GetActiveAccount();
 
-        var cleanedMessage = DecodeRadialChatText(text);
+        var cleanedMessage = RadialChatText.Clean(text);
         if (cleanedMessage.Length == 0) {
             return;
         }
@@ -224,7 +232,7 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         SaveChatLog(cleanedMessage, wizard);
 
         var msg = new GAME_5_PROTOCOL.MSG_RADIALCHAT {
-            Message = EncodeRadialChatText(cleanedMessage),
+            Message = RadialChatText.Encode(cleanedMessage),
             SourceID = charObj.m_globalID,
             SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
             Filter = 2,
@@ -264,19 +272,8 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
     }
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDQUICKCHATEXT))]
-    private void ReceiveWhisperRadialChatExt(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDQUICKCHATEXT message) {
-        if (IsSenderMuted()) {
-            return;
-        }
-
-        var wizard = GetActiveWizard();
-        SendDirectedChat(message.TargetID, new GAME_5_PROTOCOL.MSG_DIRECTEDQUICKCHATEXT {
-            SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
-            SourceID = wizard.CharId,
-            Message = message.Message,
-            Filter = 0
-        });
-    }
+    private void ReceiveWhisperRadialChatExt(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDQUICKCHATEXT message)
+        => SendQuickChatExtTo([message.TargetID], message.Message);
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDCHAT))]
     private void ReceiveWhisperDirectChat(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDCHAT message) {
@@ -361,12 +358,13 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        var cleanedMessage = DecodeRadialChatText(text);
+        var cleanedMessage = RadialChatText.Clean(text);
         if (cleanedMessage.Length == 0) {
             return;
         }
 
         var wizard = GetActiveWizard();
+        LogChatMessage(wizard.PlayerNameBehavior.GetWizardName(), cleanedMessage, wizard.Zone);
         SaveChatLog(cleanedMessage, wizard);
         foreach (var targetId in targetIds) {
             SendDirectedChat(targetId, new GAME_5_PROTOCOL.MSG_DIRECTEDCHAT {
@@ -401,42 +399,33 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         var wizard = GetActiveWizard();
+        if (!TryCleanChatLine(text, wizard, out var cleaned)) {
+            return;
+        }
+
         foreach (var targetId in targetIds) {
             SendDirectedChat(targetId, new GAME_5_PROTOCOL.MSG_DIRECTEDQUICKCHATEXT {
                 SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
                 SourceID = wizard.CharId,
-                Message = text,
+                Message = cleaned,
                 Filter = 0
             });
         }
     }
 
-    private static string DecodeRadialChatText(ByteString payload) {
-        if (payload.IsEmpty) {
-            return string.Empty;
+    private static bool TryCleanChatLine(ByteString raw, Wizard wizard, out ByteString cleaned) {
+        var text = RadialChatText.Clean(raw);
+        cleaned = default;
+        if (text.Length == 0) {
+            return false;
         }
 
-        try {
-            var lengthReader = new BitReader((byte[])payload);
-            var characterCount = lengthReader.ReadUInt16();
-            if (lengthReader.GetRelativeData().Length < characterCount * 2) {
-                return string.Empty;
-            }
+        cleaned = RadialChatText.Encode(text);
 
-            var text = new BitReader((byte[])payload).ReadWString();
+        LogChatMessage(wizard.PlayerNameBehavior.GetWizardName(), text, wizard.Zone);
+        SaveChatLog(text, wizard);
 
-            return new string(text.Where(character => !char.IsControl(character)).ToArray()).Trim();
-        }
-        catch (EndOfStreamException) {
-            return string.Empty;
-        }
-    }
-
-    private static ByteString EncodeRadialChatText(string text) {
-        var writer = new BitWriter();
-        writer.WriteWString(text);
-
-        return new ByteString(writer.GetData());
+        return true;
     }
 
     private void SendGroupChat(GAME_5_PROTOCOL.MSG_REQUESTDIRECTEDCHAT message, Wizard wizard) {

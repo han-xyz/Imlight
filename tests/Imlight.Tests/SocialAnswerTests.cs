@@ -20,6 +20,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
+using Imcodec.IO;
+using Imcodec.MessageLayer;
 using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.WizardData.Models.Misc;
@@ -56,6 +58,24 @@ public sealed class SocialAnswerTests {
         var recipients = ZoneChatRecipients.Select(players, senderCharId: 1, blockedBy: [3]);
 
         Assert.Equal([2UL], recipients.Select(player => player.CharacterId));
+    }
+
+    [Fact]
+    public void RadialChatText_Clean_StripsControlCharactersAndTrims() {
+        var writer = new BitWriter();
+        writer.WriteWString(" hi\u0007 there\n ");
+
+        Assert.Equal("hi there", RadialChatText.Clean(new ByteString(writer.GetData())));
+    }
+
+    [Fact]
+    public void RadialChatText_Clean_LengthBeyondThePayload_IsEmpty() {
+        Assert.Equal(string.Empty, RadialChatText.Clean(new ByteString([0x40, 0x00, 0x41, 0x00])));
+    }
+
+    [Fact]
+    public void RadialChatText_EncodeThenClean_RoundTrips() {
+        Assert.Equal("hello", RadialChatText.Clean(RadialChatText.Encode("hello")));
     }
 
 }
