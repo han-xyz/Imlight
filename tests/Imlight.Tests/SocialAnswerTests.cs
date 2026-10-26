@@ -44,8 +44,46 @@ public sealed class SocialAnswerTests {
         };
 
         Assert.Equal("1:WizardCity/WC_Hub;2:WizardCity/WC_Streets/WC_Triton",
-            PartyMemberZones.Format(group, charId => currentZones.GetValueOrDefault(charId)));
+            PartyMemberZones.Format(group, requesterCharId: 1, charId => currentZones.GetValueOrDefault(charId), NoBlocks));
     }
+
+    [Fact]
+    public void PartyMemberZones_LeavesOutMembersBlockedEitherWay() {
+        var group = Group(1, 2, 3);
+
+        var zones = PartyMemberZones.Format(group, requesterCharId: 1, _ => "WizardCity/WC_Hub",
+            hasBlocked: (blocker, blocked) => (blocker, blocked) is (2, 1) or (1, 3));
+
+        Assert.Equal("1:WizardCity/WC_Hub", zones);
+    }
+
+    [Fact]
+    public void PartyMemberZones_CanQuery_OwnCharacter() {
+        Assert.True(PartyMemberZones.CanQuery(requesterCharId: 1, targetCharId: 1, targetGroup: null, NoBlocks));
+    }
+
+    [Fact]
+    public void PartyMemberZones_CanQuery_GroupMate() {
+        Assert.True(PartyMemberZones.CanQuery(requesterCharId: 1, targetCharId: 2, Group(1, 2), NoBlocks));
+    }
+
+    [Fact]
+    public void PartyMemberZones_CannotQuery_CharacterOutsideTheGroup() {
+        Assert.False(PartyMemberZones.CanQuery(requesterCharId: 1, targetCharId: 3, Group(2, 3), NoBlocks));
+    }
+
+    [Fact]
+    public void PartyMemberZones_CannotQuery_GroupMateWhoBlockedTheRequester() {
+        Assert.False(PartyMemberZones.CanQuery(requesterCharId: 1, targetCharId: 2, Group(1, 2),
+            hasBlocked: (blocker, blocked) => (blocker, blocked) is (2, 1)));
+    }
+
+    private static bool NoBlocks(ulong blocker, ulong blocked) => false;
+
+    private static GroupSnapshot Group(params ulong[] memberIds)
+        => new(GroupId: 7, ChannelId: 8, LeaderCharId: memberIds[0],
+            Members: [.. memberIds.Select(charId => new GroupMemberSnapshot(charId, "", ActorRefs.Nobody, ActorRefs.Nobody, 0))],
+            QuestId: 0, GoalId: 0);
 
     [Fact]
     public void ZoneChatRecipients_SkipTheSenderAndPlayersWhoBlockedThem() {

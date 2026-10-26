@@ -103,7 +103,8 @@ internal class GroupService(SessionActor sessionActor) : MessageService(sessionA
         var charId = GetActiveWizard().CharId;
 
         SendToSocket(new GAME_5_PROTOCOL.MSG_PARTYSUBMITMEMBERZONES {
-            PartyMemberZones = GroupRegistry.TryGetGroup(charId, out var group) ? PartyMemberZones.Format(group, CurrentZoneOf) : string.Empty,
+            PartyMemberZones = GroupRegistry.TryGetGroup(charId, out var group) ? PartyMemberZones.Format(group, charId, CurrentZoneOf, BuddyRelationshipCollection.HasBlocked)
+                : string.Empty,
             DestinationCharacterID = charId
         });
     }
@@ -111,6 +112,9 @@ internal class GroupService(SessionActor sessionActor) : MessageService(sessionA
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_PARTYZONEREQUEST))]
     private void ReceivePartyZoneRequest(GAME_5_PROTOCOL.MSG_PARTYZONEREQUEST message) {
         GroupRegistry.TryGetGroup(message.CharacterID, out var group);
+        if (!PartyMemberZones.CanQuery(GetActiveWizard().CharId, message.CharacterID, group, BuddyRelationshipCollection.HasBlocked)) {
+            group = null;
+        }
 
         SendToSocket(new GAME_5_PROTOCOL.MSG_PARTYZONEREQUESTRESPONSE {
             CharacterID = message.CharacterID,

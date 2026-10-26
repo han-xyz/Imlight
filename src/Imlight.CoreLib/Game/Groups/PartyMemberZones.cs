@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * The answer to MSG_PARTYREQUESTMEMBERZONES: each online member of a group with the zone they are in.
+ * The answers to MSG_PARTYREQUESTMEMBERZONES and MSG_PARTYZONEREQUEST, limited to the requester's own group.
  * 
  * USAGE EXAMPLE:
  * GroupService sends it as MSG_PARTYSUBMITMEMBERZONES.PartyMemberZones.
@@ -43,12 +43,33 @@ internal static class PartyMemberZones {
 
     /// <summary>
     /// "charId:zonePath" for each member in roster order, joined by ';'. Members <paramref name="currentZoneOf"/> has
-    /// no zone for (offline) are left out.
+    /// no zone for (offline), and members who block the requester or are blocked by them, are left out.
     /// </summary>
-    public static string Format(GroupSnapshot group, Func<ulong, string> currentZoneOf)
+    public static string Format(GroupSnapshot group, ulong requesterCharId, Func<ulong, string> currentZoneOf,
+                                Func<ulong, ulong, bool> hasBlocked)
         => string.Join(';', group.Members
+            .Where(member => member.CharId == requesterCharId || !AreBlocked(requesterCharId, member.CharId, hasBlocked))
             .Select(member => (member.CharId, Zone: currentZoneOf(member.CharId)))
             .Where(member => !string.IsNullOrEmpty(member.Zone))
             .Select(member => $"{member.CharId}:{member.Zone}"));
+
+    /// <summary>
+    /// Whether the requester may learn the target's party: their own character, or a group mate when neither blocks
+    /// the other.
+    /// </summary>
+    public static bool CanQuery(ulong requesterCharId, ulong targetCharId, GroupSnapshot targetGroup,
+                                Func<ulong, ulong, bool> hasBlocked) {
+        if (targetCharId == requesterCharId) {
+            return true;
+        }
+
+        return targetGroup is not null
+            && targetGroup.HasMember(requesterCharId)
+            && targetGroup.HasMember(targetCharId)
+            && !AreBlocked(requesterCharId, targetCharId, hasBlocked);
+    }
+
+    private static bool AreBlocked(ulong first, ulong second, Func<ulong, ulong, bool> hasBlocked)
+        => hasBlocked(first, second) || hasBlocked(second, first);
 
 }
