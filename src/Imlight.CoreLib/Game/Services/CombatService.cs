@@ -248,16 +248,27 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         // The spell target given by the client is logarithmic. We need to convert it to a linear scale.
-        // A selection of 0 means a target of self.
-        int actualSelection = (int) Math.Log(message.SpellTarget, 2);
+        // If it's a single-bit power of 2, convert to 0-based circle slot. Otherwise keep raw value.
+        // Check SpellTarget before Log2, because Log2(0) results in -Infinity!
+        uint actualSelection;
+        if (message.SpellTarget > 0 && (message.SpellTarget & (message.SpellTarget - 1)) == 0) {
+            actualSelection = (uint) Math.Log2(message.SpellTarget);
+        }
+        else {
+            actualSelection = message.SpellTarget;
+        }
 
         var msg = new COMBAT_106_PROTOCOL.MSG_ACTORCOMBATMOVE {
             Actor = SessionActor.ActorRef,
             MoveType = message.MoveType,
             SpellSelection = message.SpellSelection,
-            SpellTarget = (uint) actualSelection,
-            TimeLeft = message.TimeLeft
+            SpellTarget = actualSelection,
+            RawSpellTarget = message.SpellTarget,
+            TimeLeft = message.TimeLeft,
+            ShadowPactTarget = message.ShadowPactTarget, // -1 (If not used(?))
+            SelectedTieredSpellID = message.SelectedTieredSpellID
         };
+
         _currentDuelActor.Tell(msg);
     }
 
@@ -323,6 +334,12 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         var wizard = GetActiveWizard();
+        if (!wizard.InventoryBehavior.HasItem(_cachedMountId)) {
+            _cachedMountId = 0;
+
+            return;
+        }
+
         var wizEquipmentBehavior = wizard.EquipmentBehavior;
         var slot = wizEquipmentBehavior.GetSlotOfItem(_cachedMountId);
 
@@ -352,6 +369,12 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         var wizard = GetActiveWizard();
+        if (!wizard.InventoryBehavior.HasItem(_cachedMountId)) {
+            _cachedMountId = 0;
+
+            return;
+        }
+
         if (!wizard.InventoryToEquipmentTransfer(_cachedMountId, out var addedEffects, out var _)) {
             Logger.Warning("Equip failed on item {0}", Logger.Args(_cachedMountId));
             return;

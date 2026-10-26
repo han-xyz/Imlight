@@ -265,13 +265,9 @@ internal static class BankRules {
     private static bool HasBackpackRoom(WizClientObjectItem item, BankItemKind kind, int quantity, Wizard wizard) {
         switch (kind) {
             case BankItemKind.Reagent:
-                var reagent = wizard.AlchemyBehavior?.GetReagent(item.m_templateID);
-
-                return (reagent?.m_quantity ?? 0) + quantity <= ServerAlchemyBehavior.MaxReagentStack;
+                return wizard.AlchemyBehavior?.HasReagentSpace(item.m_templateID, quantity) ?? false;
             case BankItemKind.PetSnack:
-                var snack = wizard.PetSnackBehavior?.GetSnack(item.m_templateID);
-
-                return (snack?.m_quantity ?? 0) + quantity <= ServerPetSnackBehavior.MaxStack;
+                return wizard.PetSnackBehavior?.HasSnackSpace(item.m_templateID, quantity) ?? false;
             default:
                 return wizard.InventoryBehavior.FreeSlots >= 1;
         }

@@ -71,6 +71,7 @@ internal sealed class MinigameProcess : Process {
     private readonly MinigameRound _round;
     private bool _chestSettled;
     private bool _chestRefused;
+    private bool _chestHandedOff;
 
     private readonly byte _minigameIndex;
     private readonly MinigameInfo _minigameInfo;
@@ -100,12 +101,19 @@ internal sealed class MinigameProcess : Process {
 
     protected override void PostStop() {
         // A chest game that ended without a result (pre-game exit, disconnect, idle kill) frees the chest.
-        if (_chestGame is not null && !_chestSettled && !_chestRefused) {
+        if (ShouldAbortChest(_chestGame is not null, _chestSettled, _chestRefused, _chestHandedOff)) {
             _chestGame.ChestRef?.Tell(new ZONE_102_PROTOCOL.MSG_CHEST_GAME_ABORTED { CharId = _chestGame.CharId }, Self);
         }
 
         base.PostStop();
     }
+
+    internal static bool ShouldAbortChest(bool hasChest, bool settled, bool refused, bool handedOff)
+        => hasChest && !settled && !refused && !handedOff;
+
+    [MessageHandler(typeof(PROCESS_107_PROTOCOL.MSG_CHEST_GAME_HANDED_OFF))]
+    private void ReceiveChestGameHandedOff(PROCESS_107_PROTOCOL.MSG_CHEST_GAME_HANDED_OFF _)
+        => _chestHandedOff = true;
 
     [MessageHandler(typeof(PROCESS_107_PROTOCOL.MSG_CHEST_GAME_REFUSED))]
     private void ReceiveChestGameRefused(PROCESS_107_PROTOCOL.MSG_CHEST_GAME_REFUSED _)

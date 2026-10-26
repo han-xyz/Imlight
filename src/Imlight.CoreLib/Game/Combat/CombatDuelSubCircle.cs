@@ -53,6 +53,7 @@ using Imlight.CoreLib.Game.Zone.Components;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
+using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System;
 using System.Collections.Generic;
@@ -100,7 +101,7 @@ public class CombatDuelSubCircle {
     internal bool AddedToDuel { get; set;}
     internal bool IsSummonedMinion { get; private set; }
     // A sandboxed wizard fights with a copy of their stats, so nothing of the duel reaches the saved wizard.
-    internal bool IsSandboxed { get; private set; }
+    internal bool IsSandboxed { get; set; }
     internal List<SpellEffect> _hangingEffects { get {
         if (CombatParticipant is null) {
             return null;
@@ -250,6 +251,10 @@ public class CombatDuelSubCircle {
 
     internal void DiscardCard(Spell spell) {
         _combatDeck.Discard(spell);
+    }
+
+    internal void ConsumeCard(Spell spell) {
+        _combatDeck.ConsumeCard(spell);
     }
 
     internal Spell GetSpellFromLastHand(byte index) {
@@ -486,6 +491,42 @@ public class CombatDuelSubCircle {
     /// Permanently consumes a successfully cast treasure card from the vault.
     /// </summary>
     internal uint ConsumeFromVault(Spell spell) => _combatDeck.ConsumeFromVault(spell);
+
+    /// <summary>
+    /// Takes a treasure card out of the vault. Outside a sandboxed duel the card also leaves the saved spellbook and deck.
+    /// </summary>
+    internal void ConsumeTreasureCard(Spell spell) {
+        var consumedTemplateId = ConsumeFromVault(spell);
+        if (consumedTemplateId == 0 || _wizard is null || IsSandboxed) {
+            return;
+        }
+
+        // Persist the removal from the player's treasure card book.
+        _wizard.SpellbookBehavior.RemoveTreasureCard(consumedTemplateId);
+        WizardCollection.RemoveTreasureCard(_wizard, consumedTemplateId);
+
+        // Also remove from the equipped deck's spell list so it doesn't
+        // reappear when the player re-opens their deck after combat.
+        var deckSlot = _wizard.EquipmentBehavior.SlotList
+            .FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck);
+        if (deckSlot?.ItemId != null) {
+            _wizard.RemoveSpellFromDeck(consumedTemplateId, deckSlot.ItemId.Value);
+
+            // Tell the client to remove the TC from the deck UI.
+            var spellTemplate = CoreObjectFactory.GetCoreTemplate(consumedTemplateId) as SpellTemplate;
+            if (spellTemplate != null) {
+                var spellHash = StringHash.Compute(spellTemplate.m_name);
+                ParticipantActor.Tell(
+                    new WIZARD_12_PROTOCOL.MSG_REMOVETREASURESPELLFROMDECK {
+                        SpellID = (int) spellHash,
+                        EnchantmentID = 0,
+                        DeckID = deckSlot.ItemId.Value,
+                        Success = 1,
+                        Destroy = 0
+                    }, ActorRefs.NoSender);
+            }
+        }
+    }
 
     private bool InitializePlayerSubCircle() {
         // todo: this method is a mess.

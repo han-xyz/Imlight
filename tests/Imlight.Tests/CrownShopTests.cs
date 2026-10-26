@@ -41,7 +41,10 @@ using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Services;
+using Imlight.CoreLib.Shared.Behaviors;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -102,6 +105,21 @@ public sealed class CrownShopTests : IDisposable {
         var pack = new BoosterPackTemplate { m_lootTables = ["Common", "Rare", "Epic"] };
 
         Assert.Equal(6, GiftingService.CalculateRequiredInventorySlots(pack, 2));
+    }
+
+    [Fact]
+    public void PackLoot_EachPackFitsButBothOverflowTheBag_IsRefused() {
+        const uint ReagentId = 7001;
+        var reagent = new ReagentItemTemplate();
+        var wizard = new Wizard {
+            AlchemyBehavior = new ServerAlchemyBehavior {
+                Reagents = [new ClientReagentItem { m_templateID = ReagentId, m_quantity = ServerAlchemyBehavior.MaxReagentStack - 1 }]
+            }
+        };
+        (uint, CoreTemplate) drop = (ReagentId, reagent);
+
+        Assert.True(PackManager.HasRoomFor(wizard, [drop]));
+        Assert.False(PackManager.HasRoomFor(wizard, [drop, drop]));
     }
 
     [Fact]

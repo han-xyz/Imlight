@@ -80,4 +80,15 @@ internal sealed class PROCESS_107_PROTOCOL : IServerProtocol {
 
     }
 
+    /// <summary>
+    /// Sent by the minigame service to a minigame process whose chest game continues in a new process, so the
+    /// stopping process leaves the chest alone.
+    /// </summary>
+    internal sealed class MSG_CHEST_GAME_HANDED_OFF : IServerMessage {
+
+        public byte MessageOrder { get; } = 6;
+        public byte ServiceID { get; } = 107;
+
+    }
+
 }

@@ -27,15 +27,19 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.Cryptography;
+using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
+using Imlight.CoreLib.Game.Inventory;
+using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -48,37 +52,115 @@ public static class PackManager {
     private static readonly ObjectSerializer s_objectSerializer = new(Versionable: false);
 
     /// <summary>
-    /// Opens a booster pack, grants the drops to the player, and sends the client confirmation.
+    /// Opens booster packs of one template; see <see cref="OpenPacks"/>.
     /// </summary>
-    public static void OpenPack(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId) {
+    public static bool OpenPack(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count = 1)
+        => OpenPacks(sessionActorRef, wizard, new Dictionary<ulong, int> { [packTemplateId] = count });
+
+    /// <summary>
+    /// Opens every listed pack as one grant: all packs are rolled, and their combined loot is checked against the backpack
+    /// and the reagent and snack bags, before any loot is granted. Returns <c>false</c>, with nothing granted, if any pack
+    /// cannot be rolled or the loot does not fit.
+    /// </summary>
+    /// <param name="packCounts">How many packs of each pack template to open.</param>
+    public static bool OpenPacks(IActorRef sessionActorRef, Wizard wizard, IReadOnlyDictionary<ulong, int> packCounts) {
+        var rolledPacks = new List<RolledPack>();
+        foreach (var (packTemplateId, count) in packCounts) {
+            if (!TryRollPacks(sessionActorRef, wizard, packTemplateId, count, rolledPacks)) {
+                return false;
+            }
+        }
+
+        var allDrops = rolledPacks.SelectMany(pack => pack.Drops).Select(drop => (drop.ItemTemplateId, drop.ItemTemplate));
+        if (!HasRoomFor(wizard, allDrops)) {
+            Logger.Warning("Booster packs {0} grant failed: the loot does not fit the backpack or bags.",
+                Logger.Args(string.Join(",", packCounts.Keys)));
+            return false;
+        }
+
+        foreach (var (packTemplateId, rolledDrops, serializedLoot) in rolledPacks) {
+            foreach (var (itemTemplateId, itemTemplate, tableName, itemName) in rolledDrops) {
+                GrantDroppedItem(sessionActorRef, wizard, itemTemplateId, itemTemplate);
+
+                Logger.Information("Granted {0} ({1}) from slot {2}",
+                    Logger.Args(itemName, itemTemplateId, tableName));
+            }
+
+            sessionActorRef.Tell(new WIZARD_12_PROTOCOL.MSG_CROWNSBUYCONFIRM {
+                Failure = 0,
+                WebFailure = 0,
+                Credits = wizard.Account.Crowns,
+                Data = serializedLoot,
+                TemplateID = packTemplateId
+            });
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the backpack takes every dropped item and the bags take every dropped reagent and snack, all at once.
+    /// </summary>
+    internal static bool HasRoomFor(Wizard wizard, IEnumerable<(uint ItemTemplateId, CoreTemplate ItemTemplate)> drops) {
+        var dropList = drops.ToList();
+        var inventorySlotsNeeded = dropList.Count(drop => drop.ItemTemplate is not (SpellTemplate or ReagentItemTemplate or PetSnackItemTemplate));
+        if (inventorySlotsNeeded > 0 && !wizard.InventoryBehavior.HasInventorySpace(inventorySlotsNeeded)) {
+            return false;
+        }
+
+        return StackRoom.CanHoldStacks(wizard, dropList.Select(drop => ((ulong) drop.ItemTemplateId, drop.ItemTemplate, 1)));
+    }
+
+    private static bool TryRollPacks(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count,
+                                     List<RolledPack> rolledPacks) {
+        if (count < 1) {
+            return false;
+        }
+
         if (CoreObjectFactory.GetCoreTemplate(packTemplateId) is not BoosterPackTemplate boosterTemplate) {
             Logger.Warning("Template {0} is not a BoosterPackTemplate.", Logger.Args(packTemplateId));
-            return;
+            return false;
         }
 
         var lootTables = boosterTemplate.m_lootTables;
         if (lootTables is null || lootTables.Count == 0) {
             Logger.Warning("Booster pack {0} has no m_lootTables defined in TemplateManifest.", Logger.Args(packTemplateId));
-            return;
+            return false;
         }
 
-        var lootItems = new List<LootInfo>(lootTables.Count);
-        var lootRarities = new List<LootRarity>(lootTables.Count);
-
-        foreach (var tableName in lootTables) {
-            var rollResult = DropTableRoller.Roll([tableName], sessionActorRef, wizard.GameObject, wizard);
-            if (rollResult.Items.Count == 0) {
-                continue;
-            }
-
-            foreach (var droppedItem in rollResult.Items) {
-                if (!uint.TryParse(droppedItem.ItemId, out var itemTemplateId)) {
+        for (var i = 0; i < count; i++) {
+            var rolledDrops = new List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)>();
+            foreach (var tableName in lootTables) {
+                var rollResult = DropTableRoller.Roll([tableName], sessionActorRef, wizard.GameObject, wizard);
+                if (rollResult.Items.Count == 0) {
                     continue;
                 }
 
-                var itemTemplate = CoreObjectFactory.GetCoreTemplate(itemTemplateId);
-                var rarity = ResolveRarity(itemTemplate, tableName);
+                foreach (var droppedItem in rollResult.Items) {
+                    if (!uint.TryParse(droppedItem.ItemId, out var itemTemplateId)) {
+                        continue;
+                    }
 
+                    var itemTemplate = CoreObjectFactory.GetCoreTemplate(itemTemplateId);
+                    if (itemTemplate is null) {
+                        Logger.Warning("Booster pack {0} rolled unknown item template {1}.",
+                            Logger.Args(packTemplateId, itemTemplateId));
+                        continue;
+                    }
+
+                    rolledDrops.Add((itemTemplateId, itemTemplate, tableName, droppedItem.ItemName));
+                }
+            }
+
+            if (rolledDrops.Count == 0) {
+                Logger.Warning("Booster pack {0} rolled no valid drops.", Logger.Args(packTemplateId));
+                return false;
+            }
+
+            var lootItems = new List<LootInfo>(rolledDrops.Count);
+            var lootRarities = new List<LootRarity>(rolledDrops.Count);
+
+            foreach (var (itemTemplateId, itemTemplate, tableName, _) in rolledDrops) {
                 LootInfo lootInfo = itemTemplate switch {
                     SpellTemplate => new TreasureCardLootInfo {
                         m_lootType = LOOT_TYPE.LOOT_TYPE_TREASURE_CARD,
@@ -104,39 +186,35 @@ public static class PackManager {
                 lootItems.Add(lootInfo);
 
                 lootRarities.Add(new LootRarity {
-                    m_rarity = rarity,
+                    m_rarity = ResolveRarity(itemTemplate, tableName),
                     m_lootGid = (GID) itemTemplateId,
                     m_odds = 0
                 });
-
-                GrantDroppedItem(sessionActorRef, wizard, itemTemplateId, itemTemplate);
-
-                Logger.Information("Granted {0} ({1}) from slot {2}",
-                    Logger.Args(droppedItem.ItemName, droppedItem.ItemId, tableName));
             }
+
+            var lootInfoList = new LootInfoList {
+                m_loot = lootItems,
+                m_goldInfo = null,
+                m_lootRarityList = new LootRarityList {
+                    m_loot = lootRarities
+                }
+            };
+
+            if (!s_objectSerializer.Serialize(lootInfoList, PropertyFlags.Prop_Public, out var serializedLoot)) {
+                Logger.Error("Failed to serialize LootInfoList for booster pack {0}.", Logger.Args(packTemplateId));
+                return false;
+            }
+
+            rolledPacks.Add(new RolledPack(packTemplateId, rolledDrops, serializedLoot));
         }
 
-        var lootInfoList = new LootInfoList {
-            m_loot = lootItems,
-            m_goldInfo = null,
-            m_lootRarityList = new LootRarityList {
-                m_loot = lootRarities
-            }
-        };
-
-        if (!s_objectSerializer.Serialize(lootInfoList, PropertyFlags.Prop_Public, out var serializedLoot)) {
-            Logger.Error("Failed to serialize LootInfoList for booster pack {0}.", Logger.Args(packTemplateId));
-            return;
-        }
-
-        sessionActorRef.Tell(new WIZARD_12_PROTOCOL.MSG_CROWNSBUYCONFIRM {
-            Failure = 0,
-            WebFailure = 0,
-            Credits = wizard.Account.Crowns,
-            Data = serializedLoot,
-            TemplateID = packTemplateId
-        });
+        return true;
     }
+
+    private sealed record RolledPack(
+        ulong PackTemplateId,
+        List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)> Drops,
+        ByteString SerializedLoot);
 
     private static void GrantDroppedItem(
         IActorRef sessionActorRef,
@@ -241,9 +319,18 @@ public static class PackManager {
     }
 
     private static void GrantInventoryItem(IActorRef sessionActorRef, Wizard wizard, uint itemTemplateId) {
-        if (!wizard.AddItemToInventory(itemTemplateId, out var itemCoreObject)) {
-            Logger.Warning("Could not add item {0} to inventory.", Logger.Args(itemTemplateId));
-            return;
+        WizClientObjectItem itemCoreObject;
+        if (PetFactory.IsPetTemplate(itemTemplateId)) {
+            if (!wizard.AddHatchedPetToInventory(itemTemplateId, out itemCoreObject)) {
+                Logger.Warning("Could not add hatched pet {0} to inventory.", Logger.Args(itemTemplateId));
+                return;
+            }
+        }
+        else {
+            if (!wizard.AddItemToInventory(itemTemplateId, out itemCoreObject)) {
+                Logger.Warning("Could not add item {0} to inventory.", Logger.Args(itemTemplateId));
+                return;
+            }
         }
 
         if (!s_coreObjectSerializer.Serialize(itemCoreObject, PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit, out var serializedItem)) {
@@ -293,4 +380,3 @@ public static class PackManager {
     }
 
 }
-
