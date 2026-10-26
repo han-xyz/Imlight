@@ -389,18 +389,37 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         }
     }
 
-    private static bool TryChargeReset(Wizard wizard, IndexedTieredSpellGroup group) {
+    private bool TryChargeReset(Wizard wizard, IndexedTieredSpellGroup group) {
         if (group.GoldResetCost > 0) {
             if (wizard.GameStats.m_currentGold < group.GoldResetCost) {
                 return false;
             }
 
             wizard.RemoveGold((int) group.GoldResetCost);
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEGOLD {
+                Gold = wizard.GameStats.m_currentGold,
+                MaxGold = wizard.GameStats.m_baseGoldPouch,
+            });
 
             return true;
         }
 
-        return group.CrownsResetCost == 0 || wizard.Account.TryAdjustCrowns(-(int) group.CrownsResetCost);
+        if (group.CrownsResetCost == 0) {
+            return true;
+        }
+
+        if (!wizard.Account.TryAdjustCrowns(-(int) group.CrownsResetCost)) {
+            return false;
+        }
+
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_CROWNBALANCE {
+            Failure = 0,
+            TotalCrowns = wizard.Account.Crowns,
+            CharacterID = wizard.CharId,
+            CacheBalanceForCSSegmentation = 1,
+        });
+
+        return true;
     }
 
     private void SendVisibility(Wizard wizard, byte checkTieredSpellNotifications, GID shardType) {
