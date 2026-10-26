@@ -155,3 +155,74 @@ internal sealed class ReqIsCSRHandler : BaseRequirementHandler<ReqIsCSR> {
     public override bool Evaluate(IRequirementContext context) => false;
 
 }
+
+/// <summary>
+/// ReqEnergy: the player's current energy (or its percentage of the maximum) against a number.
+/// </summary>
+internal sealed class ReqEnergyHandler : BaseRequirementHandler<ReqEnergy> {
+
+    public override bool Evaluate(IRequirementContext context) {
+        var wizard = context.GetWizard();
+        if (wizard?.GameStats is null || wizard.PetOwnerBehavior is null) {
+            return false;
+        }
+
+        return NumericRequirement.Compare(Requirement,
+            NumericRequirement.Amount(wizard.PetOwnerBehavior.Energy, wizard.GameStats.m_energyMax, Requirement.m_isPercent));
+    }
+
+}
+
+/// <summary>
+/// ReqHealthPercent: the player's current health as a percentage of the maximum against a number.
+/// </summary>
+internal sealed class ReqHealthPercentHandler : BaseRequirementHandler<ReqHealthPercent> {
+
+    public override bool Evaluate(IRequirementContext context) {
+        var stats = context.GetWizard()?.GameStats;
+
+        return stats is not null
+            && NumericRequirement.Compare(Requirement, NumericRequirement.Amount(stats.m_currentHitpoints, stats.m_baseHitpoints, true));
+    }
+
+}
+
+/// <summary>
+/// ReqManaPercent: the player's current mana as a percentage of the maximum against a number.
+/// </summary>
+internal sealed class ReqManaPercentHandler : BaseRequirementHandler<ReqManaPercent> {
+
+    public override bool Evaluate(IRequirementContext context) {
+        var stats = context.GetWizard()?.GameStats;
+
+        return stats is not null
+            && NumericRequirement.Compare(Requirement, NumericRequirement.Amount(stats.m_currentMana, stats.m_baseMana, true));
+    }
+
+}
+
+/// <summary>
+/// ReqGardeningLevel: the player's gardening level against a number.
+/// </summary>
+internal sealed class ReqGardeningLevelHandler : BaseRequirementHandler<ReqGardeningLevel> {
+
+    public override bool Evaluate(IRequirementContext context) {
+        var stats = context.GetWizard()?.GameStats;
+
+        return stats is not null && NumericRequirement.Compare(Requirement, stats.m_gardeningLevel);
+    }
+
+}
+
+/// <summary>
+/// ReqInventoryFull: the free slots of the player's backpack against a number.
+/// </summary>
+internal sealed class ReqInventoryFullHandler : BaseRequirementHandler<ReqInventoryFull> {
+
+    public override bool Evaluate(IRequirementContext context) {
+        var inventory = context.GetWizard()?.InventoryBehavior;
+
+        return inventory?.Items is not null && NumericRequirement.Compare(Requirement, inventory.FreeSlots);
+    }
+
+}
