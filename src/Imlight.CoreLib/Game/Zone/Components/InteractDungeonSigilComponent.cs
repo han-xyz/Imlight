@@ -49,6 +49,8 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -115,10 +117,23 @@ internal sealed partial class InteractDungeonSigilComponent(ZoneEntity entity)
             return;
         }
 
+        var padLocation = GetPadLocation();
+        if (!string.Equals(Entity.Zone?.ZonePath, message.RequesterZone, StringComparison.OrdinalIgnoreCase)
+            || !ZoneService.IsWithinSigilRange(padLocation, DEFAULT_INTERACTION_RADIUS, message.RequesterLocation)) {
+            Logger.Debug("Team-up query for sigil {SigilGid} refused: character {CharId} is not at the sigil.",
+                Logger.Args(message.SigilGID, message.RequesterCharId));
+
+            return;
+        }
+
         Sender.Tell(new ZONE_102_PROTOCOL.MSG_TEAMUPDUNGEON {
             DestinationZone = sigil.DestinationZone,
             DestinationLoc = sigil.DestinationLoc,
             SigilName = sigil.DestinationZone[(sigil.DestinationZone.LastIndexOf('/') + 1)..],
+            SigilZone = Entity.Zone.ZonePath,
+            SigilGID = message.SigilGID,
+            PadLocation = padLocation,
+            Radius = DEFAULT_INTERACTION_RADIUS,
         });
     }
 

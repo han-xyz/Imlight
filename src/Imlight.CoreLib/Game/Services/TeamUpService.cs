@@ -62,27 +62,26 @@ internal class TeamUpService(SessionActor sessionActor) : MessageService(session
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMUP))]
     private void ReceiveRequestTeamUp(WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMUP message) {
-        var dungeon = FindSigilDungeon(message.NPCID);
-        if (dungeon is null) {
+        if (!TryConfirmSigil(message.NPCID, out var dungeon, out var sigil)) {
             Logger.Debug("Team-up request for object {NpcId}: no dungeon sigil answered.", Logger.Args(message.NPCID));
             SendToSocket(new WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMHELPFAIL { TimeLeft = 0 });
 
             return;
         }
 
-        JoinQueue(dungeon);
+        JoinQueue(dungeon, sigil);
     }
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMHELPJOIN))]
     private void ReceiveRequestTeamHelpJoin(WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMHELPJOIN message) {
-        var dungeon = TeamUpQueue.Shared.FindDungeon(message.SigilID);
-        if (dungeon is null) {
+        var queued = TeamUpQueue.Shared.FindSigil(message.SigilID);
+        if (queued is null || !TryConfirmSigil(queued.Gid, out var dungeon, out var sigil)) {
             SendToSocket(new WIZARD2_53_PROTOCOL.MSG_REQUESTTEAMHELPJOINFAIL { PlayerGID = GetActiveWizard().CharId });
 
             return;
         }
 
-        JoinQueue(dungeon);
+        JoinQueue(dungeon, sigil);
     }
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_TEAMUPREMOVEPLAYER))]
@@ -117,30 +116,45 @@ internal class TeamUpService(SessionActor sessionActor) : MessageService(session
     private void ReceiveClientDisconnect(GAME_5_PROTOCOL.MSG_CLIENT_DISCONNECT message)
         => LeaveQueue();
 
-    private TeamUpDungeon FindSigilDungeon(ulong sigilGid) {
+    private bool TryConfirmSigil(ulong sigilGid, out TeamUpDungeon dungeon, out TeamUpSigil sigil) {
+        dungeon = null;
+        sigil = null;
+        var wizard = GetActiveWizard();
         var zoneActor = SessionActor.GetZoneActor();
-        if (zoneActor is null) {
-            return null;
+        if (wizard is null || zoneActor is null) {
+            return false;
         }
 
         try {
             var answer = zoneActor.Ask<ZONE_102_PROTOCOL.MSG_TEAMUPDUNGEON>(
                 new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
                     Sender = SessionActor.ActorRef,
-                    Messages = [new ZONE_102_PROTOCOL.MSG_TEAMUPSIGILQUERY { SigilGID = sigilGid }],
+                    Messages = [new ZONE_102_PROTOCOL.MSG_TEAMUPSIGILQUERY {
+                        SigilGID = sigilGid,
+                        RequesterCharId = wizard.CharId,
+                        RequesterZone = wizard.Zone,
+                        RequesterLocation = wizard.Location
+                    }],
                     Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Sigils
                 },
                 s_sigilQueryTimeout).Result;
 
-            return new TeamUpDungeon(answer.DestinationZone, answer.DestinationLoc, answer.SigilName);
+            dungeon = new TeamUpDungeon(answer.DestinationZone, answer.DestinationLoc, answer.SigilName);
+            sigil = new TeamUpSigil(answer.SigilZone, answer.SigilGID, answer.PadLocation, answer.Radius);
+
+            return true;
         } catch (AggregateException) {
-            return null;
+            return false;
         }
     }
 
-    private void JoinQueue(TeamUpDungeon dungeon) {
+    private void JoinQueue(TeamUpDungeon dungeon, TeamUpSigil sigil) {
         var wizard = GetActiveWizard();
-        var sigilId = TeamUpQueue.Shared.Enqueue(wizard.CharId, dungeon);
+        var sigilId = TeamUpQueue.Shared.Enqueue(wizard.CharId, dungeon, sigil);
+        if (sigilId == 0) {
+            return;
+        }
+
         var secondsLeft = TeamUpQueue.Shared.SecondsLeft(sigilId);
 
         foreach (var memberId in TeamUpQueue.Shared.MembersOf(sigilId)) {
@@ -179,7 +193,20 @@ internal class TeamUpService(SessionActor sessionActor) : MessageService(session
     }
 
     private void FormReadyTeams() {
-        foreach (var team in TeamUpQueue.Shared.TakeReadyTeams()) {
+        var teams = TeamUpQueue.Shared.TakeReadyTeams(IsStillAtSigil, out var dropped);
+        foreach (var (charId, sigilId) in dropped) {
+            Logger.Debug("Character {CharId} dropped from team-up {SigilId}: no longer at the sigil.",
+                Logger.Args(charId, sigilId));
+
+            SendToPlayer(charId, new WIZARD2_53_PROTOCOL.MSG_TEAMUPREMOVEPLAYERFROMCLIENT {
+                SigilID = sigilId,
+                PlayerGID = charId,
+                UpdatePlayerGID = charId,
+                StopTimer = 1
+            });
+        }
+
+        foreach (var team in teams) {
             Logger.Information("Team-up team of {Count} formed for '{Zone}'.",
                 Logger.Args(team.Members.Count, team.Dungeon.DungeonZone));
 
@@ -191,6 +218,14 @@ internal class TeamUpService(SessionActor sessionActor) : MessageService(session
                 }
             });
         }
+    }
+
+    private static bool IsStillAtSigil(ulong charId, TeamUpSigil sigil) {
+        var member = WizardCollection.GetCharacter(charId);
+
+        return member is not null
+            && string.Equals(member.Zone, sigil.Zone, StringComparison.OrdinalIgnoreCase)
+            && ZoneService.IsWithinSigilRange(sigil.PadLocation, sigil.Radius, member.Location);
     }
 
     private string DescribeOwnQueue() {

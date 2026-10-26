@@ -491,14 +491,16 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         });
     }
 
-    private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {
-        var pad = Util.GetVectorFromCompactString(entry.SigilLoc);
-        var pos = wizard.Location;
-        var dx = pad.X - pos.X;
-        var dy = pad.Y - pos.Y;
-        var dz = pad.Z - pos.Z;
+    private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard)
+        => IsWithinSigilRange(entry.SigilLoc, entry.Radius, wizard.Location);
 
-        return (dx * dx) + (dy * dy) + (dz * dz) <= entry.Radius * entry.Radius;
+    internal static bool IsWithinSigilRange(string sigilLoc, float radius, Imcodec.Math.Vector3 position) {
+        var pad = Util.GetVectorFromCompactString(sigilLoc);
+        var dx = pad.X - position.X;
+        var dy = pad.Y - position.Y;
+        var dz = pad.Z - position.Z;
+
+        return (dx * dx) + (dy * dy) + (dz * dz) <= radius * radius;
     }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_LEAVESIGILTIMERWAITING))]

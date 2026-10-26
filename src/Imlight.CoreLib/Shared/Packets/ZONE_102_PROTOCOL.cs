@@ -1588,7 +1588,8 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
 
     /// <summary>
     /// Sent by TeamUpService through a zone broadcast: the dungeon sigil whose object is <see cref="SigilGID"/>
-    /// answers the sender with <see cref="MSG_TEAMUPDUNGEON"/>; anything else stays silent.
+    /// answers the sender with <see cref="MSG_TEAMUPDUNGEON"/> when the requester stands within its interaction range
+    /// in its zone; anything else stays silent.
     /// </summary>
     public sealed class MSG_TEAMUPSIGILQUERY : IServerMessage {
 
@@ -1596,6 +1597,9 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
         public byte ServiceID { get; } = 102;
 
         public ulong SigilGID;
+        public ulong RequesterCharId;
+        public string RequesterZone;
+        public Imcodec.Math.Vector3 RequesterLocation;
 
     }
 
@@ -1610,6 +1614,10 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
         public string DestinationZone;
         public string DestinationLoc;
         public string SigilName;
+        public string SigilZone;
+        public ulong SigilGID;
+        public string PadLocation;
+        public float Radius;
 
     }
 

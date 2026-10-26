@@ -50,6 +50,12 @@ namespace Imlight.CoreLib.Game.World;
 internal sealed record TeamUpDungeon(string DungeonZone, string DestinationLoc, string SigilName);
 
 /// <summary>
+/// The sigil object a player was standing at when the sigil confirmed them: its zone, object id, pad location and
+/// interaction radius.
+/// </summary>
+internal sealed record TeamUpSigil(string Zone, ulong Gid, string PadLocation, float Radius);
+
+/// <summary>
 /// Players taken from a queue together, in the order they queued; the first leads the group.
 /// </summary>
 internal sealed record TeamUpTeam(uint SigilId, TeamUpDungeon Dungeon, IReadOnlyList<ulong> Members);
@@ -70,9 +76,14 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
     private uint _lastSigilId;
 
     /// <summary>
-    /// Queues the player for the dungeon, leaving any other queue, and returns the dungeon's sigil id.
+    /// Queues the player for the dungeon, leaving any other queue, and returns the dungeon's sigil id; 0 when no
+    /// dungeon or sigil was confirmed for the player.
     /// </summary>
-    internal uint Enqueue(ulong charId, TeamUpDungeon dungeon) {
+    internal uint Enqueue(ulong charId, TeamUpDungeon dungeon, TeamUpSigil sigil) {
+        if (dungeon is null || sigil is null) {
+            return 0;
+        }
+
         lock (_lock) {
             var queue = _queues.Values.FirstOrDefault(open
                 => string.Equals(open.Dungeon.DungeonZone, dungeon.DungeonZone, StringComparison.OrdinalIgnoreCase));
@@ -86,7 +97,7 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
                 _queues[queue.SigilId] = queue;
             }
 
-            queue.Waiting.Add(new Waiting(charId, clock()));
+            queue.Waiting.Add(new Waiting(charId, clock(), sigil));
 
             return queue.SigilId;
         }
@@ -130,6 +141,15 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
         }
     }
 
+    /// <summary>
+    /// The sigil the queue's oldest player queued at, or null when the queue is not open.
+    /// </summary>
+    internal TeamUpSigil FindSigil(uint sigilId) {
+        lock (_lock) {
+            return _queues.GetValueOrDefault(sigilId)?.Waiting.FirstOrDefault()?.Sigil;
+        }
+    }
+
     internal IReadOnlyList<(uint SigilId, TeamUpDungeon Dungeon)> OpenDungeons() {
         lock (_lock) {
             return [.. _queues.Values.Select(queue => (queue.SigilId, queue.Dungeon))];
@@ -153,10 +173,20 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
 
     /// <summary>
     /// Removes and returns every team ready to enter: full parties first, then a queue whose oldest player has
-    /// waited the maximum wait, when it holds at least two.
+    /// waited the maximum wait, when it holds at least two. Players failing <paramref name="stillEligible"/> are
+    /// removed first and returned in <paramref name="dropped"/> with the sigil id of the queue they left.
     /// </summary>
-    internal IReadOnlyList<TeamUpTeam> TakeReadyTeams() {
+    internal IReadOnlyList<TeamUpTeam> TakeReadyTeams(Func<ulong, TeamUpSigil, bool> stillEligible,
+                                                      out IReadOnlyList<(ulong CharId, uint SigilId)> dropped) {
         lock (_lock) {
+            var removed = new List<(ulong, uint)>();
+            foreach (var open in _queues.Values) {
+                var stale = open.Waiting.Where(waiting => !stillEligible(waiting.CharId, waiting.Sigil)).ToList();
+                removed.AddRange(stale.Select(waiting => (waiting.CharId, open.SigilId)));
+                open.Waiting.RemoveAll(stale.Contains);
+            }
+
+            dropped = removed;
             var size = partySize();
             var now = clock();
             var teams = new List<TeamUpTeam>();
@@ -200,7 +230,7 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
         return true;
     }
 
-    private sealed record Waiting(ulong CharId, DateTimeOffset Since);
+    private sealed record Waiting(ulong CharId, DateTimeOffset Since, TeamUpSigil Sigil);
 
     private sealed record DungeonQueue(uint SigilId, TeamUpDungeon Dungeon) {
 
