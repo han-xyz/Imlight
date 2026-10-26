@@ -354,7 +354,6 @@ public static class WizardItemCollection {
         session.SaveChanges();
 
         return true;
-
     }
 
     /// <summary>
