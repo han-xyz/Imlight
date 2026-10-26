@@ -88,4 +88,15 @@ public sealed class HiddenQuestsTests {
         Assert.True(HiddenQuestsDataOf(AttachedObject(wizard)).IsEmpty);
     }
 
+    [Fact]
+    public void ObjectSentToOtherPlayersCarriesNoHiddenQuestsData() {
+        var wizard = new Wizard { CharId = 1 };
+        HiddenQuestsService.TryStoreHiddenQuests(wizard, "quest-a");
+
+        var clientObject = AttachedObject(wizard);
+        WizardObjectLoader.RemoveOwnerOnlyData(clientObject);
+
+        Assert.True(HiddenQuestsDataOf(clientObject).IsEmpty);
+    }
+
 }

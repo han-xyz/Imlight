@@ -70,6 +70,18 @@ public static class WizardObjectLoader {
         return clientObject;
     }
 
+    public static WizClientObject GetPlayerGameObjectForOthers(Wizard character) {
+        var clientObject = GetPlayerGameObject(character);
+        RemoveOwnerOnlyData(clientObject);
+        return clientObject;
+    }
+
+    public static void RemoveOwnerOnlyData(WizClientObject clientObject) {
+        if (CoreObjectFactory.FindBehaviorInstance<HiddenQuestsBehavior>(clientObject, out var hiddenQuestsBehavior)) {
+            hiddenQuestsBehavior.m_hiddenQuestsData = ByteString.Empty;
+        }
+    }
+
     public static void SetWizardAvatarBehavior(WizClientObject clientObject, ref Wizard character) {
         if (CoreObjectFactory.FindBehaviorInstance<WizardCharacterBehavior>(clientObject, out var avatarBehavior)) {
             var idx = clientObject.m_inactiveBehaviors.IndexOf(avatarBehavior);

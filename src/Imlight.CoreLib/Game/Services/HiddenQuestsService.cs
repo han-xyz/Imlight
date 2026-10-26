@@ -38,6 +38,7 @@
  */
 
 
+using System;
 using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
@@ -70,6 +71,13 @@ internal sealed class HiddenQuestsService(SessionActor sessionActor) : MessageSe
     [MessageHandler(typeof(QUEST_MESSAGES_52_PROTOCOL.MSG_UPDATEUSERHIDDENQUESTS))]
     private void ReceiveHiddenQuestsUpdate(QUEST_MESSAGES_52_PROTOCOL.MSG_UPDATEUSERHIDDENQUESTS message) {
         var wizard = GetActiveWizard();
+        if (wizard is null) {
+            Logger.Debug("Session {SessionId} sent hidden quests data with no active wizard; dropping it.",
+                Logger.Args(SessionActor.SessionID));
+
+            return;
+        }
+
         if (wizard.HiddenQuestsData == message.Data) {
             return;
         }
@@ -79,6 +87,11 @@ internal sealed class HiddenQuestsService(SessionActor sessionActor) : MessageSe
                 Logger.Args(wizard.CharId, message.Data.Length, MaxHiddenQuestsDataBytes));
             return;
         }
+
+        // The blob stays opaque until a live payload is captured; its length and first bytes are logged to get the format.
+        byte[] blob = message.Data;
+        Logger.Debug("Hidden quests blob of character {Id}: {Length} bytes, starts {Head}",
+            Logger.Args(wizard.CharId, blob.Length, Convert.ToHexString(blob.AsSpan(0, Math.Min(blob.Length, 16)))));
 
         WizardCollection.UpdateCharacterHiddenQuests(wizard);
         Logger.Information("Saved hidden quests data for character {Id}", Logger.Args(wizard.CharId));
