@@ -50,13 +50,13 @@ internal static class RadialChatText {
         }
 
         try {
-            var lengthReader = new BitReader((byte[])payload);
+            var lengthReader = new BitReader((byte[]) payload);
             var characterCount = lengthReader.ReadUInt16();
             if (lengthReader.GetRelativeData().Length < characterCount * 2) {
                 return string.Empty;
             }
 
-            var text = new BitReader((byte[])payload).ReadWString();
+            var text = new BitReader((byte[]) payload).ReadWString();
 
             return new string(text.Where(character => !char.IsControl(character)).ToArray()).Trim();
         }
