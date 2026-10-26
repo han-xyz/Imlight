@@ -34,6 +34,7 @@
  * Last Updated: 10/27/2026
  */
 
+using System;
 using System.Linq;
 
 namespace Imlight.CoreLib.Game.Groups;
@@ -41,11 +42,13 @@ namespace Imlight.CoreLib.Game.Groups;
 internal static class PartyMemberZones {
 
     /// <summary>
-    /// "charId:zonePath" for each online member in roster order, joined by ';'.
+    /// "charId:zonePath" for each member in roster order, joined by ';'. Members <paramref name="currentZoneOf"/> has
+    /// no zone for (offline) are left out.
     /// </summary>
-    public static string Format(GroupSnapshot group)
+    public static string Format(GroupSnapshot group, Func<ulong, string> currentZoneOf)
         => string.Join(';', group.Members
-            .Where(member => member.IsOnline)
-            .Select(member => $"{member.CharId}:{member.ZonePath}"));
+            .Select(member => (member.CharId, Zone: currentZoneOf(member.CharId)))
+            .Where(member => !string.IsNullOrEmpty(member.Zone))
+            .Select(member => $"{member.CharId}:{member.Zone}"));
 
 }

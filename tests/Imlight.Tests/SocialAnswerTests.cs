@@ -17,6 +17,7 @@
  *
  */
 
+using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
 using Imlight.CoreLib.Game.Groups;
@@ -32,11 +33,16 @@ public sealed class SocialAnswerTests {
     public void PartyMemberZones_ListsEachOnlineMemberWithTheirZone() {
         var group = new GroupSnapshot(GroupId: 7, ChannelId: 8, LeaderCharId: 1, Members: [
             new GroupMemberSnapshot(1, "WizardCity/WC_Hub", ActorRefs.Nobody, ActorRefs.Nobody, 0),
-            new GroupMemberSnapshot(2, "WizardCity/WC_Streets/WC_Triton", ActorRefs.Nobody, ActorRefs.Nobody, 1),
+            new GroupMemberSnapshot(2, "WizardCity/WC_Hub", ActorRefs.Nobody, ActorRefs.Nobody, 1),
             new GroupMemberSnapshot(3, "WizardCity/WC_Hub", ActorRefs.Nobody, null, 2),
         ], QuestId: 0, GoalId: 0);
+        var currentZones = new Dictionary<ulong, string> {
+            [1] = "WizardCity/WC_Hub",
+            [2] = "WizardCity/WC_Streets/WC_Triton",
+        };
 
-        Assert.Equal("1:WizardCity/WC_Hub;2:WizardCity/WC_Streets/WC_Triton", PartyMemberZones.Format(group));
+        Assert.Equal("1:WizardCity/WC_Hub;2:WizardCity/WC_Streets/WC_Triton",
+            PartyMemberZones.Format(group, charId => currentZones.GetValueOrDefault(charId)));
     }
 
     [Fact]
