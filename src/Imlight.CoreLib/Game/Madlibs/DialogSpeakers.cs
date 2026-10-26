@@ -35,7 +35,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/23/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -126,7 +126,7 @@ internal static class DialogSpeakers {
             .FirstOrDefault(template => template is not null && PersonaOf(template) == personaName);
     }
 
-    private static string PersonaOf(GameObjectTemplate npc)
+    internal static string PersonaOf(GameObjectTemplate npc)
         => npc.m_behaviors?.OfType<WizardQuestingBehaviorTemplate>().FirstOrDefault()?.m_personaName;
 
     private static Dictionary<string, List<ulong>> TemplateIdsByObjectName()
