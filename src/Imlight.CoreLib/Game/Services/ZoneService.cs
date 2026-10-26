@@ -245,6 +245,11 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         // Only the attach asks for the zone details; every other transfer is told and expects no reply.
         if (!message.SendToClient) {
+            if (!failed && traveller is not null) {
+                DungeonRunBook.Shared.Arrived(traveller.CharId, message.DestinationZone, zoneDetails.IsInstance,
+                    fromRunZone: false);
+            }
+
             ReplyToAttachTransfer(zoneDetails, failed);
 
             return;
@@ -385,7 +390,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         _activeSigilEntry = null;
 
         // The client attaches again after the transfer; the run sends that attach to the owner's container.
-        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone);
+        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone, wizard.Zone);
 
         Logger.Information("Entering dungeon instance '{0}' (owner {1}, reset {2})",
             Logger.Args(entry.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
@@ -628,11 +633,20 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         // I've just been added to a zone. I need to spawn myself for all the other players.
         SpawnMyself();
 
+        // A relog into a dungeon whose run has ended would leave the wizard alone in a fresh copy.
+        var wizard = GetActiveWizard();
+        if (DungeonRunBook.Shared.TryTakeReturn(wizard.CharId, wizard.Zone, out var padZoneName)) {
+            ReceiveZoneTransferRequest(new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
+                DestinationZone = padZoneName,
+                DestinationLocation = string.Empty,
+                SendToClient = true,
+            });
+        }
+
         // Dismount in no-mount zones, re-equip on leaving (EquipmentService owns the reconcile).
         SessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT());
 
         if (_randomBackflips) {
-            var wizard = GetActiveWizard();
             Timers.StartPeriodicTimer("backflip", new ZONE_102_PROTOCOL.MSG_RANDOMFLIPS {
                 ZoneName = wizard.Zone,
                 SenderCharID = wizard.CharId

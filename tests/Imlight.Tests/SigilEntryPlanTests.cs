@@ -92,7 +92,7 @@ public sealed class DungeonRunBookTests {
 
     [Fact]
     public void Enter_WithoutGroup_EntrantOwnsAFreshInstanceAndNoRun() {
-        Assert.Equal(new SigilEntry(Stranger, ResetInstance: true), _book.Enter(Stranger, Floor1));
+        Assert.Equal(new SigilEntry(Stranger, ResetInstance: true), _book.Enter(Stranger, Floor1, Street));
         Assert.Equal(0ul, _book.RunOwnerOf(Stranger, Floor1));
     }
 
@@ -101,8 +101,8 @@ public sealed class DungeonRunBookTests {
         _book.Wait(Leader, Floor1);
         _book.Wait(Member, Floor1);
 
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: true), _book.Enter(Member, Floor1));
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1));
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: true), _book.Enter(Member, Floor1, Street));
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1, Street));
         Assert.Equal(Leader, _book.RunOwnerOf(Member, Floor1));
     }
 
@@ -111,17 +111,17 @@ public sealed class DungeonRunBookTests {
         EnterTogether();
         _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
 
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1));
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1, Street));
     }
 
     [Fact]
     public void Enter_LateMemberWhileTheOwnerIsOnFloor2_JoinsWithoutReset() {
-        _book.Enter(Leader, Floor1);
+        _book.Enter(Leader, Floor1, Street);
         _book.Arrived(Leader, Floor1, isInstance: true, fromRunZone: false);
         Assert.Equal(Leader, _book.RouteTransfer(Leader, Floor1));
         _book.Arrived(Leader, Floor2, isInstance: true, fromRunZone: true);
 
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Member, Floor1));
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Member, Floor1, Street));
     }
 
     [Fact]
@@ -168,13 +168,52 @@ public sealed class DungeonRunBookTests {
         _now += TimeSpan.FromMinutes(31);
 
         Assert.Equal(0ul, _book.RunOwnerOf(Member, Floor1));
-        Assert.Equal(new SigilEntry(Member, ResetInstance: true), _book.Enter(Member, Floor1));
+        Assert.Equal(new SigilEntry(Member, ResetInstance: true), _book.Enter(Member, Floor1, Street));
+    }
+
+    [Fact]
+    public void RunOwnerOf_AfterTheMembersReconnectInside_KeepsTheRunAlive() {
+        EnterTogether();
+        SetOnline(false);
+        Assert.Equal(Leader, _book.RunOwnerOf(Leader, Floor1));
+        _now += TimeSpan.FromMinutes(10);
+        SetOnline(true);
+        Assert.Equal(Leader, _book.RunOwnerOf(Member, Floor1));
+        _now += TimeSpan.FromMinutes(25);
+
+        Assert.Equal(Leader, _book.RunOwnerOf(Member, Floor1));
+    }
+
+    [Fact]
+    public void TryTakeReturn_AfterTheRunEnded_SendsTheMemberBackToThePadStreetOnce() {
+        EnterTogether();
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+        _book.Arrived(Member, Street, isInstance: false, fromRunZone: true);
+        _now += TimeSpan.FromMinutes(31);
+
+        Assert.True(_book.TryTakeReturn(Member, Floor1, out var street));
+        Assert.Equal(Street, street);
+        Assert.False(_book.TryTakeReturn(Member, Floor1, out _));
+    }
+
+    [Fact]
+    public void TryTakeReturn_WhileTheRunIsLive_KeepsTheMemberInside() {
+        EnterTogether();
+
+        Assert.False(_book.TryTakeReturn(Member, Floor1, out _));
+    }
+
+    private void SetOnline(bool isOnline) {
+        GroupMemberSnapshot Snapshot(ulong charId) => isOnline ? SigilEntryPlanTests.Online(charId) : SigilEntryPlanTests.Offline(charId);
+        var group = new GroupSnapshot(10, 20, Leader, [Snapshot(Leader), Snapshot(Member)], 0, 0);
+        _groups[Leader] = group;
+        _groups[Member] = group;
     }
 
     private void EnterTogether() {
         _book.Wait(Leader, Floor1);
-        _book.Enter(Leader, Floor1);
-        _book.Enter(Member, Floor1);
+        _book.Enter(Leader, Floor1, Street);
+        _book.Enter(Member, Floor1, Street);
         _book.Arrived(Leader, Floor1, isInstance: true, fromRunZone: false);
         _book.Arrived(Member, Floor1, isInstance: true, fromRunZone: false);
     }

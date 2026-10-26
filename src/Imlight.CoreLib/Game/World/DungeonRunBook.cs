@@ -67,6 +67,7 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     private readonly Lock _lock = new();
     private readonly Dictionary<ulong, DungeonRun> _runsByOwner = [];
     private readonly Dictionary<string, HashSet<ulong>> _waitingByZone = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ulong, EndedRun> _endedRunsByMember = [];
 
     /// <summary>
     /// Records a wizard counting down on the pad that leads to <paramref name="zoneName"/>.
@@ -95,7 +96,10 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
     /// Decides the instance a wizard enters when their sigil countdown ends. A grouped wizard joins the group's live run,
     /// or creates one in the chosen owner's container; only a zone new to the run is reset.
     /// </summary>
-    internal SigilEntry Enter(ulong charId, string zoneName) {
+    /// <param name="charId">The wizard whose countdown ended.</param>
+    /// <param name="zoneName">The zone the sigil leads to.</param>
+    /// <param name="padZoneName">The zone the pad stands in, where a member returns once the run has ended.</param>
+    internal SigilEntry Enter(ulong charId, string zoneName, string padZoneName) {
         lock (_lock) {
             var occupants = RemoveWaiting(charId, zoneName);
             var group = findGroup(charId);
@@ -106,11 +110,12 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
             var run = LiveRuns().FirstOrDefault(r => r.GroupId == group.GroupId);
             if (run is null) {
                 var ownerCharId = SigilEntryPlan.ChooseOwner(charId, group, occupants);
-                run = new DungeonRun(ownerCharId, group.GroupId, clock());
+                run = new DungeonRun(ownerCharId, group.GroupId, padZoneName, clock());
                 _runsByOwner[ownerCharId] = run;
             }
 
             run.Members.Add(charId);
+            _endedRunsByMember.Remove(charId);
 
             return new SigilEntry(run.OwnerCharId, ResetInstance: run.Zones.Add(zoneName));
         }
@@ -162,6 +167,25 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
         }
     }
 
+    /// <summary>
+    /// Gets the street a wizard is sent back to after attaching to a zone of a run that has ended for them, so a relog
+    /// does not leave them alone in a fresh copy of the dungeon. The return is given once.
+    /// </summary>
+    internal bool TryTakeReturn(ulong charId, string zoneName, out string padZoneName) {
+        lock (_lock) {
+            padZoneName = null;
+            if (FindRunOf(charId)?.Zones.Contains(zoneName) == true
+                || !_endedRunsByMember.TryGetValue(charId, out var ended) || !ended.Zones.Contains(zoneName)) {
+                return false;
+            }
+
+            _endedRunsByMember.Remove(charId);
+            padZoneName = ended.PadZoneName;
+
+            return true;
+        }
+    }
+
     private DungeonRun FindRunOf(ulong charId)
         => LiveRuns().FirstOrDefault(run => run.Members.Contains(charId));
 
@@ -169,20 +193,32 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
         var now = clock();
         var limit = idleLimit();
         foreach (var run in _runsByOwner.Values.ToList()) {
-            run.Members.RemoveWhere(member => findGroup(member)?.GroupId != run.GroupId);
-            run.Inside.RemoveWhere(member => findGroup(member)?.GetMember(member)?.IsOnline != true
-                                             || !run.Members.Contains(member));
-            if (run.Inside.Count == 0) {
-                run.EmptySince ??= now;
+            foreach (var member in run.Members.Where(member => findGroup(member)?.GroupId != run.GroupId).ToList()) {
+                EndRunFor(member, run);
             }
+
+            // A wizard who disconnects inside stays in Inside, so a relog counts them again; only online wizards keep
+            // the run from idling.
+            var isAnyoneInside = run.Inside.Any(member => findGroup(member)?.GetMember(member)?.IsOnline == true);
+            run.EmptySince = isAnyoneInside ? null : run.EmptySince ?? now;
 
             var hasIdledOut = limit > TimeSpan.Zero && run.EmptySince + limit <= now;
             if (hasIdledOut || !run.Members.Contains(run.OwnerCharId)) {
+                foreach (var member in run.Members.ToList()) {
+                    EndRunFor(member, run);
+                }
+
                 _runsByOwner.Remove(run.OwnerCharId);
             }
         }
 
         return [.. _runsByOwner.Values];
+    }
+
+    private void EndRunFor(ulong charId, DungeonRun run) {
+        run.Members.Remove(charId);
+        run.Inside.Remove(charId);
+        _endedRunsByMember[charId] = new EndedRun(new HashSet<string>(run.Zones, StringComparer.OrdinalIgnoreCase), run.PadZoneName);
     }
 
     private HashSet<ulong> RemoveWaiting(ulong charId, string zoneName) {
@@ -199,10 +235,13 @@ internal sealed class DungeonRunBook(Func<ulong, GroupSnapshot> findGroup, Func<
         return occupants;
     }
 
-    private sealed class DungeonRun(ulong ownerCharId, ulong groupId, DateTimeOffset createdAt) {
+    private sealed record EndedRun(IReadOnlySet<string> Zones, string PadZoneName);
+
+    private sealed class DungeonRun(ulong ownerCharId, ulong groupId, string padZoneName, DateTimeOffset createdAt) {
 
         public ulong OwnerCharId { get; } = ownerCharId;
         public ulong GroupId { get; } = groupId;
+        public string PadZoneName { get; } = padZoneName;
         public HashSet<ulong> Members { get; } = [ownerCharId];
         public HashSet<string> Zones { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<ulong> Inside { get; } = [];
