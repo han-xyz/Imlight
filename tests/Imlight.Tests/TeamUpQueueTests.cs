@@ -116,4 +116,17 @@ public sealed class TeamUpQueueTests {
         Assert.Empty(queue.OpenDungeons());
     }
 
+    [Fact]
+    public void SigilIdOf_AndQueueMatesOf_OnlyTheirOwnQueue() {
+        var queue = NewQueue();
+        var triton = queue.Enqueue(1, Triton);
+        queue.Enqueue(2, Triton);
+        queue.Enqueue(3, Golem);
+
+        Assert.Equal(triton, queue.SigilIdOf(1));
+        Assert.Equal(0u, queue.SigilIdOf(4));
+        Assert.Equal([2UL], queue.QueueMatesOf(1));
+        Assert.Empty(queue.QueueMatesOf(3));
+    }
+
 }

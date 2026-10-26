@@ -107,6 +107,15 @@ internal sealed class TeamUpQueue(Func<int> partySize, Func<TimeSpan> maximumWai
         }
     }
 
+    /// <summary>
+    /// The sigil id of the player's queue, or 0 when they are not queued.
+    /// </summary>
+    internal uint SigilIdOf(ulong charId) {
+        lock (_lock) {
+            return _queues.Values.FirstOrDefault(open => open.Waiting.Any(waiting => waiting.CharId == charId))?.SigilId ?? 0;
+        }
+    }
+
     internal IReadOnlyList<ulong> QueueMatesOf(ulong charId) {
         lock (_lock) {
             var queue = _queues.Values.FirstOrDefault(open => open.Waiting.Any(waiting => waiting.CharId == charId));

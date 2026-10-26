@@ -43,7 +43,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -324,6 +324,30 @@ internal sealed class GroupDirectory : ReceiveProtocolDispatcher, IWithTimers {
     #endregion
 
     #region Membership
+
+    [MessageHandler(typeof(GROUP_109_PROTOCOL.MSG_FORMTEAM))]
+    private void ReceiveFormTeam(GROUP_109_PROTOCOL.MSG_FORMTEAM message) {
+        var memberIds = message.MemberCharIds.Where(_sessions.ContainsKey).Take(MaxGroupSize).ToList();
+        if (memberIds.Count == 0) {
+            return;
+        }
+
+        foreach (var memberId in memberIds) {
+            ForgetInvite(memberId);
+            if (_groupsByMember.TryGetValue(memberId, out var currentGroup)) {
+                RemoveFromGroup(currentGroup, memberId);
+            }
+        }
+
+        var group = CreateGroup(memberIds[0]);
+        foreach (var memberId in memberIds.Skip(1)) {
+            JoinGroup(group, memberId);
+        }
+
+        foreach (var memberId in memberIds) {
+            _sessions[memberId].Tell(message.MemberMessage);
+        }
+    }
 
     [MessageHandler(typeof(GROUP_109_PROTOCOL.MSG_LEAVEGROUP))]
     private void ReceiveLeaveGroup(GROUP_109_PROTOCOL.MSG_LEAVEGROUP message) {

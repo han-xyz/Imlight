@@ -41,7 +41,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 08/13/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -50,6 +50,7 @@ using System.Text.RegularExpressions;
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Zone.Core;
+using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -105,6 +106,19 @@ internal sealed partial class InteractDungeonSigilComponent(ZoneEntity entity)
             Radius = DEFAULT_INTERACTION_RADIUS,
             DestinationZone = sigil.DestinationZone,
             DestinationLoc = sigil.DestinationLoc,
+        });
+    }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_TEAMUPSIGILQUERY))]
+    private void ReceiveTeamUpSigilQuery(ZONE_102_PROTOCOL.MSG_TEAMUPSIGILQUERY message) {
+        if ((ulong) Entity.ActiveGameObject.m_globalID != message.SigilGID || !TryResolveDestination(out var sigil)) {
+            return;
+        }
+
+        Sender.Tell(new ZONE_102_PROTOCOL.MSG_TEAMUPDUNGEON {
+            DestinationZone = sigil.DestinationZone,
+            DestinationLoc = sigil.DestinationLoc,
+            SigilName = sigil.DestinationZone[(sigil.DestinationZone.LastIndexOf('/') + 1)..],
         });
     }
 

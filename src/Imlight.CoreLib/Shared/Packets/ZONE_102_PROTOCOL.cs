@@ -1587,6 +1587,47 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Sent by TeamUpService through a zone broadcast: the dungeon sigil whose object is <see cref="SigilGID"/>
+    /// answers the sender with <see cref="MSG_TEAMUPDUNGEON"/>; anything else stays silent.
+    /// </summary>
+    public sealed class MSG_TEAMUPSIGILQUERY : IServerMessage {
+
+        public byte MessageOrder { get; } = 103;
+        public byte ServiceID { get; } = 102;
+
+        public ulong SigilGID;
+
+    }
+
+    /// <summary>
+    /// A dungeon sigil's answer to <see cref="MSG_TEAMUPSIGILQUERY"/>: where the team-up teleports its team.
+    /// </summary>
+    public sealed class MSG_TEAMUPDUNGEON : IServerMessage {
+
+        public byte MessageOrder { get; } = 104;
+        public byte ServiceID { get; } = 102;
+
+        public string DestinationZone;
+        public string DestinationLoc;
+        public string SigilName;
+
+    }
+
+    /// <summary>
+    /// Sent to each member's session once GroupDirectory has grouped a team-up team: the session enters the dungeon
+    /// through the dungeon run book, as a group sigil entry does.
+    /// </summary>
+    public sealed class MSG_TEAMUPENTER : IServerMessage {
+
+        public byte MessageOrder { get; } = 105;
+        public byte ServiceID { get; } = 102;
+
+        public string DestinationZone;
+        public string DestinationLoc;
+
+    }
+
+    /// <summary>
     /// Sent to a player's session by a house door the player walked up to: the session works out the house on the
     /// other side and starts the zone transfer.
     /// </summary>

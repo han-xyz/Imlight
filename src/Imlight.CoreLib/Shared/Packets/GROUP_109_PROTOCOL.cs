@@ -35,7 +35,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Collections.Generic;
@@ -159,6 +159,20 @@ public sealed class GROUP_109_PROTOCOL : IServerProtocol {
 
         public ulong RequesterCharId;
         public bool IsStaffRequest;
+
+    }
+
+    /// <summary>
+    /// Sent by TeamUpService: groups the online members in a new group led by the first, taking each out of their
+    /// current group, then hands each member's session <see cref="MemberMessage"/>.
+    /// </summary>
+    public sealed class MSG_FORMTEAM : IServerMessage {
+
+        public byte MessageOrder { get; } = 18;
+        public byte ServiceID { get; } = 109;
+
+        public IReadOnlyList<ulong> MemberCharIds;
+        public IServerMessage MemberMessage;
 
     }
 
