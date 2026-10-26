@@ -267,14 +267,20 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         // Live sends a persona goal's completion dialog first and completes the goal only when the client
         // reports the dialog closed (MSG_COMPLETEDIALOG). Show it now and finish the goal from there.
-        if (FindDialogue(gTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG) is not null) {
+        var completionDialog = FindDialogue(gTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG);
+        if (completionDialog is not null && !GoalCompletionDialog.HasContent(completionDialog)) {
+            Logger.Debug("Goal '{Goal}' of quest '{Quest}' has a completion dialog with no lines; completing it without one.",
+                Logger.Args(gTemplate.m_goalName, qInstance.QuestName));
+        } else if (completionDialog is not null) {
             if (_pendingGoalCompletions.Any(p => p.QuestId == questId && p.GoalId == goalId)) {
-                Logger.Debug("Character {CharId} asked again to complete goal {GoalId} of quest {QuestId} while its completion dialog is open; ignoring.",
-                    Logger.Args(wizard.CharId, goalId, questId));
+                Logger.Debug("Character {CharId} asked again to complete goal '{Goal}' ({GoalId}) of quest '{Quest}' ({QuestId}) while its completion dialog is open; ignoring.",
+                    Logger.Args(wizard.CharId, gTemplate.m_goalName, goalId, qInstance.QuestName, questId));
 
                 return;
             }
 
+            Logger.Debug("Showing the completion dialog of goal '{Goal}' ({GoalId}) of quest '{Quest}' ({QuestId}) to character {CharId}.",
+                Logger.Args(gTemplate.m_goalName, goalId, qInstance.QuestName, questId, wizard.CharId));
             ShowGoalCompletionDialogue(gTemplate, questId, goalId);
 
             _pendingGoalCompletions.Add(new PendingGoalCompletion(questId, goalId,
@@ -1771,8 +1777,11 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private void ShowGoalStartDialogue(GoalTemplate goalTemplate, ulong questId, ulong goalId)
         => ShowDialogue(goalTemplate.m_dialogList, "Prep", "QuestStart", questId, goalId);
 
-    private void ShowGoalCompletionDialogue(GoalTemplate goalTemplate, ulong questId, ulong goalId)
-        => ShowDialogue(goalTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG, "Completion", questId, goalId);
+    private void ShowGoalCompletionDialogue(GoalTemplate goalTemplate, ulong questId, ulong goalId) {
+        if (GoalCompletionDialog.HasContent(FindDialogue(goalTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG))) {
+            ShowDialogue(goalTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG, "Completion", questId, goalId);
+        }
+    }
 
     private void ShowQuestCompletionDialogue(QuestTemplate questTemplate)
         => ShowDialogue(questTemplate.m_dialogList, "Complete", "QuestComplete");
@@ -2145,5 +2154,13 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         return true;
     }
+
+}
+
+internal static class GoalCompletionDialog {
+
+    public static bool HasContent(ActorDialog dialog)
+        => dialog?.m_dialogEntries is { Count: > 0 } entries
+           && (dialog.m_madlibs is { Count: > 0 } || entries.Any(entry => !string.IsNullOrEmpty(entry?.m_dialog)));
 
 }
