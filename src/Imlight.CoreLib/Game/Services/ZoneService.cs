@@ -1139,7 +1139,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
     private void SpawnMyself() {
         var wizard = GetActiveWizard();
-        var properGameObj = WizardObjectLoader.GetPlayerGameObject(wizard);
+        var properGameObj = WizardObjectLoader.GetPlayerGameObjectForOthers(wizard);
 
         var flags = PropertyFlags.Prop_Public | PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit;
         if (!_zoneObjectSerializer.Serialize(properGameObj, flags, out var gameObjData)) {
@@ -1178,7 +1178,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
     private void SpawnMyselfFor(IActorRef actorRef) {
         var wizard = GetActiveWizard();
-        var properGameObj = WizardObjectLoader.GetPlayerGameObject(wizard);
+        var properGameObj = WizardObjectLoader.GetPlayerGameObjectForOthers(wizard);
 
         var flags = PropertyFlags.Prop_Public | PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit;
         if (!_zoneObjectSerializer.Serialize(properGameObj, flags, out var gameObjData)) {
