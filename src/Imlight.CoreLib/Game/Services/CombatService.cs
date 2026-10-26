@@ -52,6 +52,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.DropTables;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -267,10 +268,26 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
             RawSpellTarget = message.SpellTarget,
             TimeLeft = message.TimeLeft,
             ShadowPactTarget = message.ShadowPactTarget, // -1 (If not used(?))
-            SelectedTieredSpellID = message.SelectedTieredSpellID
+            SelectedTieredSpellID = TrainedCastTier(message.SelectedTieredSpellID)
         };
 
         _currentDuelActor.Tell(msg);
+    }
+
+    private int TrainedCastTier(int selectedTieredSpellId) {
+        if (selectedTieredSpellId <= 0) {
+            return 0;
+        }
+
+        var wizard = GetActiveWizard();
+        if (wizard is not null && TieredSpellLedger.IsTrainedTier(wizard.TieredSpells, (uint) selectedTieredSpellId)) {
+            return selectedTieredSpellId;
+        }
+
+        Logger.Debug("Session {SessionId} selected tiered spell {SpellId} it has not trained; casting the card as dealt.",
+            Logger.Args(SessionActor.SessionID, selectedTieredSpellId));
+
+        return 0;
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_NOAGGROGRACEOVER))]

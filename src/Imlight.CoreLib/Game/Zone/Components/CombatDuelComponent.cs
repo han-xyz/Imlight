@@ -62,6 +62,8 @@ using Imlight.CoreLib.Game.PvP;
 using Imlight.CoreLib.Game.PvP.Arena;
 using Imlight.CoreLib.Game.PvP.Data;
 using Imlight.CoreLib.Game.Sigils;
+using Imlight.CoreLib.Game.Spells;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
@@ -552,7 +554,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
                     }
                 }
                 else {
-                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget);
+                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget, message.SelectedTieredSpellID);
                 }
                 break;
             case CombatMoveType.Flee:
@@ -1836,8 +1838,22 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
     }
 
-    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget) {
-        var spell = caster.GetSpellFromLastHand((byte) spellSelection);
+    private static Spell WithSelectedTier(Spell spell, int selectedTieredSpellId) {
+        if (spell is null || selectedTieredSpellId <= 0 || selectedTieredSpellId == spell.m_templateID) {
+            return spell;
+        }
+
+        var dealtName = (CoreObjectFactory.GetCoreTemplate(spell.m_templateID) as SpellTemplate)?.m_name.ToString();
+        var selectedName = (CoreObjectFactory.GetCoreTemplate((uint) selectedTieredSpellId) as SpellTemplate)?.m_name.ToString();
+        if (dealtName is null || selectedName is null || !TieredSpellIndex.Instance.AreSameGroup(dealtName, selectedName)) {
+            return spell;
+        }
+
+        return SpellFactory.GetSpell((uint) selectedTieredSpellId) ?? spell;
+    }
+
+    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget, int selectedTieredSpellId) {
+        var spell = WithSelectedTier(caster.GetSpellFromLastHand((byte) spellSelection), selectedTieredSpellId);
         if (spell is null) {
             Logger.Warning("Duel {0} | Slot {1} | Attack received for an empty hand slot ({2}).",
                 Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, spellSelection));
