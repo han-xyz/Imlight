@@ -235,7 +235,7 @@ internal static class HouseDeeds {
                 return new HouseGrant(failure, []);
             }
 
-            var missing = wanted.Where(template => FindItem(wizard, template.TemplateId) is null).ToList();
+            var missing = wanted.Where(template => !IsHeld(wizard, template.TemplateId)).ToList();
             if (missing.Count > wizard.InventoryBehavior.FreeSlots) {
                 return new HouseGrant(HouseGrantFailure.BackpackFull, []);
             }
@@ -274,6 +274,10 @@ internal static class HouseDeeds {
     private static bool TryIssue(Wizard wizard, uint templateId, ulong lot, List<WizClientObjectItem> created) {
         var item = FindItem(wizard, templateId);
         if (item is null) {
+            if (IsHeld(wizard, templateId)) {
+                return true;
+            }
+
             item = CreateItem(wizard, templateId, lot);
             if (item is null) {
                 return false;
@@ -379,15 +383,21 @@ internal static class HouseDeeds {
     }
 
     private static WizClientObjectItem FindItem(Wizard wizard, uint templateId)
-        => HeldItems(wizard).FirstOrDefault(item => ItemHelper.GetTemplateId(item) == templateId);
+        => OwnItems(wizard).FirstOrDefault(item => ItemHelper.GetTemplateId(item) == templateId);
 
     private static List<WizClientObjectItem> HouseItems(Wizard wizard)
-        => [.. HeldItems(wizard).Where(item => HouseTemplates.TryGet(ItemHelper.GetTemplateId(item), out _))];
+        => [.. OwnItems(wizard).Where(item => HouseTemplates.TryGet(ItemHelper.GetTemplateId(item), out _))];
 
-    internal static IEnumerable<WizClientObjectItem> HeldItems(Wizard wizard)
+    private static bool IsHeld(Wizard wizard, uint templateId)
+        => HeldItems(wizard).Any(item => ItemHelper.GetTemplateId(item) == templateId);
+
+    internal static IEnumerable<WizClientObjectItem> OwnItems(Wizard wizard)
         => wizard.InventoryBehavior.Items
             .Concat(wizard.EquipmentBehavior?.EquippedItems ?? [])
-            .Concat(wizard.StorageBehavior?.Items ?? [])
-            .Concat(wizard.Account?.SharedBank?.Items ?? []);
+            .Concat(wizard.StorageBehavior?.Items ?? []);
+
+    internal static IEnumerable<WizClientObjectItem> HeldItems(Wizard wizard)
+        => OwnItems(wizard).Concat(
+            (wizard.Account?.SharedBank?.Items ?? []).Where(item => item.m_characterId == (GID) wizard.CharId));
 
 }

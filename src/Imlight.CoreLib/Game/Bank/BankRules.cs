@@ -45,6 +45,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Housing.Houses;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Resources;
@@ -60,7 +61,6 @@ internal static class BankRules {
     private const string EMOTE_ADJECTIVE = "Emote";
     private const string JEWEL_ADJECTIVE = "Jewel";
     private const string NO_TRADE_ADJECTIVE = "FLAG_NoTrade";
-    private const string HOUSE_ADJECTIVE = "Islands";
     private const uint NO_TRADE_ITEM_FLAG = 1;
     private const int LOCK_BIT = unchecked((int) 0x80000000);
 
@@ -132,9 +132,9 @@ internal static class BankRules {
     /// <summary>
     /// Whether the item is a house, which the shared bank refuses until housing can move one.
     /// </summary>
-    /// <param name="template">The template of the item, or null when it has none.</param>
-    /// <returns>True for the Islands adjective.</returns>
-    internal static bool IsHouse(WizItemTemplate template) => HasAdjective(template, HOUSE_ADJECTIVE);
+    /// <param name="item">The item in question.</param>
+    /// <returns>True when housing recognises its template as a house.</returns>
+    internal static bool IsHouse(WizClientObjectItem item) => HouseTemplates.TryGet(ItemHelper.GetTemplateId(item), out _);
 
     /// <summary>
     /// Whether the item is a rental, which the bank and the shared bank refuse.
@@ -222,7 +222,7 @@ internal static class BankRules {
                 return BankDenial.SocketedJewels;
             }
 
-            if (IsHouse(template)) {
+            if (IsHouse(item)) {
                 return BankDenial.House;
             }
         }

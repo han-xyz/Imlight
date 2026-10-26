@@ -118,6 +118,8 @@ internal static class HouseTemplates {
         return true;
     }
 
+    internal static void Register(HouseTemplateInfo info) => s_known[info.TemplateId] = info;
+
     /// <summary>
     /// Gets the starter houses: the entries of <c>Housing.StarterDeeds</c> that are house templates, in order.
     /// </summary>

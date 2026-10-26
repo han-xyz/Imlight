@@ -36,6 +36,9 @@
  */
 
 using Imcodec.ObjectProperty.TypeCache;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using Imcodec.Types;
 using Imlight.CoreLib.Game.Bank;
 using Imlight.CoreLib.Game.Housing.Houses;
 using Imlight.CoreLib.Shared.Behaviors;
@@ -51,11 +54,36 @@ public sealed class BankedDeedTests {
 
     [Fact]
     public void HeldItems_CountDeedInPersonalBank() {
-        var deed = new WizClientObjectItem { m_templateID = DeedTemplateId };
-        var wizard = new Wizard { InventoryBehavior = new ServerWizInventoryBehavior { Items = [] }, StorageBehavior = new ServerWizStorageBehavior() };
+        var deed = new WizClientObjectItem { m_templateID = new GID(DeedTemplateId) };
+        var wizard = Bare();
         wizard.StorageBehavior.Items.Add(deed);
 
         Assert.Contains(deed, HouseDeeds.HeldItems(wizard));
+        Assert.Contains(deed, HouseDeeds.OwnItems(wizard));
     }
+
+    [Fact]
+    public void IsHouse_RecognisesHouseTemplate() {
+        HouseTemplates.Register(new HouseTemplateInfo(DeedTemplateId, "Lot", 0, "", "", 0, 0));
+
+        Assert.True(BankRules.IsHouse(new WizClientObjectItem { m_templateID = new GID(DeedTemplateId) }));
+    }
+
+    [Fact]
+    public void HeldItems_CountOnlyOwnSharedBankItems() {
+        var own = new WizClientObjectItem { m_templateID = new GID(DeedTemplateId), m_characterId = new GID(5) };
+        var other = new WizClientObjectItem { m_templateID = new GID(DeedTemplateId), m_characterId = new GID(6) };
+        var wizard = Bare();
+        wizard.CharId = 5;
+        var account = (Account) RuntimeHelpers.GetUninitializedObject(typeof(Account));
+        account.SharedBank = new AccountSharedBank { Items = [own, other] };
+        wizard.Account = account;
+
+        Assert.Equal([own], HouseDeeds.HeldItems(wizard).ToList());
+        Assert.Empty(HouseDeeds.OwnItems(wizard));
+    }
+
+    private static Wizard Bare()
+        => new() { InventoryBehavior = new ServerWizInventoryBehavior { Items = [] }, StorageBehavior = new ServerWizStorageBehavior() };
 
 }
