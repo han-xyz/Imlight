@@ -74,6 +74,10 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     // The official server sends MSG_SERVERTRANSFER about 400 ms after the ACK; saving the wizard adds about 50 ms.
     private const int ZoneTransferDelayMs = 350;
 
+    // MSG_CLIENTZONED arrived 1 to 3 seconds after the add in live sessions; a slow first load takes longer.
+    private const int ClientZonedFallbackSeconds = 10;
+    private const string ClientZonedFallbackKey = "clientzoned-fallback";
+
     private readonly uint _resetStateId = StringHash.Compute("Unremarkable");
     private readonly uint _teleportStateId = StringHash.Compute("Teleport");
     private const string DeedZoneTimeoutKey = "deedzone-timeout";
@@ -85,6 +89,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     private readonly bool _randomBackflips
         = ConfigurationManager.Settings["April Fools.RandomBackFlips"].AsBool();
     private readonly ZoneTransferGate _transferGate = new();
+    // Dismount in no-mount zones, re-equip on leaving (EquipmentService owns the reconcile).
+    private readonly ZoneArrival _arrival = new(
+        () => sessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT()));
     private uint _currentDynamicZoneId;
     private HouseEntry _pendingHouseEntry;
 
@@ -667,8 +674,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             });
         }
 
-        // Dismount in no-mount zones, re-equip on leaving (EquipmentService owns the reconcile).
-        SessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT());
+        _arrival.PlayerAdded();
+        Timers.StartSingleTimer(ClientZonedFallbackKey, new ClientZonedFallback(),
+            TimeSpan.FromSeconds(ClientZonedFallbackSeconds));
 
         if (_randomBackflips) {
             Timers.StartPeriodicTimer("backflip", new ZONE_102_PROTOCOL.MSG_RANDOMFLIPS {
@@ -677,6 +685,19 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             },
             TimeSpan.FromSeconds(25));
         }
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_CLIENTZONED))]
+    private void ReceiveClientZoned(WIZARD2_53_PROTOCOL.MSG_CLIENTZONED message) {
+        Timers.Cancel(ClientZonedFallbackKey);
+        _arrival.ClientZoned();
+    }
+
+    [MessageHandler(typeof(ClientZonedFallback))]
+    private void ReceiveClientZonedFallback(ClientZonedFallback message) {
+        Logger.Warning("Session {SessionId} sent no MSG_CLIENTZONED within {Seconds}s; reconciling the mount anyway.",
+            Logger.Args(SessionActor.SessionID, ClientZonedFallbackSeconds));
+        _arrival.FallbackElapsed();
     }
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_PLAYERADDEDTOZONE))]
@@ -1535,6 +1556,13 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     /// Tells a group member that another member started the countdown on a sigil pad in <see cref="ZoneName"/>.
     /// </summary>
     private sealed record GroupSigilCountdown(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY Entry, string ZoneName) : IServerMessage {
+
+        public byte MessageOrder => 0;
+        public byte ServiceID => 102;
+
+    }
+
+    private sealed record ClientZonedFallback : IServerMessage {
 
         public byte MessageOrder => 0;
         public byte ServiceID => 102;
