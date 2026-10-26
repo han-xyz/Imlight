@@ -53,6 +53,7 @@ public sealed class TieredSpellTests {
 
     private const string SpellementDropTable = "droptables_spellements_p_school_arc01_01.json";
     private const string ShardPrefix = "Shard-";
+    private const int RealGroupCount = 283;
 
     private static readonly string? s_rootWadDirectory = Environment.GetEnvironmentVariable("ROOTWAD_DIR");
     private static readonly string? s_spiralDbClone = Environment.GetEnvironmentVariable("SPIRALDB_CLONE");
@@ -83,6 +84,19 @@ public sealed class TieredSpellTests {
         Assert.Equal([1492248UL, 1494687UL], groups.Select(g => g.ShardTemplateId));
         Assert.Equal(["Fire Cat", "Fire Cat - T02 - A"], groups[0].Spells);
         Assert.Equal(["Frost Beetle"], groups[1].Spells);
+    }
+
+    [GameDataFact]
+    public void TieredSpellIndex_LoadsRealGroups() {
+        var groups = TieredSpellIndex.Read(
+            File.ReadAllBytes(Path.Combine(s_rootWadDirectory!, "TieredSpells.xml")),
+            File.ReadAllBytes(Path.Combine(s_rootWadDirectory!, "TieredSpellsGroupInfo.xml")));
+
+        Assert.Equal(RealGroupCount, groups.Count);
+        Assert.All(groups, group => {
+            Assert.NotEqual(0UL, group.ShardTemplateId);
+            Assert.Contains(group.TierOneSpell, group.Spells);
+        });
     }
 
     [Fact]

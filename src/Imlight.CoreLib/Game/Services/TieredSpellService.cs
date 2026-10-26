@@ -52,13 +52,18 @@ namespace Imlight.CoreLib.Game.Services;
 
 internal class TieredSpellService(SessionActor sessionActor) : MessageService(sessionActor) {
 
+    private const int LoggedVisibilityBytes = 64;
+
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new TieredSpellService(parentActor));
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_CANSEETIEREDSPELLGROUPS))]
     private void ReceiveCanSeeTieredSpellGroups(WIZARD2_53_PROTOCOL.MSG_CANSEETIEREDSPELLGROUPS message) {
-        Logger.Debug("Tiered spell group visibility requested with {Visibility}, shard type {ShardType}.",
-            Logger.Args(Convert.ToHexString(message.Visibility), message.ShardType));
+        var requestVisibility = (byte[]) message.Visibility ?? [];
+        Logger.Debug("Tiered spell group visibility requested with {Length} bytes starting {Visibility}, shard type {ShardType}.",
+            Logger.Args(requestVisibility.Length,
+                Convert.ToHexString(requestVisibility, 0, Math.Min(requestVisibility.Length, LoggedVisibilityBytes)),
+                message.ShardType));
 
         var wizard = GetActiveWizard();
         var groups = TieredSpellIndex.Instance.Groups;
