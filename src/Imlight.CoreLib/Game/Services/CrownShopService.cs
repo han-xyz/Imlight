@@ -813,6 +813,17 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             _ = uint.TryParse(elixirTemplate.m_expireTime.ToString(), out durationSeconds);
         }
 
+        if (BackpackExpansion.IsBackpackExpansion(templateId)) {
+            if (!BackpackExpansion.TryExpand(wizard)) {
+                return false;
+            }
+
+            WizardCollection.UpdateCharacterGameStats(wizard);
+            SendToSocket(BackpackExpansion.ExtraInventoryUpdate(wizard));
+            PlaySound(elixirTemplate.m_equipSound);
+            return true;
+        }
+
         // Case 1: Instant refill (duration == 0).
         if (durationSeconds == 0) {
             if (elixirTemplate.m_equipActionList?.m_results?.Count > 0) {

@@ -39,6 +39,7 @@
  * Last Updated: 10/26/2026
  */
 
+using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -83,5 +84,11 @@ internal static class BackpackExpansion {
 
         return TryExpand(wizard);
     }
+
+    public static WIZARD2_53_PROTOCOL.MSG_UPDATEEXTRAINVENTORY ExtraInventoryUpdate(Wizard wizard)
+        => new() {
+            ExtraInventorySpace = wizard.GameStats.m_extraInventorySpace,
+            CurrentInventorySpace = wizard.InventoryBehavior.NumItemsAllowed
+        };
 
 }
