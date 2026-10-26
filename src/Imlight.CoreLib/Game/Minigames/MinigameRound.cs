@@ -28,7 +28,7 @@ internal sealed class MinigameRound {
     private DateTimeOffset _openedAt;
 
     public bool TryOpen(DateTimeOffset now, TimeSpan minimumDuration) {
-        if (_open || (_everOpened && now - _openedAt < minimumDuration)) {
+        if (_everOpened && now - _openedAt < minimumDuration) {
             return false;
         }
 

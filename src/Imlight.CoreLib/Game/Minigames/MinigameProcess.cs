@@ -68,7 +68,7 @@ internal sealed class MinigameProcess : Process {
     private const int DEFAULT_MIN_ROUND_SECONDS = 20;
 
     private bool IsMinigameActive { get; set; }
-    private readonly MinigameRound _round = new();
+    private readonly MinigameRound _round;
     private bool _chestSettled;
     private bool _chestRefused;
 
@@ -81,7 +81,8 @@ internal sealed class MinigameProcess : Process {
     );
 
     // ctor
-    public MinigameProcess(string processName, uint processId, byte minigameIndex, ChestGameContext chestGame) : base(processName, processId) {
+    public MinigameProcess(string processName, uint processId, byte minigameIndex, ChestGameContext chestGame, MinigameRound round) : base(processName, processId) {
+        this._round = round;
         this._minigameIndex = minigameIndex;
         this._chestGame = chestGame;
         this._minigameInfo = Imlight.CoreLib.Game.Minigames.MinigameConfig.GetMinigameInfo(minigameIndex);

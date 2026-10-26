@@ -38,6 +38,7 @@ internal sealed class PROCESS_107_PROTOCOL : IServerProtocol {
         public string MinigameName;
         public IActorRef Owner;
         public ChestGameContext ChestGame;
+        public MinigameRound Round;
 
     }
 

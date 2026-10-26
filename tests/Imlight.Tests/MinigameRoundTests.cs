@@ -29,11 +29,11 @@ public sealed class MinigameRoundTests {
     private static readonly DateTimeOffset s_start = new(2026, 10, 26, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Open_WhileARoundIsOpen_IsRefused() {
+    public void Open_WithinTheMinimumOfTheLastOpen_IsRefused() {
         var round = new MinigameRound();
         Assert.True(round.TryOpen(s_start, s_minimum));
 
-        Assert.False(round.TryOpen(s_start + TimeSpan.FromMinutes(5), s_minimum));
+        Assert.False(round.TryOpen(s_start + TimeSpan.FromSeconds(5), s_minimum));
     }
 
     [Fact]

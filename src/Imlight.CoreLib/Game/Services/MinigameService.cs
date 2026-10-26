@@ -60,6 +60,7 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
     private IActorRef _minigameJob;
     private uint _minigameProcessId;
     private ChestGameContext _activeChest;
+    private readonly MinigameRound _round = new();
 
     // Akka.net props
     protected static Props Props(SessionActor parentActor) 
@@ -100,7 +101,8 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
             MinigameIndex = minigameIndex,
             MinigameName = minigameName,
             Owner = SessionActor.ActorRef,
-            ChestGame = _activeChest
+            ChestGame = _activeChest,
+            Round = _round
         };
         var reply = AskServer<PROCESS_107_PROTOCOL.MSG_PROCESS_DETAILS>(msg);
         _minigameJob = reply.ProcessActorRef;
