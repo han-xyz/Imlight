@@ -34,6 +34,7 @@
  * Last Updated: 10/27/2026
  */
 
+using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Behaviors;
@@ -68,15 +69,53 @@ public sealed class DeckSettingsTests {
         Assert.Equal(9, deck.m_primaryColor);
     }
 
+    private static CoreTemplate DeckTemplate(float maxArchmasteryPoints)
+        => new WizItemTemplate { m_behaviors = [new DeckBehaviorTemplate { m_maxArchmasteryPoints = maxArchmasteryPoints }] };
+
     [Fact]
     public void ArchmasteryIsSetOnTheEquippedDeck() {
         var equipped = Deck(11);
         var wizard = WizardWith(Deck(10), equipped);
 
-        Assert.True(SpellbookService.TrySetDeckArchmastery(wizard, 11, 3, out _));
+        Assert.True(SpellbookService.TrySetDeckArchmastery(wizard, 11, (uint) MagicSchool.Fire, _ => DeckTemplate(100), out _));
 
         Assert.True(CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(equipped, out var deckBehavior));
-        Assert.Equal(3U, deckBehavior.m_archmasterySchool);
+        Assert.Equal((uint) MagicSchool.Fire, deckBehavior.m_archmasterySchool);
+    }
+
+    [Fact]
+    public void ArchmasteryOutsideTheSchoolListIsRefused() {
+        var deck = Deck(10);
+        var wizard = WizardWith(deck, Deck(11));
+
+        Assert.False(SpellbookService.TrySetDeckArchmastery(wizard, 10, 3, _ => DeckTemplate(100), out _));
+        Assert.True(CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deck, out var deckBehavior));
+        Assert.Equal(0U, deckBehavior.m_archmasterySchool);
+    }
+
+    [Fact]
+    public void ArchmasteryOnADeckWithoutArchmasteryIsRefused() {
+        var wizard = WizardWith(Deck(10), Deck(11));
+
+        Assert.False(SpellbookService.TrySetDeckArchmastery(wizard, 10, (uint) MagicSchool.Fire, _ => DeckTemplate(0), out _));
+    }
+
+    [Fact]
+    public void ClearingTheEquippedDeckRemovesLearnedSpellsOnly() {
+        const uint learned = 100;
+        const uint treasureCard = 200;
+        var equipped = Deck(11);
+        var deckBehavior = (DeckBehavior) equipped.m_inactiveBehaviors[0];
+        deckBehavior.m_spellList = [new SpellData { m_templateID = learned, m_quantity = 4 }, new SpellData { m_templateID = treasureCard, m_quantity = 2 }];
+        var wizard = WizardWith(Deck(10), equipped);
+        wizard.EquipmentBehavior.SlotList = [new EquipmentSlot { SlotType = EquipmentSlotType.Deck, ItemId = 11 }];
+        wizard.SpellbookBehavior = new ServerWizSpellbookBehavior { LearnedSpellTemplateIds = [learned], SpellList = [.. deckBehavior.m_spellList] };
+
+        Assert.True(SpellbookService.TryClearEquippedDeck(wizard, out var cleared));
+
+        Assert.Same(equipped, cleared);
+        Assert.Equal([treasureCard], deckBehavior.m_spellList.Select(s => s.m_templateID));
+        Assert.Equal([treasureCard], wizard.SpellbookBehavior.SpellList.Select(s => s.m_templateID));
     }
 
     [Fact]
@@ -85,7 +124,7 @@ public sealed class DeckSettingsTests {
         var wizard = WizardWith(notADeck, Deck(11));
 
         Assert.False(SpellbookService.TryNameDeck(wizard, 99, 5, 9, out _));
-        Assert.False(SpellbookService.TrySetDeckArchmastery(wizard, 12, 3, out _));
+        Assert.False(SpellbookService.TrySetDeckArchmastery(wizard, 12, (uint) MagicSchool.Fire, _ => DeckTemplate(100), out _));
         Assert.Equal(0, notADeck.m_pattern);
     }
 

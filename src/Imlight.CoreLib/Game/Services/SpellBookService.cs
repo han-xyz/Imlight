@@ -30,19 +30,24 @@
  * NOTE:
  * 
  * TODO:
+ * - Where does MSG_SETDECKNAME's DeckNameExtension live? It is kept in m_primaryColor; only DeckName is known to go in the pattern.
+ * - What range do DeckName and DeckNameExtension index? Bound them once the deck name table is known.
  * 
  * Created by: Jooty
  * Version: KALI 1.0
  * Last Updated: 10/27/2026
  */
 
+using System;
 using System.Linq;
 using Akka.Actor;
 using Imcodec.Cryptography;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Bank;
 using Imlight.CoreLib.Game.Spells;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -56,7 +61,6 @@ internal class SpellbookService(SessionActor sessionActor) : MessageService(sess
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new SpellbookService(parentActor));
 
-    private const int ItemLockBit = unchecked((int) 0x80000000);
     private const uint DeckNameMask = 0x7FFFFFFF;
 
     internal static bool TryNameDeck(Wizard wizard, ulong deckId, uint deckName, uint deckNameExtension,
@@ -66,17 +70,42 @@ internal class SpellbookService(SessionActor sessionActor) : MessageService(sess
         }
 
         // The client stores a deck's name in its item pattern; the pattern's top bit is the item lock and stays.
-        deck.m_pattern = (deck.m_pattern & ItemLockBit) | (int) (deckName & DeckNameMask);
+        deck.m_pattern = (deck.m_pattern & BankRules.LOCK_BIT) | (int) (deckName & DeckNameMask);
         deck.m_primaryColor = (int) deckNameExtension;
         return true;
     }
 
-    internal static bool TrySetDeckArchmastery(Wizard wizard, ulong deckId, uint school, out WizClientObjectItem deck) {
+    internal static bool TrySetDeckArchmastery(Wizard wizard, ulong deckId, uint school,
+                                               Func<ulong, CoreTemplate> templateOf, out WizClientObjectItem deck) {
         if (!TryFindOwnedDeck(wizard, deckId, out deck, out var deckBehavior)) {
             return false;
         }
 
+        if (school != (uint) MagicSchool.None
+            && (!Enum.IsDefined((MagicSchool) school) || !SupportsArchmastery(templateOf(deck.m_templateID)))) {
+            return false;
+        }
+
         deckBehavior.m_archmasterySchool = school;
+        return true;
+    }
+
+    private static bool SupportsArchmastery(CoreTemplate deckTemplate)
+        => deckTemplate?.m_behaviors?.OfType<DeckBehaviorTemplate>().FirstOrDefault() is { m_maxArchmasteryPoints: > 0 };
+
+    internal static bool TryClearEquippedDeck(Wizard wizard, out WizClientObjectItem deck) {
+        var deckSlot = wizard.EquipmentBehavior?.SlotList?.FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck);
+        deck = deckSlot?.ItemId is null
+            ? null
+            : wizard.EquipmentBehavior.EquippedItems?.FirstOrDefault(i => i.m_globalID == deckSlot.ItemId);
+        if (deck is null || !CoreObjectFactory.FindBehaviorInstance<DeckBehavior>(deck, out var deckBehavior)) {
+            return false;
+        }
+
+        // Clear empties the spell side; treasure cards stay in the deck.
+        var learnedSpells = wizard.SpellbookBehavior.LearnedSpellTemplateIds.ToHashSet();
+        deckBehavior.m_spellList?.RemoveAll(s => learnedSpells.Contains(s.m_templateID));
+        wizard.SpellbookBehavior.SpellList?.RemoveAll(s => learnedSpells.Contains(s.m_templateID));
         return true;
     }
 
@@ -101,7 +130,13 @@ internal class SpellbookService(SessionActor sessionActor) : MessageService(sess
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_SetDeckArchmastery))]
     private void ReceiveSetDeckArchmastery(WIZARD3_56_PROTOCOL.MSG_SetDeckArchmastery message) {
         var wizard = GetActiveWizard();
-        if (wizard is null || !TrySetDeckArchmastery(wizard, message.ItemGID, message.School, out var deck)) {
+        if (wizard is null) {
+            return;
+        }
+
+        if (!TrySetDeckArchmastery(wizard, message.ItemGID, message.School, CoreObjectFactory.GetCoreTemplate, out var deck)) {
+            Logger.Warning("Refused archmastery school {School} on deck {DeckId} of character {Id}.",
+                Logger.Args(message.School, message.ItemGID, wizard.CharId));
             return;
         }
 
@@ -111,28 +146,12 @@ internal class SpellbookService(SessionActor sessionActor) : MessageService(sess
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_CLEAR_EQUIPPED_DECK))]
     private void ReceiveClearEquippedDeck(WIZARD_12_PROTOCOL.MSG_CLEAR_EQUIPPED_DECK message) {
         var wizard = GetActiveWizard();
-        var deckId = wizard?.EquipmentBehavior.SlotList
-            .FirstOrDefault(s => s.SlotType == EquipmentSlotType.Deck)?.ItemId;
-        if (deckId is null || wizard.SpellbookBehavior.SpellList is null) {
+        if (wizard is null || !TryClearEquippedDeck(wizard, out var deck)) {
             return;
         }
 
-        // Treasure cards go back to the treasure card book through their own path, so only learned spells are cleared.
-        var learnedSpells = wizard.SpellbookBehavior.SpellList
-            .Where(s => CoreObjectFactory.GetCoreTemplate(s.m_templateID) is SpellTemplate { m_Treasure: false })
-            .SelectMany(s => Enumerable.Repeat(s.m_templateID, (int) s.m_quantity))
-            .ToList();
-        foreach (var templateId in learnedSpells) {
-            if (!wizard.RemoveSpellFromDeck(templateId, deckId.Value)) {
-                continue;
-            }
-
-            SendToSocket(new WIZARD_12_PROTOCOL.MSG_REMOVESPELLFROMDECK {
-                SpellID = (int) templateId,
-                DeckID = deckId.Value,
-                Success = 1
-            });
-        }
+        WizardItemCollection.SaveDeckSpells(deck);
+        SendToSocket(new WIZARD_12_PROTOCOL.MSG_CLEAR_EQUIPPED_DECK());
     }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_ADDSPELLTODECK))]
