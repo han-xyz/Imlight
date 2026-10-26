@@ -317,12 +317,8 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
     }
 
     internal static int CalculateRequiredInventorySlots(CoreTemplate itemTemplate, int count) {
-        // One backpack slot per loot table and pack; a table that drops several items can still overflow.
-        if (itemTemplate is BoosterPackTemplate pack) {
-            return (pack.m_lootTables?.Count ?? 0) * count;
-        }
-
         if (itemTemplate is null ||
+            itemTemplate is BoosterPackTemplate ||
             itemTemplate is GoldAmountTemplate ||
             itemTemplate is LunariAmountTemplate ||
             itemTemplate is TourneyTokensAmountTemplate ||
@@ -335,14 +331,12 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             var slotsPerBundle = 0;
             foreach (var templateId in itemBundle.m_bundleItems) {
                 var subTemplate = CoreObjectFactory.GetCoreTemplate(templateId);
-                if (subTemplate is BoosterPackTemplate subBooster) {
-                    slotsPerBundle += subBooster.m_lootTables?.Count ?? 1;
-                }
-                else if (subTemplate is not PetSnackItemTemplate &&
-                         subTemplate is not ReagentItemTemplate &&
-                         subTemplate is not TourneyTokensAmountTemplate &&
-                         subTemplate is not GoldAmountTemplate &&
-                         subTemplate is not LunariAmountTemplate) {
+                if (subTemplate is not BoosterPackTemplate &&
+                    subTemplate is not PetSnackItemTemplate &&
+                    subTemplate is not ReagentItemTemplate &&
+                    subTemplate is not TourneyTokensAmountTemplate &&
+                    subTemplate is not GoldAmountTemplate &&
+                    subTemplate is not LunariAmountTemplate) {
                     slotsPerBundle++;
                 }
             }
