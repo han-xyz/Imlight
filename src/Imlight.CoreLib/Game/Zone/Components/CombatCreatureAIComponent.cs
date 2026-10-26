@@ -252,10 +252,10 @@ internal sealed class CombatCreatureAIComponent(ZoneEntity entity) : ZoneEntityC
         }
 
         // I have died. Remove myself from the current duel.
-        _currentDuelComponent.ZoneBroadcast(new DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATREMOVE {
-            DuelID = _currentDuelComponent.SigilId,
-            ParticipantID = _currentSubCircle.ParticipantObject.m_globalID
-        });
+        var creatureRemoval = MinionRemoval(_currentDuelComponent?.SigilId, Entity.ActiveGameObject.m_globalID);
+        if (creatureRemoval is not null) {
+            _currentDuelComponent.ZoneBroadcast(creatureRemoval);
+        }
 
         // Send this message to ourselves again after a delay to delete the entity. This lets the combat death animation play out,
         // and then the entity will be deleted.
