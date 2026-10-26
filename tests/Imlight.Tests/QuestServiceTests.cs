@@ -256,6 +256,47 @@ public sealed class QuestServiceTests {
         Assert.Equal(expected, refusal);
     }
 
+    [Theory]
+    [InlineData(-1, null)]
+    [InlineData(0, "the quest is already completed")]
+    [InlineData(1, "the quest is already completed")]
+    public void AcceptQuest_Completed_AcceptedOnlyWhenRepeatable(int questRepeat, string expected) {
+        var template = EmptyQuest("Weekly");
+        template.m_questRepeat = questRepeat;
+
+        var refusal = QuestService.GetAcceptRefusal(template, _ => false, _ => true, _ => true);
+
+        Assert.Equal(expected, refusal);
+    }
+
+    [Fact]
+    public void StartQuest_CompletedRepeatable_ClearsCompleteEntry() {
+        var template = EmptyQuest("Weekly");
+        template.m_questRepeat = -1;
+        var wizard = new Wizard { CharId = 1, QuestBehavior = new ServerQuestBehavior() };
+        wizard.QuestBehavior.AddToQuestRegistry("Weekly", "Complete", 1);
+
+        var started = QuestService.StartQuestInstance(template, wizard, null, null, wizard.QuestBehavior.AddQuest);
+
+        Assert.NotNull(started);
+        Assert.False(wizard.HasCompletedQuest("Weekly"));
+        Assert.True(wizard.QuestBehavior.CompleteQuest("Weekly"));
+        Assert.True(wizard.HasCompletedQuest("Weekly"));
+    }
+
+    [Fact]
+    public void StartQuest_CompletedRepeatableRefused_KeepsCompleteEntry() {
+        var template = EmptyQuest("Weekly");
+        template.m_questRepeat = -1;
+        var wizard = new Wizard { CharId = 1, QuestBehavior = new ServerQuestBehavior() };
+        wizard.QuestBehavior.AddToQuestRegistry("Weekly", "Complete", 3);
+
+        var started = QuestService.StartQuestInstance(template, wizard, null, null, _ => false);
+
+        Assert.Null(started);
+        Assert.Equal(3UL, wizard.GetQuestRegistryValue("Weekly", "Complete"));
+    }
+
     [Fact]
     public void QuestRewards_StartSendComplete_SameItems() {
         var template = EmptyQuest("Rewarded");
