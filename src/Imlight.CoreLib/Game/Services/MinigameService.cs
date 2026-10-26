@@ -86,6 +86,7 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
         var minigameIndex = MinigameConfig.GetMinigameIndex(wizardZone);
         var minigameName = minigameScript.Split('/')[0];
 
+        var previousChest = _activeChest;
         if (hasPendingChest) {
             if (pendingChest.MinigameName == minigameName) {
                 _activeChest = pendingChest;
@@ -94,6 +95,10 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
                     Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizardZone, pendingChest.MinigameName));
                 AbortChestGame(pendingChest);
             }
+        }
+
+        if (_activeChest is not null && ReferenceEquals(_activeChest, previousChest)) {
+            _minigameJob?.Tell(new PROCESS_107_PROTOCOL.MSG_CHEST_GAME_HANDED_OFF());
         }
 
         _minigameJob?.Tell(PoisonPill.Instance);
