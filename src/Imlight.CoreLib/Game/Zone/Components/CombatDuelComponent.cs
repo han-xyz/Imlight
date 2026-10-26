@@ -1534,30 +1534,49 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         var enchantTemplate = CoreObjectFactory.GetCoreTemplate(enchantSpell.m_templateID) as SpellTemplate;
-        if (enchantTemplate?.m_effects is null) {
-            return true;
+
+        return EnchantEffectsAllow(enchantTemplate, targetTemplate, targetSpell.m_templateID);
+    }
+
+    internal static bool EnchantEffectsAllow(SpellTemplate enchantTemplate, SpellTemplate targetTemplate, uint targetTemplateId) {
+        if (enchantTemplate?.m_effects is null || enchantTemplate.m_effects.Count == 0) {
+            return false;
         }
 
         foreach (var effect in enchantTemplate.m_effects) {
-            // Damage enchants  can only be applied to spells that deal damage (including drains like Vampire)
-            if (effect.m_effectType is kSpellEffects.kModifyCardDamage or kSpellEffects.kModifyCardArmorPiercing) {
-                if (!HasDamageEffect(targetTemplate)) {
-                    return false;
-                }
+            if (effect.m_effectTarget is kEffectTarget.kSpecificSpells
+                && (effect.m_spellTemplateID == 0 || effect.m_spellTemplateID != targetTemplateId)) {
+                return false;
             }
 
-            // Healing enchants can only be applied to healing spells
-            if (effect.m_effectType is kSpellEffects.kModifyCardHeal) {
-                if (!HasHealingEffect(targetTemplate)) {
+            switch (effect.m_effectType) {
+                // Damage enchants can only be applied to spells that deal damage (including drains like Vampire)
+                case kSpellEffects.kModifyCardDamage:
+                case kSpellEffects.kModifyCardArmorPiercing:
+                    if (!HasDamageEffect(targetTemplate)) {
+                        return false;
+                    }
+                    break;
+                case kSpellEffects.kModifyCardHeal:
+                    if (!HasHealingEffect(targetTemplate)) {
+                        return false;
+                    }
+                    break;
+                // Accuracy enchants can only be applied to spells that are not 100% accuracy by default
+                case kSpellEffects.kModifyCardAccuracy:
+                    if (targetTemplate.m_accuracy >= 100) {
+                        return false;
+                    }
+                    break;
+                case kSpellEffects.kModifyCardOutgoingDamage:
+                case kSpellEffects.kModifyCardIncomingDamage:
+                case kSpellEffects.kModifyCardCloak:
+                case kSpellEffects.kModifyCardMutation:
+                case kSpellEffects.kProtectCardBeneficial:
+                case kSpellEffects.kProtectCardHarmful:
+                    break;
+                default:
                     return false;
-                }
-            }
-
-            // Accuracy enchants can only be applied to spells that are not 100% accuracy by default
-            if (effect.m_effectType is kSpellEffects.kModifyCardAccuracy) {
-                if (targetTemplate.m_accuracy >= 100) {
-                    return false;
-                }
             }
         }
 
@@ -1622,7 +1641,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private static bool TryFindEnchantTarget(CombatDuelSubCircle caster, Spell enchantSpell, int enchantSlot, uint spellTarget, uint rawTarget, out Spell targetSpell) {
         targetSpell = null;
         var hand = caster.GetCurrentHand()?.m_spellList;
-        if (hand is null || hand.Count == 0) {
+        if (hand is null || hand.Count == 0 || !hand.Contains(enchantSpell)) {
             return false;
         }
 
