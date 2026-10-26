@@ -68,13 +68,11 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
 
     private const string PREP_NPC_ICON = "Prep";
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
-    private const string MATCH_NPC_WORLD_KEY = "Quests.MatchNpcWorld";
-    private const string REQUIRE_PREDECESSOR_KEY = "Quests.RequirePredecessor";
+    private const string RequirePredecessorKey = "Quests.RequirePredecessor";
 
     private static readonly Lazy<QuestOfferGate> s_gate = new(() => QuestOfferGate.FromPack(
         QuestTemplateCollection.GetAllQuests(),
-        matchWorld: ConfigurationManager.GetValue(MATCH_NPC_WORLD_KEY, true),
-        requirePredecessor: ConfigurationManager.GetValue(REQUIRE_PREDECESSOR_KEY, true)));
+        requirePredecessor: ConfigurationManager.GetValue(RequirePredecessorKey, true)));
 
     public string ServiceName => "QuestOfferService";
     public bool FollowsQuestState => true;
@@ -190,8 +188,6 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
             .Where(x => x is not null)
             .ToList();
 
-        var persona = Entity.Template is GameObjectTemplate npc ? DialogSpeakers.PersonaOf(npc) : null;
-
         foreach (var questTemplate in questTemplates) {
             if (questTemplate.m_dialogList is not ActorDialogList dialogList) {
                 continue;
@@ -201,8 +197,7 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
 
             // A dungeon quest is granted by the instance on entry, never offered by an NPC.
             if (DialogSpeakers.IsSpokenBy(prepDialogEntry?.m_dialogEntries?.FirstOrDefault(), Entity.Template)
-                && !DungeonQuestIndex.IsDungeonQuest(questTemplate.m_questName)
-                && s_gate.Value.IsOfferedBy(questTemplate.m_questName, persona)) {
+                && !DungeonQuestIndex.IsDungeonQuest(questTemplate.m_questName)) {
                 _givesQuests.Add(questTemplate);
             }
         }

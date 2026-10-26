@@ -20,20 +20,19 @@
  * ========================================================================
  *
  * PURPOSE:
- * Server-side rules that narrow the quests an NPC offers. The client data carries
+ * Server-side rule that narrows the quests an NPC offers. The client data carries
  * no per-NPC offer list (every WizardQuestingBehavior m_questList is empty), so the
- * Prep-speaker scan finds candidates and this gate filters them: by world, and a
- * requirement-free chain quest waits for the quest before it.
+ * Prep-speaker scan finds candidates and this gate holds back a requirement-free
+ * chain quest until the quest before it is complete.
  *
  * USAGE EXAMPLE:
- * var gate = QuestOfferGate.FromPack(QuestTemplateCollection.GetAllQuests(), matchWorld: true, requirePredecessor: true);
- * gate.IsOfferedBy(quest.m_questName, npcPersona) && gate.IsUnlocked(quest, wizard.HasCompletedQuest);
+ * var gate = QuestOfferGate.FromPack(QuestTemplateCollection.GetAllQuests(), requirePredecessor: true);
+ * gate.IsUnlocked(quest, wizard.HasCompletedQuest);
  *
  * NOTE:
- * A world is the quest name's token before the first '-'. Only prefixes shared by
- * at least five pack quests count as worlds; anything else is left ungated.
  * A chain quest is named "<world>-<area>-C<nn>-<kkk>" or "...-SIDE-<kkk>"/"...-MAIN-<kkk>";
- * its predecessor is the same name with kkk - 1.
+ * its predecessor is the same name with kkk - 1. Names with a suffix after the index
+ * (-MAIN-002-FIRE, -MAIN-002B) are not chain quests here.
  *
  * TODO:
  *
@@ -53,56 +52,21 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 
 internal sealed partial class QuestOfferGate {
 
-    private const int KNOWN_WORLD_MIN_QUESTS = 5;
-    private const char WORLD_SEPARATOR = '-';
+    public static readonly QuestOfferGate Open = new(false, new HashSet<string>());
 
-    public static readonly QuestOfferGate Open = new(false, false, new HashSet<string>(), new HashSet<string>());
-
-    private readonly bool _matchWorld;
     private readonly bool _requirePredecessor;
-    private readonly IReadOnlySet<string> _knownWorlds;
     private readonly IReadOnlySet<string> _packQuestNames;
 
-    private QuestOfferGate(bool matchWorld, bool requirePredecessor, IReadOnlySet<string> knownWorlds,
-                           IReadOnlySet<string> packQuestNames) {
-        _matchWorld = matchWorld;
+    private QuestOfferGate(bool requirePredecessor, IReadOnlySet<string> packQuestNames) {
         _requirePredecessor = requirePredecessor;
-        _knownWorlds = knownWorlds;
         _packQuestNames = packQuestNames;
     }
 
     [GeneratedRegex(@"^(?<stem>.+-(?:C\d+|SIDE|MAIN)-)(?<index>\d+)$")]
     private static partial Regex ChainQuestName();
 
-    public static QuestOfferGate FromPack(IReadOnlyCollection<QuestTemplate> quests, bool matchWorld, bool requirePredecessor) {
-        var questNames = quests.Select(quest => (string) quest.m_questName).ToHashSet(StringComparer.Ordinal);
-
-        return new(matchWorld, requirePredecessor, KnownWorlds(questNames), questNames);
-    }
-
-    public static IReadOnlySet<string> KnownWorlds(IEnumerable<string> questNames)
-        => questNames
-            .GroupBy(WorldOf, StringComparer.Ordinal)
-            .Where(world => world.Count() >= KNOWN_WORLD_MIN_QUESTS)
-            .Select(world => world.Key)
-            .ToHashSet(StringComparer.Ordinal);
-
-    /// <summary>
-    /// False when the quest and the NPC's persona belong to different known worlds.
-    /// </summary>
-    public bool IsOfferedBy(string questName, string npcPersona) {
-        if (!_matchWorld) {
-            return true;
-        }
-
-        var questWorld = WorldOf(questName);
-        var npcWorld = WorldOf(npcPersona);
-        if (!_knownWorlds.Contains(questWorld) || !_knownWorlds.Contains(npcWorld)) {
-            return true;
-        }
-
-        return questWorld == npcWorld;
-    }
+    public static QuestOfferGate FromPack(IReadOnlyCollection<QuestTemplate> quests, bool requirePredecessor)
+        => new(requirePredecessor, quests.Select(quest => (string) quest.m_questName).ToHashSet(StringComparer.Ordinal));
 
     /// <summary>
     /// False when the quest has no requirements and its chain predecessor, present in the pack, is not completed.
@@ -134,8 +98,5 @@ internal sealed partial class QuestOfferGate {
 
         return match.Groups["stem"].Value + (index - 1).ToString(new string('0', digits.Length), CultureInfo.InvariantCulture);
     }
-
-    private static string WorldOf(string name)
-        => name?.Split(WORLD_SEPARATOR, 2)[0] ?? "";
 
 }
