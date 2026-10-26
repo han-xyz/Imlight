@@ -19,6 +19,8 @@
 using System;
 using Raven.Client;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Session;
+using Raven.Client.Exceptions;
 using Imlight.CoreLib.WizardData.Databases;
 using Imcodec.IO;
 
@@ -30,6 +32,10 @@ public class ClientKeyPair(ulong accountId, ulong machineId, string clientKey2) 
     public ulong MachineId { get; set; } = machineId;
     public string ClientKey2 { get; set; } = clientKey2 
         ?? throw new ArgumentNullException(nameof(clientKey2));
+    public DateTime IssuedAt { get; set; }
+
+    public bool IsExpired(DateTime utcNow, TimeSpan lifetime)
+        => utcNow - IssuedAt >= lifetime;
 
 }
 
@@ -37,6 +43,7 @@ public static class ClientKeyCollection {
 
     private const string SESSION_KEY_COLLECTION_NAME = "SessionKeys";
     private const uint SESSION_KEY_LIFETIME_IN_HOURS = 30;
+    private static readonly TimeSpan s_sessionKeyLifetime = TimeSpan.FromHours(SESSION_KEY_LIFETIME_IN_HOURS);
 
     private static readonly IDocumentStore Store;
 
@@ -54,7 +61,7 @@ public static class ClientKeyCollection {
         using var session = Store.OpenSession();
 
         // A null change vector overwrites the last login's key in the same write, so validation never reads it.
-        var pair = new ClientKeyPair(accountId, machineId, key);
+        var pair = new ClientKeyPair(accountId, machineId, key) { IssuedAt = DateTime.UtcNow };
         session.Store(pair, changeVector: null, SessionKeyDocumentId(accountId));
 
         var metadata = session.Advanced.GetMetadataFor(pair);
@@ -75,7 +82,8 @@ public static class ClientKeyCollection {
     }
 
     /// <summary>
-    /// Gets the session key the account was given on this machine, or null when it has none.
+    /// Gets the session key the account was given on this machine, or null when it has none or it has expired.
+    /// An expired key is deleted.
     /// </summary>
     /// <param name="accountId"></param>
     /// <param name="machineId"></param>
@@ -84,9 +92,23 @@ public static class ClientKeyCollection {
         using var session = Store.OpenSession();
 
         var pair = session.Load<ClientKeyPair>(SessionKeyDocumentId(accountId));
+        if (pair is not null && pair.IsExpired(DateTime.UtcNow, s_sessionKeyLifetime)) {
+            DeleteIfUnchanged(session, pair);
+            pair = null;
+        }
+
         var keyForThisMachine = pair?.MachineId == machineId ? pair.ClientKey2 : null;
 
         return keyForThisMachine;
+    }
+
+    private static void DeleteIfUnchanged(IDocumentSession session, ClientKeyPair expiredPair) {
+        try {
+            session.Delete(SessionKeyDocumentId(expiredPair.AccountId), session.Advanced.GetChangeVectorFor(expiredPair));
+            session.SaveChanges();
+        } catch (ConcurrencyException) {
+            // A login replaced or removed the row after it was read; that row is not ours to delete.
+        }
     }
 
     private static string SessionKeyDocumentId(ulong accountId)

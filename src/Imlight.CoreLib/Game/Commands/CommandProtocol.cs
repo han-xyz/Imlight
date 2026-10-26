@@ -16,6 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+using System;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -119,6 +120,15 @@ internal abstract class CommandProtocol {
             method.Invoke(this, null);
             return true;
         }
+    }
+
+    internal bool TakesPassword(string commandName) {
+        if (!_hasInitiated) {
+            InitiateHandlers();
+        }
+
+        return _commandMethods.TryGetValue(commandName.ToLower(), out var method)
+            && method.GetParameters().Any(parameter => parameter.Name.Contains("password", StringComparison.OrdinalIgnoreCase));
     }
 
     protected void InformSenderClient(string reason, bool isImportant = false)

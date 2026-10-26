@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -65,6 +65,7 @@ namespace Imlight.CoreLib.Game.Commands;
 internal class CommandDispatcher : ReceiveProtocolDispatcher {
 
     private const string GrouplessCommandPrefix = "nogroup";
+    private const string RedactedArguments = "[redacted]";
 
     public static IActorRef Instance { get; private set; }
 
@@ -103,6 +104,21 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
         }
 
         return protocols;
+    }
+
+    internal static string RedactPasswords(string commandText) {
+        var words = commandText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 2) {
+            return commandText;
+        }
+
+        if (s_protocols.TryGetValue(words[0].ToLower(), out var protocol)) {
+            return protocol.TakesPassword(words[1]) ? $"{words[0]} {words[1]} {RedactedArguments}" : commandText;
+        }
+
+        var takesPassword = s_protocols.Values
+            .Any(groupless => string.IsNullOrEmpty(groupless.Group) && groupless.TakesPassword(words[0]));
+        return takesPassword ? $"{words[0]} {RedactedArguments}" : commandText;
     }
 
     private void ExecuteCommand(string commandName, CommandContext context) {
@@ -166,7 +182,8 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             SelectedAccount = message.SelectedAccount
         };
 
-        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, message.CommandText));
+        var loggedCommandText = RedactPasswords(message.CommandText.ToString());
+        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, loggedCommandText));
 
         // Log the use of this command to the database.
         var chatLog = new ChatLog() {
@@ -174,7 +191,7 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             ZoneName = characterContext.Zone,
             CharacterId = characterContext.CharId,
             AccountId = accountContext.AccountId,
-            Message = message.CommandText.ToString(),
+            Message = loggedCommandText,
         };
         CommandLogCollection.AddCommandLog(chatLog);
 

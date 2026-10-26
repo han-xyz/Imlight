@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -96,6 +96,12 @@ public class TcpListenerActor : ReceiveActor {
             Logger.Fatal("TcpListener for {Name} on port {Port} failed: {Exception}",
                 Logger.Args(Name, Port, ex));
         }
+    }
+
+    protected override void PostStop() {
+        // A stopped or restarting actor must release the port, or its replacement cannot bind it.
+        Stop();
+        base.PostStop();
     }
 
     public void Stop() {

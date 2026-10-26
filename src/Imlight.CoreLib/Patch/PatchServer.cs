@@ -71,7 +71,7 @@ public class PatchServer : Server {
     // ctor
     public PatchServer(string name, int port, Props factoryProps)
         : base(name, port, factoryProps) {
-        if (Instance is not null) {
+        if (Instance is not null && !Instance.Equals(Self)) {
             throw new Exception("Attempted to create more than one patch server! This is not possible!");
         }
 
