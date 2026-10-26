@@ -416,6 +416,17 @@ public static class AccountCollection {
     }
 
     /// <summary>
+    /// Saves when, from where and from which machine an account last logged in.
+    /// </summary>
+    public static bool RecordLogin(ulong accountId, DateTime time, string ip, ulong machineId) {
+        return UpdateAccount(accountId, account => {
+            account.LastLoginTime = time;
+            account.LastLoginIp = ip;
+            account.LastLoginMachineId = machineId;
+        });
+    }
+
+    /// <summary>
     /// Updates the crowns balance for the specified account.
     /// </summary>
     /// <param name="accountId">The unique identifier of the account to update.</param>

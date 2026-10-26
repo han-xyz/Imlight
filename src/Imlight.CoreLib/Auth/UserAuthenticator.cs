@@ -186,10 +186,10 @@ internal static class UserAuthenticator {
             ClientKeyCollection.AddSessionKey(matchedAccount.AccountId, authMessage.MachineID, sessionKey);
             details._sessionKey = sessionKey;
 
-            // todo: these are only ever cached and not ever persistently saved
             matchedAccount.LastLoginMachineId = authMessage.MachineID;
             matchedAccount.LastLoginTime = DateTime.UtcNow;
             matchedAccount.LastLoginIp = sessionActor.Ip;
+            RecordLogin(matchedAccount);
 
             // Craft a successful reply and return.
             var rec1 = Rec1.Encode(sessionKey, sessionId, offerTime, offerMilli);
@@ -203,6 +203,20 @@ internal static class UserAuthenticator {
 
             return details;
         }
+    }
+
+    // Saved in the background so logging in waits for nothing extra; a failure only loses this login's record.
+    private static void RecordLogin(Account account) {
+        var (accountId, time, ip, machineId) =
+            (account.AccountId, account.LastLoginTime, account.LastLoginIp, account.LastLoginMachineId);
+        System.Threading.Tasks.Task.Run(() => {
+            try {
+                AccountCollection.RecordLogin(accountId, time, ip, machineId);
+            }
+            catch (Exception exception) {
+                Logger.Warning("Could not save the login time of account {0}: {1}", Logger.Args(accountId, exception.Message));
+            }
+        });
     }
 
     private static AuthenticationDetails TimedOut(AuthenticationDetails details, SessionActor sessionActor, Stopwatch stopwatch) {
