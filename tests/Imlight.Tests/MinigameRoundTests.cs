@@ -37,6 +37,20 @@ public sealed class MinigameRoundTests {
     }
 
     [Fact]
+    public void Open_CalledTwiceAtOnce_SucceedsOnce() {
+        var round = new MinigameRound();
+        var opened = 0;
+
+        System.Threading.Tasks.Parallel.For(0, 2, _ => {
+            if (round.TryOpen(s_start, s_minimum)) {
+                System.Threading.Interlocked.Increment(ref opened);
+            }
+        });
+
+        Assert.Equal(1, opened);
+    }
+
+    [Fact]
     public void Open_AfterSettling_NeedsTheMinimumDuration() {
         var round = new MinigameRound();
         round.TryOpen(s_start, s_minimum);

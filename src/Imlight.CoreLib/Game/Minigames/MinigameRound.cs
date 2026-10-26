@@ -23,30 +23,35 @@ namespace Imlight.CoreLib.Game.Minigames;
 
 internal sealed class MinigameRound {
 
+    private readonly object _gate = new();
     private bool _open;
     private bool _everOpened;
     private DateTimeOffset _openedAt;
 
     public bool TryOpen(DateTimeOffset now, TimeSpan minimumDuration) {
-        if (_everOpened && now - _openedAt < minimumDuration) {
-            return false;
+        lock (_gate) {
+            if (_everOpened && now - _openedAt < minimumDuration) {
+                return false;
+            }
+
+            _open = true;
+            _everOpened = true;
+            _openedAt = now;
+
+            return true;
         }
-
-        _open = true;
-        _everOpened = true;
-        _openedAt = now;
-
-        return true;
     }
 
     public bool TrySettle() {
-        if (!_open) {
-            return false;
+        lock (_gate) {
+            if (!_open) {
+                return false;
+            }
+
+            _open = false;
+
+            return true;
         }
-
-        _open = false;
-
-        return true;
     }
 
 }

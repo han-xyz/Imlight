@@ -96,6 +96,8 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
             }
         }
 
+        _minigameJob?.Tell(PoisonPill.Instance);
+
         // Ask the server for a new minigame process.
         var msg = new PROCESS_107_PROTOCOL.MSG_NEW_MINIGAME_PROCESS {
             MinigameIndex = minigameIndex,
