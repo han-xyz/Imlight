@@ -44,6 +44,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
@@ -72,8 +73,55 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
 
     private static Dictionary<string, CommandProtocol> s_protocols => s_protocolsLazy.Value;
 
+    private static int s_savedLogsRedacted;
+
     public CommandDispatcher() {
         Instance = Self;
+
+        // Earlier builds logged sensitive command parameters in full. Each realm creates a dispatcher,
+        // so only the first one sweeps the saved logs.
+        if (Interlocked.Exchange(ref s_savedLogsRedacted, 1) != 0) {
+            return;
+        }
+
+        try {
+            var redacted = CommandLogCollection.RedactMessages(RedactForLog);
+            if (redacted > 0) {
+                Logger.Information("Redacted sensitive parameters from {0} saved command logs.", Logger.Args(redacted));
+            }
+        }
+        catch (Exception ex) {
+            Logger.Error("Could not redact saved command logs: {0}", Logger.Args(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Returns the command text with every <see cref="SensitiveAttribute"/> parameter replaced.
+    /// </summary>
+    internal static string RedactForLog(string commandText) {
+        if (string.IsNullOrWhiteSpace(commandText)) {
+            return commandText;
+        }
+
+        // Mirror ExecuteCommand's resolution: a grouped command first, then groupless protocols.
+        var split = commandText.Trim().Split(' ');
+        var protocolName = split[0].ToLower();
+        if (s_protocols.TryGetValue(protocolName, out var protocol)) {
+            var command = split.Length > 1 ? split[1] : "";
+            if (protocol.TryRedactParameters(command, split.Skip(2).ToArray(), out var redacted)) {
+                return string.Join(" ", split.Take(2).Concat(redacted));
+            }
+
+            return commandText;
+        }
+
+        foreach (var groupless in s_protocols.Values.Where(x => x is not null && string.IsNullOrEmpty(x.Group))) {
+            if (groupless.TryRedactParameters(protocolName, split.Skip(1).ToArray(), out var redacted)) {
+                return string.Join(" ", split.Take(1).Concat(redacted));
+            }
+        }
+
+        return commandText;
     }
 
     public static Props Props()
@@ -166,7 +214,8 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             SelectedAccount = message.SelectedAccount
         };
 
-        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, message.CommandText));
+        var loggedCommand = RedactForLog(message.CommandText.ToString());
+        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, loggedCommand));
 
         // Log the use of this command to the database.
         var chatLog = new ChatLog() {
@@ -174,7 +223,7 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             ZoneName = characterContext.Zone,
             CharacterId = characterContext.CharId,
             AccountId = accountContext.AccountId,
-            Message = message.CommandText.ToString(),
+            Message = loggedCommand,
         };
         CommandLogCollection.AddCommandLog(chatLog);
 

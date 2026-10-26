@@ -124,6 +124,32 @@ internal abstract class CommandProtocol {
         }
     }
 
+    /// <summary>
+    /// Replaces parameters marked <see cref="SensitiveAttribute"/> so a command can be logged safely.
+    /// </summary>
+    /// <returns>False if this protocol has no such command.</returns>
+    internal bool TryRedactParameters(string commandName, string[] parameters, out string[] redacted) {
+        if (!_hasInitiated) {
+            InitiateHandlers();
+        }
+
+        redacted = parameters;
+        if (commandName is null || !_commandMethods.TryGetValue(commandName.ToLower(), out var method)) {
+            return false;
+        }
+
+        var methodParameters = method.GetParameters();
+        redacted = new string[parameters.Length];
+        for (int i = 0; i < parameters.Length; i++) {
+            // Words past the last parameter belong to it when it is a remainder.
+            var parameter = i < methodParameters.Length ? methodParameters[i]
+                : methodParameters.LastOrDefault(x => x.GetCustomAttribute<RemainderAttribute>() != null);
+            redacted[i] = parameter?.GetCustomAttribute<SensitiveAttribute>() != null ? "<redacted>" : parameters[i];
+        }
+
+        return true;
+    }
+
     protected void InformSenderClient(string reason, bool isImportant = false)
         => Context.SessionActor.Tell(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE {
             Message = reason,

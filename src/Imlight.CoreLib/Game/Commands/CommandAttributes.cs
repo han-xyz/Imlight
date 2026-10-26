@@ -54,3 +54,11 @@ internal class RemainderAttribute : Attribute {
 internal sealed class WithoutAdminModeAttribute : Attribute {
 
 }
+
+/// <summary>
+/// Marks a command parameter, such as a password, that must never be written to logs.
+/// </summary>
+[AttributeUsage(AttributeTargets.Parameter)]
+internal sealed class SensitiveAttribute : Attribute {
+
+}
