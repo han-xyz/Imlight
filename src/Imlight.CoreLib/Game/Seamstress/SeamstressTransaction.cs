@@ -91,20 +91,18 @@ internal sealed class SeamstressTransaction(Wizard wizard, IActorRef session, Fu
             return false;
         }
 
-        var crownsBefore = account.Crowns;
         var added = new List<WizClientObjectItem>();
         var removed = new List<WizClientObjectItem>();
         try {
             if (!TryChangeBackpack(inputs, results, added, removed, out failure)) {
-                PutBack(crownsBefore, added, removed);
+                PutBack(added, removed);
 
                 return false;
             }
 
-            account.Crowns = crownsBefore - crownsCost;
-            if (!AccountCollection.SaveCrownsWithBackpack(account, wizard, results, [.. inputs.Select(input => (ulong) input.m_globalID)])) {
+            if (!AccountCollection.SaveCrownsWithBackpack(account, crownsCost, wizard, results, [.. inputs.Select(input => (ulong) input.m_globalID)])) {
                 failure = "the new items and the Crowns could not be stored";
-                PutBack(crownsBefore, added, removed);
+                PutBack(added, removed);
 
                 return false;
             }
@@ -112,7 +110,7 @@ internal sealed class SeamstressTransaction(Wizard wizard, IActorRef session, Fu
             Logger.Error("[Seamstress] Error while storing a seamstress request of {CharId}: {Reason} {StackTrace}",
                 Logger.Args(wizard.CharId, ex.Message, ex.StackTrace));
             failure = "an error occurred while storing the new items and the Crowns";
-            PutBack(crownsBefore, added, removed);
+            PutBack(added, removed);
 
             return false;
         }
@@ -181,8 +179,7 @@ internal sealed class SeamstressTransaction(Wizard wizard, IActorRef session, Fu
         return true;
     }
 
-    private void PutBack(int crownsBefore, IReadOnlyList<WizClientObjectItem> added, IReadOnlyList<WizClientObjectItem> removed) {
-        wizard.Account.Crowns = crownsBefore;
+    private void PutBack(IReadOnlyList<WizClientObjectItem> added, IReadOnlyList<WizClientObjectItem> removed) {
         foreach (var item in added) {
             wizard.InventoryBehavior.RemoveItem(item);
         }

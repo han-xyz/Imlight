@@ -534,21 +534,27 @@ public static class AccountCollection {
     }
 
     /// <summary>
-    /// Writes an account's Crowns together with a character's backpack in one transaction: the Crowns, the ids of the
-    /// backpack, the documents of the items that entered it and the documents of the items that left it. Either all
+    /// Charges Crowns to an account's stored balance together with a character's backpack in one transaction: the
+    /// Crowns, the ids of the backpack, the documents of the items that entered it and the documents of the items that left it. Either all
     /// of it is stored or none of it, so a crash cannot leave the player with both the paid-for item and its inputs.
     /// </summary>
-    /// <param name="account">The account, whose Crowns are written as they are in memory.</param>
+    /// <param name="account">The account, whose in-memory Crowns are set to the stored balance once it is stored.</param>
+    /// <param name="crownsCost">The Crowns to take off the stored balance.</param>
     /// <param name="owner">The character, whose backpack is written as it is in memory.</param>
     /// <param name="addedItems">Items that entered the backpack and are not stored yet.</param>
     /// <param name="removedItemIds">Items that left the backpack, whose stored documents are deleted.</param>
-    /// <returns><c>true</c> when everything is stored; <c>false</c> when nothing changed.</returns>
-    internal static bool SaveCrownsWithBackpack(Account account, Wizard owner,
+    /// <returns><c>true</c> when everything is stored; <c>false</c> when nothing changed, as when the stored balance is short.</returns>
+    internal static bool SaveCrownsWithBackpack(Account account, int crownsCost, Wizard owner,
                                                 IReadOnlyCollection<WizClientObjectItem> addedItems,
                                                 IReadOnlyCollection<ulong> removedItemIds) {
         try {
-            return UpdateAccountAndCharacterWithSession(account.AccountId, owner.CharId, (session, storedAccount, storedOwner) => {
-                storedAccount.Crowns = account.Crowns;
+            var balance = 0;
+            var stored = UpdateAccountAndCharacterWithSession(account.AccountId, owner.CharId, (session, storedAccount, storedOwner) => {
+                if (!Account.TryApplyCrownsDelta(storedAccount.Crowns, -crownsCost, out balance)) {
+                    return false;
+                }
+
+                storedAccount.Crowns = balance;
                 storedOwner.InventoryBehavior = owner.InventoryBehavior;
                 foreach (var item in addedItems) {
                     WizardItemCollection.StoreInSession(session, item);
@@ -564,6 +570,11 @@ public static class AccountCollection {
 
                 return true;
             });
+            if (stored) {
+                account.Crowns = balance;
+            }
+
+            return stored;
         } catch (Exception ex) {
             Logger.Error("Failed to save the Crowns of account {AccountId} with the backpack of character {CharId}: {Reason}",
                 Logger.Args(account.AccountId, owner.CharId, ex.Message));

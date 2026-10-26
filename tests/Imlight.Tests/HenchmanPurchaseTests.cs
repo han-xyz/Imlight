@@ -221,6 +221,15 @@ public sealed class HenchmanPurchaseTests {
     }
 
     [Theory]
+    [InlineData(-40, 25)]
+    [InlineData(25, -40)]
+    public void CrownsDelta_SeamstressDebitAndShopRefundKeepBothInEitherOrder(int first, int second) {
+        Assert.True(Account.TryApplyCrownsDelta(100, first, out var afterFirst));
+        Assert.True(Account.TryApplyCrownsDelta(afterFirst, second, out var balance));
+        Assert.Equal(85, balance);
+    }
+
+    [Theory]
     [InlineData(true, 4, 4, true)]
     [InlineData(true, 5, 4, false)]
     [InlineData(false, 4, 4, false)]
