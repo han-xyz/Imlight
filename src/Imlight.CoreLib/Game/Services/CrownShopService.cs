@@ -109,6 +109,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         return code;
     }
 
+    private const string HenchmanSummonTimeoutKey = "HenchmanSummonTimeout";
+    private static readonly TimeSpan s_henchmanSummonTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly HenchmanPurchaseFlow _henchmanPurchase = new();
+
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new CrownShopService(parentActor));
 
@@ -292,36 +297,56 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        var affordError = AffordabilityError(wizard, message.Type, amountToPay);
-        if (affordError != 0) {
-            SendPurchaseError(affordError, message.Item, wizard.IsInDuel);
+        if (_henchmanPurchase.IsPending) {
+            Logger.Warning("Henchman purchase of item {0} refused: another henchman purchase is in flight.",
+                Logger.Args(message.Item));
+        }
+
+        var purchaseId = GenerateRandomUlong() | 1;
+        var error = _henchmanPurchase.Begin(purchaseId, () => TryDebit(wizard, message.Type, amountToPay));
+        if (error != 0) {
+            SendPurchaseError(error, message.Item, wizard.IsInDuel);
             return;
         }
 
-        TellOtherServices(new COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN {
+        var request = new COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN {
             Owner = SessionActor.ActorRef,
             CreatureTid = creatureTid,
             IsPvPEnabled = HenchmanPurchase.IsPvPEnabled(itemTemplate),
+            PurchaseId = purchaseId,
             Item = message.Item,
             Currency = message.Type,
             Cost = amountToPay
-        });
+        };
+        // Without an answer (a duel actor that stopped) the purchase would stay pending and paid; refund it instead.
+        Timers.StartSingleTimer(HenchmanSummonTimeoutKey, new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
+            Request = request,
+            Result = HenchmanSummonResult.Failed,
+            SubCircle = -1
+        }, s_henchmanSummonTimeout);
+        TellOtherServices(request);
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED))]
     private void ReceiveHenchmanSummoned(COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED message) {
         var wizard = GetActiveWizard();
         var request = message.Request;
-        var error = HenchmanPurchase.Complete(message.Result, () => TryDebit(wizard, request.Currency, request.Cost));
-        if (error != 0) {
+        var refund = () => Refund(wizard, request.Currency, request.Cost);
+        if (!_henchmanPurchase.TryFinish(request.PurchaseId, message.Result, refund, out var error)) {
+            Logger.Warning("Henchman purchase {0} of item {1} answered {2} after it was settled.",
+                Logger.Args(request.PurchaseId, request.Item, message.Result));
             if (message.Result == HenchmanSummonResult.Summoned) {
                 message.DuelActor.Tell(new COMBAT_106_PROTOCOL.MSG_DISMISSMINION {
-                    Owner = SessionActor.ActorRef,
-                    SubCircle = message.SubCircle
+                    SubCircle = message.SubCircle,
+                    PurchaseId = request.PurchaseId
                 });
             }
+            return;
+        }
 
-            Logger.Warning("Henchman summon for item {0} ended {1}.", Logger.Args(request.Item, message.Result));
+        Timers.Cancel(HenchmanSummonTimeoutKey);
+        if (error != 0) {
+            Logger.Warning("Henchman summon for item {0} ended {1}; payment refunded.", Logger.Args(request.Item, message.Result));
             SendPurchaseError(error, request.Item, wizard.IsInDuel);
             return;
         }
@@ -348,26 +373,20 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         return requiredSlots == 0 || wizard.InventoryBehavior.HasInventorySpace(requiredSlots);
     }
 
-    private static int AffordabilityError(Wizard wizard, int currency, int amount) {
-        if (currency == CrownShopPrice.GoldCurrency) {
-            return wizard.GameStats.m_currentGold < amount ? s_errorCantAfford : 0;
-        }
-
-        return wizard.Account.Crowns < amount ? s_errorNotEnoughCrowns : 0;
-    }
-
     private static int TryDebit(Wizard wizard, int currency, int amount) {
-        var affordError = AffordabilityError(wizard, currency, amount);
-        if (affordError != 0) {
-            return affordError;
-        }
-
         if (currency == CrownShopPrice.GoldCurrency) {
+            if (wizard.GameStats.m_currentGold < amount) {
+                return s_errorCantAfford;
+            }
+
             wizard.RemoveGold(amount);
             return 0;
         }
 
         var crowns = wizard.Account.Crowns;
+        if (crowns < amount) {
+            return s_errorNotEnoughCrowns;
+        }
 
         if (!wizard.Account.SetCrowns(crowns - amount)) {
             Logger.Error("Could not save the crowns debit for account {0}.", Logger.Args(wizard.AccountId));

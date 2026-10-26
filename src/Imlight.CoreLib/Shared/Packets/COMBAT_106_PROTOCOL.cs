@@ -302,6 +302,7 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
         public IActorRef Owner;
         public uint CreatureTid;
         public bool IsPvPEnabled;
+        public ulong PurchaseId;
         public ulong Item;
         public int Currency;
         public int Cost;
@@ -324,7 +325,8 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
-    /// Sent by a session to its duel: remove the minion in SubCircle if Owner summoned it.
+    /// Sent by a session to its duel: remove the minion in SubCircle. With a PurchaseId it must be the henchman of
+    /// that purchase; without one, Owner must have summoned it.
     /// </summary>
     public sealed class MSG_DISMISSMINION : IServerMessage {
 
@@ -333,6 +335,7 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
 
         public IActorRef Owner;
         public int SubCircle;
+        public ulong PurchaseId;
 
     }
 

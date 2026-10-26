@@ -142,6 +142,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     // Keyed by the actor: a CoreObject is a record whose hash follows its location.
     private readonly HashSet<IActorRef> _entitiesInRange = [];
     private readonly CombatGroupReservations _groupReservations = new();
+    // Slot index to the crown shop purchase whose henchman holds it.
+    private readonly Dictionary<int, ulong> _henchmanPurchases = [];
     private readonly ObjectSerializer _serializer = new(
         Versionable: false,
         Behaviors: SerializerFlags.None
@@ -799,6 +801,10 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN))]
     private void ReceiveSummonHenchman(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN message) {
         var result = SummonHenchman(message.CreatureTid, message.IsPvPEnabled, message.Owner, out var slotIndex);
+        if (result == HenchmanSummonResult.Summoned) {
+            _henchmanPurchases[slotIndex] = message.PurchaseId;
+        }
+
         message.Owner.Tell(new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
             Request = message,
             Result = result,
@@ -809,11 +815,9 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_DISMISSMINION))]
     private void ReceiveDismissMinion(COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
-        var requester = SubCircles?.FirstOrDefault(x => x.ParticipantActor == message.Owner);
         var minion = SubCircles?.FirstOrDefault(x => x.SlotIndex == message.SubCircle);
-        if (!_isActive || requester is null || minion?.CombatParticipant is null
-            || !MayDismiss(minion.IsSummonedMinion, minion.CombatParticipant.m_minionSubCircle, requester.SlotIndex)) {
-            Logger.Warning("Duel {0} | dismiss of slot {1} refused: not a minion of the requester.",
+        if (!_isActive || minion?.CombatParticipant is null || !IsDismissible(minion, message)) {
+            Logger.Warning("Duel {0} | dismiss of slot {1} refused: not the requester's minion or purchase.",
                 Logger.Args(Duel?.m_duelID.Full, message.SubCircle));
 
             return;
@@ -1076,6 +1080,19 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     internal static bool MayDismiss(bool isSummonedMinion, int minionOwnerSlot, int requesterSlot)
         => isSummonedMinion && minionOwnerSlot == requesterSlot;
 
+    // A purchase's dismiss needs no live requester: the buyer may have left the duel before its refund was settled.
+    private bool IsDismissible(CombatDuelSubCircle minion, COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
+        if (message.PurchaseId != 0) {
+            return minion.IsSummonedMinion
+                && _henchmanPurchases.TryGetValue(minion.SlotIndex, out var purchaseId)
+                && purchaseId == message.PurchaseId;
+        }
+
+        var requester = SubCircles.FirstOrDefault(x => x.ParticipantActor == message.Owner);
+        return requester is not null
+            && MayDismiss(minion.IsSummonedMinion, minion.CombatParticipant.m_minionSubCircle, requester.SlotIndex);
+    }
+
     /// <summary>
     /// Summons a bought henchman at once into a free slot on the side of <paramref name="owner"/>.
     /// </summary>
@@ -1135,6 +1152,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         var minionObj = CoreObjectFactory.FinalizeCoreObject(info, template);
         minionObj = CoreObjectFactory.InitializeCoreObjectBehaviors(minionObj, template);
 
+        _henchmanPurchases.Remove(slot.SlotIndex);
         var minionActor = Entity.SpawnCombatMinionActor(minionObj, template);
         if (minionActor is null) {
             return null;

@@ -21,11 +21,11 @@
  * 
  * PURPOSE:
  * A henchman is a crown shop purchase that summons a creature into the buyer's duel,
- * never an inventory item. The crowns are taken only after the summon succeeded.
+ * never an inventory item. The payment is taken before the summon and refunded unless it succeeded.
  * 
  * USAGE EXAMPLE:
  * CrownShopService.ReceivePurchaseRequest routes with Route, asks the duel to summon
- * the creature from TryGetCreatureTemplateId, and ends the purchase with Complete.
+ * the creature from TryGetCreatureTemplateId, and settles it through one HenchmanPurchaseFlow per session.
  * 
  * NOTE:
  * The creature is named by the item's ElixirBehaviorTemplate: m_equipActionList holds a
@@ -107,17 +107,60 @@ internal static class HenchmanPurchase {
         return isPlanningPhase ? null : HenchmanSummonResult.NotPlanningPhase;
     }
 
-    /// <summary>
-    /// Runs <paramref name="debit"/> only when the henchman was summoned.
-    /// </summary>
-    /// <returns>0 on success, the client error for a refused summon, or the error from <paramref name="debit"/>.</returns>
-    public static int Complete(HenchmanSummonResult result, Func<int> debit) => result switch {
-        HenchmanSummonResult.Summoned => debit(),
+    internal static int PurchaseError => s_errorPurchase;
+
+    internal static int ErrorFor(HenchmanSummonResult result) => result switch {
+        HenchmanSummonResult.Summoned => 0,
         HenchmanSummonResult.NoFreeSlot => s_errorSigilFull,
         HenchmanSummonResult.NotInDuel => s_errorNotInCombat,
         HenchmanSummonResult.InPvP => s_errorInPvP,
         HenchmanSummonResult.NotPlanningPhase => s_errorPlanningPhase,
         _ => s_errorPurchase,
     };
+
+}
+
+/// <summary>
+/// One session's henchman purchase in flight: paid before the summon is asked for, refunded unless it succeeds.
+/// </summary>
+internal sealed class HenchmanPurchaseFlow {
+
+    private ulong _pendingPurchaseId;
+
+    public bool IsPending => _pendingPurchaseId != 0;
+
+    /// <returns>0 when paid and pending, the purchase error while another purchase is pending, or the error from <paramref name="debit"/>.</returns>
+    public int Begin(ulong purchaseId, Func<int> debit) {
+        if (IsPending) {
+            return HenchmanPurchase.PurchaseError;
+        }
+
+        var debitError = debit();
+        if (debitError != 0) {
+            return debitError;
+        }
+
+        _pendingPurchaseId = purchaseId;
+        return 0;
+    }
+
+    /// <summary>
+    /// Settles the pending purchase with the duel's answer, running <paramref name="refund"/> unless it was summoned.
+    /// </summary>
+    /// <returns>False when <paramref name="purchaseId"/> is not the pending purchase; nothing is refunded then.</returns>
+    public bool TryFinish(ulong purchaseId, HenchmanSummonResult result, System.Action refund, out int error) {
+        error = 0;
+        if (!IsPending || purchaseId != _pendingPurchaseId) {
+            return false;
+        }
+
+        _pendingPurchaseId = 0;
+        if (result != HenchmanSummonResult.Summoned) {
+            refund();
+            error = HenchmanPurchase.ErrorFor(result);
+        }
+
+        return true;
+    }
 
 }

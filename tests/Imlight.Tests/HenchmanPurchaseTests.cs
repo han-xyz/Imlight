@@ -35,6 +35,7 @@
  * Last Updated: 10/26/2026
  */
 
+using System.Collections.Generic;
 using Imcodec.Cryptography;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.CrownShop;
@@ -47,6 +48,7 @@ public sealed class HenchmanPurchaseTests {
 
     private const uint CreatureTemplateId = 1588709;
     private const int DebitError = 9;
+    private const ulong PurchaseId = 77;
 
     [Theory]
     [InlineData(true, true, true, CrownShopPurchaseRoute.SummonHenchman)]
@@ -106,29 +108,63 @@ public sealed class HenchmanPurchaseTests {
     [InlineData(HenchmanSummonResult.NotPlanningPhase, "Error_HenchmenPlanningPhase")]
     [InlineData(HenchmanSummonResult.NotInDuel, "Error_NotInCombat")]
     [InlineData(HenchmanSummonResult.Failed, "Error_PriceLockMismatch")]
-    public void Complete_SummonRefused_DebitsNothing(HenchmanSummonResult result, string expectedError) {
-        var debited = false;
+    public void SummonRefused_DebitsThenRefunds(HenchmanSummonResult result, string expectedError) {
+        var flow = new HenchmanPurchaseFlow();
+        var events = new List<string>();
 
-        var error = HenchmanPurchase.Complete(result, () => {
-            debited = true;
+        Assert.Equal(0, flow.Begin(PurchaseId, () => {
+            events.Add("debit");
             return 0;
-        });
+        }));
+        Assert.True(flow.TryFinish(PurchaseId, result, () => events.Add("refund"), out var error));
 
-        Assert.False(debited);
+        Assert.Equal(["debit", "refund"], events);
         Assert.Equal((int) StringHash.Compute(expectedError), error);
+        Assert.False(flow.IsPending);
     }
 
     [Fact]
-    public void Complete_Summoned_DebitsAndReturnsTheDebitResult() {
+    public void Summoned_KeepsTheDebit() {
+        var flow = new HenchmanPurchaseFlow();
+        var refunds = 0;
+        flow.Begin(PurchaseId, () => 0);
+
+        Assert.True(flow.TryFinish(PurchaseId, HenchmanSummonResult.Summoned, () => refunds++, out var error));
+
+        Assert.Equal(0, error);
+        Assert.Equal(0, refunds);
+    }
+
+    [Fact]
+    public void DebitRefused_SendsNoSummonAndLeavesNothingPending() {
+        var flow = new HenchmanPurchaseFlow();
+
+        Assert.Equal(DebitError, flow.Begin(PurchaseId, () => DebitError));
+        Assert.False(flow.IsPending);
+    }
+
+    [Fact]
+    public void SecondRequestWhilePending_IsRefusedWithoutDebit() {
+        var flow = new HenchmanPurchaseFlow();
         var debits = 0;
+        flow.Begin(PurchaseId, () => ++debits * 0);
 
-        var error = HenchmanPurchase.Complete(HenchmanSummonResult.Summoned, () => {
-            debits++;
-            return DebitError;
-        });
+        var error = flow.Begin(PurchaseId + 1, () => ++debits * 0);
 
+        Assert.Equal((int) StringHash.Compute("Error_PriceLockMismatch"), error);
         Assert.Equal(1, debits);
-        Assert.Equal(DebitError, error);
+    }
+
+    [Fact]
+    public void AnswerForAnotherPurchase_IsIgnoredAndRefundsNothing() {
+        var flow = new HenchmanPurchaseFlow();
+        var refunds = 0;
+        flow.Begin(PurchaseId, () => 0);
+
+        Assert.False(flow.TryFinish(PurchaseId + 1, HenchmanSummonResult.NoFreeSlot, () => refunds++, out _));
+
+        Assert.Equal(0, refunds);
+        Assert.True(flow.IsPending);
     }
 
     [Theory]
