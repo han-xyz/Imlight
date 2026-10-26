@@ -100,10 +100,10 @@ internal sealed class TieredSpellIndex : RootSingleResourceSingleton<TieredSpell
     }
 
     /// <summary>
-    /// Whether two spells are tiers of the same group.
+    /// The index of the group a spell is a tier of, or TieredSpellLedger.NoGroup.
     /// </summary>
-    internal bool AreSameGroup(string spellName, string otherSpellName)
-        => Groups.Any(group => group.Spells.Contains(spellName) && group.Spells.Contains(otherSpellName));
+    internal int GroupIndexOf(string spellName)
+        => TieredSpellLedger.ResolveGroup(Groups, spellName, spellName);
 
     public void DisposeStream() => Stream.Dispose();
 

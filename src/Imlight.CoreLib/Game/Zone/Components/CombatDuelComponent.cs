@@ -553,7 +553,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
                     }
                 }
                 else {
-                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget, message.SelectedTieredSpellID);
+                    HandleAttackMove(caster, message.SpellSelection, message.SpellTarget, message.SelectedTieredSpellID, message.TieredSpells);
                 }
                 break;
             case CombatMoveType.Flee:
@@ -1837,22 +1837,21 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
     }
 
-    private static Spell WithSelectedTier(Spell spell, int selectedTieredSpellId) {
-        if (spell is null || selectedTieredSpellId <= 0 || selectedTieredSpellId == spell.m_templateID) {
-            return spell;
-        }
+    private static uint? CastTierOf(Spell dealt, int selectedTieredSpellId, IReadOnlyList<TieredSpellProgress> tieredSpells) {
+        var index = TieredSpellIndex.Instance;
+        var selectedSpellId = (uint) Math.Max(selectedTieredSpellId, 0);
+        var selectedGroupIndex = selectedSpellId == 0 ? TieredSpellLedger.NoGroup : index.GroupIndexOf(SpellNameOf(selectedSpellId));
 
-        var dealtName = (CoreObjectFactory.GetCoreTemplate(spell.m_templateID) as SpellTemplate)?.m_name.ToString();
-        var selectedName = (CoreObjectFactory.GetCoreTemplate((uint) selectedTieredSpellId) as SpellTemplate)?.m_name.ToString();
-        if (dealtName is null || selectedName is null || !TieredSpellIndex.Instance.AreSameGroup(dealtName, selectedName)) {
-            return spell;
-        }
-
-        return SpellFactory.GetSpell((uint) selectedTieredSpellId) ?? spell;
+        return TieredSpellLedger.CastTier(tieredSpells, dealt.m_templateID, index.GroupIndexOf(SpellNameOf(dealt.m_templateID)),
+            selectedSpellId, selectedGroupIndex);
     }
 
-    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget, int selectedTieredSpellId) {
-        var spell = WithSelectedTier(caster.GetSpellFromLastHand((byte) spellSelection), selectedTieredSpellId);
+    private static string SpellNameOf(uint templateId)
+        => (CoreObjectFactory.GetCoreTemplate(templateId) as SpellTemplate)?.m_name.ToString();
+
+    private void HandleAttackMove(CombatDuelSubCircle caster, int spellSelection, uint spellTarget, int selectedTieredSpellId,
+        IReadOnlyList<TieredSpellProgress> tieredSpells) {
+        var spell = caster.GetSpellFromLastHand((byte) spellSelection);
         if (spell is null) {
             Logger.Warning("Duel {0} | Slot {1} | Attack received for an empty hand slot ({2}).",
                 Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, spellSelection));
@@ -1860,6 +1859,24 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             CombatResolver.AddCombatMove(CombatMoveType.Pass, caster, null, null);
 
             return;
+        }
+
+        var castSpellId = CastTierOf(spell, selectedTieredSpellId, tieredSpells);
+        if (castSpellId is null) {
+            Logger.Warning("Duel {0} | Slot {1} | Dealt tier {2} is no longer trained; passing.",
+                Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, spell.m_templateID));
+
+            CombatResolver.AddCombatMove(CombatMoveType.Pass, caster, null, null);
+
+            return;
+        }
+
+        if (castSpellId != spell.m_templateID) {
+            spell = SpellFactory.GetSpell(castSpellId.Value) ?? spell;
+        }
+        else if (selectedTieredSpellId > 0 && selectedTieredSpellId != spell.m_templateID) {
+            Logger.Debug("Duel {0} | Slot {1} | Selected tier {2} is not trained or not of card {3}; casting the card.",
+                Logger.Args(Duel.m_duelID.Full, caster.SlotIndex, selectedTieredSpellId, spell.m_templateID));
         }
 
         if (IsEnchantment(spell)) {
