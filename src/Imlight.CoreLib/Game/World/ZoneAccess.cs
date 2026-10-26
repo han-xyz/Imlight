@@ -26,7 +26,7 @@
  * if (!ZoneAccess.Admits(account, message.DestinationZone)) { return; }
  * 
  * NOTE:
- * A refused transfer leaves the player in the current zone.
+ * A refused transfer leaves the player in the current zone; a refused attach falls back to the saved or starting zone.
  * 
  * TODO:
  * 
@@ -46,20 +46,34 @@ internal static class ZoneAccess {
     private const string QaZoneMarker = "QA_";
 
     /// <summary>
-    /// Whether the account may enter the zone; a refusal is logged as a warning.
+    /// Whether the account may enter the zone; a missing account counts as AuthLevel.None, and a refusal is logged.
     /// </summary>
     internal static bool Admits(Account account, string zonePath) {
-        if (IsAllowed(account.AuthLevel, zonePath)) {
+        if (IsAllowed(AuthLevelOf(account), zonePath)) {
             return true;
         }
 
-        Logger.Warning("Account {Username} ({AuthLevel}) was refused a transfer to QA zone {Zone}.",
-            Logger.Args(account.Username, account.AuthLevel, zonePath));
+        Logger.Warning("Account {AccountId} ({AuthLevel}) was refused a transfer to QA zone {Zone}.",
+            Logger.Args(account?.AccountId ?? 0, AuthLevelOf(account), zonePath));
 
         return false;
     }
 
+    /// <summary>
+    /// The zone an attach may load: the requested one if admitted, else the saved zone if admitted, else the starting zone.
+    /// </summary>
+    internal static string AttachZone(Account account, string requestedZone, string savedZone, string startingZone) {
+        if (Admits(account, requestedZone)) {
+            return requestedZone;
+        }
+
+        return !string.IsNullOrEmpty(savedZone) && IsAllowed(AuthLevelOf(account), savedZone) ? savedZone : startingZone;
+    }
+
     internal static bool IsAllowed(AuthLevel authLevel, string zonePath)
         => authLevel > AuthLevel.None || !zonePath.Contains(QaZoneMarker, StringComparison.Ordinal);
+
+    private static AuthLevel AuthLevelOf(Account account)
+        => account?.AuthLevel ?? AuthLevel.None;
 
 }

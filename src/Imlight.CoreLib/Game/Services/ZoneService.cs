@@ -209,7 +209,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        if (message.SendToClient && !ZoneAccess.Admits(GetActiveAccount(), message.DestinationZone)) {
+        if (!ZoneAccess.Admits(GetActiveWizard()?.Account, message.DestinationZone)) {
+            RefuseZoneTransfer(message);
+
             return;
         }
 
@@ -256,6 +258,19 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         ReadyClientForZoneTransfer(message);
+    }
+
+    private void RefuseZoneTransfer(ZONE_102_PROTOCOL.MSG_ZONETRANSFER message) {
+        if (message.SendToClient) {
+            InformGameClient("You cannot travel there.", true);
+
+            return;
+        }
+
+        ReplyToAttachTransfer(new ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP {
+            ErrorCode = 1,
+            ErrorMessage = "Zone not available.",
+        }, true);
     }
 
     private void ReplyToAttachTransfer(ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP zoneDetails, bool failed) {

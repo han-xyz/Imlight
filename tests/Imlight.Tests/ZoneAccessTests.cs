@@ -42,6 +42,10 @@ namespace Imlight.Tests;
 
 public sealed class ZoneAccessTests {
 
+    private const string QaZone = "WizardCity/QA_SpawnRate";
+    private const string HubZone = "WizardCity/WC_Hub";
+    private const string StartingZone = "WizardCity/Interiors/WC_Headmistress_House";
+
     [Fact]
     public void NormalAccount_IsRefusedQaZone()
         => Assert.False(ZoneAccess.IsAllowed(AuthLevel.None, "WizardCity/QA_SpawnRate"));
@@ -55,5 +59,28 @@ public sealed class ZoneAccessTests {
     [Fact]
     public void NormalAccount_EntersOrdinaryZone()
         => Assert.True(ZoneAccess.IsAllowed(AuthLevel.None, "WizardCity/WC_Hub"));
+
+    [Fact]
+    public void MissingAccount_IsRefusedQaZone()
+        => Assert.False(ZoneAccess.Admits(null, QaZone));
+
+    [Fact]
+    public void NormalAccountAttach_ToQaZone_FallsBackToSavedZone()
+        => Assert.Equal(HubZone, ZoneAccess.AttachZone(Account(AuthLevel.None), QaZone, HubZone, StartingZone));
+
+    [Fact]
+    public void NormalAccountAttach_SavedInQaZone_FallsBackToStartingZone()
+        => Assert.Equal(StartingZone, ZoneAccess.AttachZone(Account(AuthLevel.None), QaZone, QaZone, StartingZone));
+
+    [Fact]
+    public void MissingAccountAttach_ToQaZone_FallsBackToStartingZone()
+        => Assert.Equal(StartingZone, ZoneAccess.AttachZone(null, QaZone, "", StartingZone));
+
+    [Fact]
+    public void StaffAccountAttach_KeepsQaZone()
+        => Assert.Equal(QaZone, ZoneAccess.AttachZone(Account(AuthLevel.QualityAssurance), QaZone, HubZone, StartingZone));
+
+    private static Account Account(AuthLevel authLevel)
+        => new() { AuthLevel = authLevel };
 
 }

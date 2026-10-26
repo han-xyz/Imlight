@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -197,6 +197,16 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
         if (message.Reattach == 1) {
             (zoneName, location) = GetReattachDestination(zoneName, location);
             CloseStaleSession();
+        }
+
+        // The client chooses the zone, so a normal account asking for a QA zone is sent to its saved or starting zone.
+        var admittedZone = ZoneAccess.AttachZone(_wizard.Account, zoneName, _wizard.Zone,
+            ConfigurationManager.Settings["Character.StartingZone"]);
+        if (admittedZone != zoneName) {
+            location = admittedZone == _wizard.Zone
+                ? Util.GetCompactStringFromVector(_wizard.Location, _wizard.Orientation)
+                : "";
+            zoneName = admittedZone;
         }
 
         // The client chooses the zone and the lot, so a house zone has to be one the character may enter before it is loaded.
