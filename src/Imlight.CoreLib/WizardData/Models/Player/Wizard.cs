@@ -28,6 +28,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
+using Imlight.CoreLib.Game.Housing.Items;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Behaviors;
@@ -672,24 +673,26 @@ public class Wizard {
     internal bool RemoveRentalItem(ulong itemId, out RentalRemoval removal) {
         removal = null;
 
-        var worn = EquipmentBehavior.GetItem(itemId);
-        var item = worn ?? InventoryBehavior.GetItem(itemId);
-        if (item is null) {
-            return false;
+        lock (HousingItems.BackpackLock(this)) {
+            var worn = EquipmentBehavior.GetItem(itemId);
+            var item = worn ?? InventoryBehavior.GetItem(itemId);
+            if (item is null) {
+                return false;
+            }
+
+            removal = worn is null ? RentalRemoval.FromBackpack(item) : UnequipWornRental(item);
+
+            if (InventoryBehavior.HasItem(itemId)) {
+                InventoryBehavior.RemoveItem(itemId, out _);
+            }
+
+            if (InteriorStowedMountId == itemId) {
+                InteriorStowedMountId = 0;
+                WizardCollection.UpdateCharacterInteriorStowedMount(this);
+            }
+
+            WizardCollection.UpdateCharacterItems(this);
         }
-
-        removal = worn is null ? RentalRemoval.FromBackpack(item) : UnequipWornRental(item);
-
-        if (InventoryBehavior.HasItem(itemId)) {
-            InventoryBehavior.RemoveItem(itemId, out _);
-        }
-
-        if (InteriorStowedMountId == itemId) {
-            InteriorStowedMountId = 0;
-            WizardCollection.UpdateCharacterInteriorStowedMount(this);
-        }
-
-        WizardCollection.UpdateCharacterItems(this);
 
         // A document that outlives a failed delete is not in the id lists, so the rental cannot come back.
         try {
