@@ -46,6 +46,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Game.Housing.Access;
 using Imlight.CoreLib.Game.Housing.Houses;
 using Imlight.CoreLib.Game.Housing;
@@ -230,6 +231,17 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        // A member travelling on from one of their run's zones is sent to the run owner's container; GameWorld still
+        // places a public destination in its public copy.
+        var traveller = GetActiveWizard();
+        var runTransfer = message.SendToClient && message.HouseEntry is null && !message.IsPrivate
+            ? DungeonRunBook.Shared.RouteTransfer(traveller.CharId, traveller.Zone, message.DestinationZone)
+            : null;
+        if (runTransfer is not null) {
+            message.OwnerCharId = runTransfer.OwnerCharId;
+            message.ResetInstance = runTransfer.ResetInstance;
+        }
+
         // Sending the server transfer request to the server will allocate and load the zone.
         var zoneDetails = AskServer<ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP>(message);
         var failed = zoneDetails.ErrorCode != 0;
@@ -240,14 +252,26 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         // Only the attach asks for the zone details; every other transfer is told and expects no reply.
         if (!message.SendToClient) {
+            if (!failed && traveller is not null) {
+                DungeonRunBook.Shared.Arrived(traveller.CharId, message.DestinationZone, zoneDetails.IsInstance,
+                    fromRunZone: false);
+            }
+
             ReplyToAttachTransfer(zoneDetails, failed);
 
             return;
         }
 
         if (failed) {
+            if (runTransfer is not null) {
+                DungeonRunBook.Shared.ReleaseClaim(traveller.CharId, message.DestinationZone);
+            }
+
             return;
         }
+
+        DungeonRunBook.Shared.Arrived(traveller.CharId, message.DestinationZone, zoneDetails.IsInstance,
+            fromRunZone: runTransfer is not null);
 
         // Check if the destination zone is the same as the current zone. If so, just teleport the player.
         var wizard = GetActiveWizard();
@@ -313,12 +337,41 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        StartSigilCountdown(message);
+
+        var wizard = GetActiveWizard();
+        if (!GroupRegistry.TryGetGroup(wizard.CharId, out var group)) {
+            return;
+        }
+
+        var countdown = new GroupSigilCountdown(message, wizard.Zone);
+        foreach (var member in SigilEntryPlan.CountdownRecipients(wizard.CharId, group)) {
+            member.Session.Tell(countdown);
+        }
+    }
+
+    [MessageHandler(typeof(GroupSigilCountdown))]
+    private void ReceiveGroupSigilCountdown(GroupSigilCountdown message) {
+        if (_transferGate.IsQueued || _activeSigilEntry is not null) {
+            return;
+        }
+
+        var wizard = GetActiveWizard();
+        if (wizard is null || wizard.Zone != message.ZoneName || !IsOnSigilPad(message.Entry, wizard)) {
+            return;
+        }
+
+        StartSigilCountdown(message.Entry);
+    }
+
+    private void StartSigilCountdown(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY message) {
         // Force a dismount.
         SessionActor.ActorRef.Tell(
             new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT { Force = true }
         );
 
         _activeSigilEntry = message;
+        DungeonRunBook.Shared.Wait(GetActiveWizard().CharId, message.DestinationZone);
 
         SnapPlayerToSigilFace(message);
 
@@ -351,12 +404,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         // If the player walked off the pad during the countdown and the client's walk-off cancel never
         // arrived, drop the transfer instead of yanking them from across the street.
-        var pad = Util.GetVectorFromCompactString(_activeSigilEntry.SigilLoc);
-        var pos = wizard.Location;
-        var dx = pad.X - pos.X;
-        var dy = pad.Y - pos.Y;
-        var dz = pad.Z - pos.Z;
-        if ((dx * dx) + (dy * dy) + (dz * dz) > (_activeSigilEntry.Radius * _activeSigilEntry.Radius)) {
+        if (!IsOnSigilPad(_activeSigilEntry, wizard)) {
             CancelSigilCountdown();
 
             return;
@@ -365,20 +413,33 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         var entry = _activeSigilEntry;
         _activeSigilEntry = null;
 
-        Logger.Information("Entering dungeon instance '{0}' (owner {1})",
-            Logger.Args(entry.DestinationZone, wizard.CharId));
+        // The client attaches again after the transfer; the run sends that attach to the owner's container.
+        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone, wizard.Zone);
+
+        Logger.Information("Entering dungeon instance '{0}' (owner {1}, reset {2})",
+            Logger.Args(entry.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
 
         var tpMsg = new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
             DestinationZone = entry.DestinationZone,
             DestinationLocation = entry.DestinationLoc,
             SendToClient = true,
             IsPrivate = true,
-            OwnerCharId = wizard.CharId,
-            ResetInstance = true,
+            OwnerCharId = instance.OwnerCharId,
+            ResetInstance = instance.ResetInstance,
         };
 
         SendTeleportEffects();
         ReceiveZoneTransferRequest(tpMsg);
+    }
+
+    private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {
+        var pad = Util.GetVectorFromCompactString(entry.SigilLoc);
+        var pos = wizard.Location;
+        var dx = pad.X - pos.X;
+        var dy = pad.Y - pos.Y;
+        var dz = pad.Z - pos.Z;
+
+        return (dx * dx) + (dy * dy) + (dz * dz) <= entry.Radius * entry.Radius;
     }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_LEAVESIGILTIMERWAITING))]
@@ -596,11 +657,20 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         // I've just been added to a zone. I need to spawn myself for all the other players.
         SpawnMyself();
 
+        // A relog into a dungeon whose run has ended would leave the wizard alone in a fresh copy.
+        var wizard = GetActiveWizard();
+        if (DungeonRunBook.Shared.TryTakeReturn(wizard.CharId, wizard.Zone, out var padZoneName)) {
+            ReceiveZoneTransferRequest(new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
+                DestinationZone = padZoneName,
+                DestinationLocation = string.Empty,
+                SendToClient = true,
+            });
+        }
+
         // Dismount in no-mount zones, re-equip on leaving (EquipmentService owns the reconcile).
         SessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ENFORCEINTERIORMOUNT());
 
         if (_randomBackflips) {
-            var wizard = GetActiveWizard();
             Timers.StartPeriodicTimer("backflip", new ZONE_102_PROTOCOL.MSG_RANDOMFLIPS {
                 ZoneName = wizard.Zone,
                 SenderCharID = wizard.CharId
@@ -1341,6 +1411,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        DungeonRunBook.Shared.StopWaiting(GetActiveWizard().CharId, entry.DestinationZone);
+
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMEREND { SigilGID = entry.SigilGID });
 
         // Give the player their mount back.
@@ -1457,6 +1529,16 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         yaw = (float) faceYaw;
 
         return true;
+    }
+
+    /// <summary>
+    /// Tells a group member that another member started the countdown on a sigil pad in <see cref="ZoneName"/>.
+    /// </summary>
+    private sealed record GroupSigilCountdown(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY Entry, string ZoneName) : IServerMessage {
+
+        public byte MessageOrder => 0;
+        public byte ServiceID => 102;
+
     }
 
 }

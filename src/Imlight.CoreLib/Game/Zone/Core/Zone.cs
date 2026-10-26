@@ -125,7 +125,13 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
     private bool _isLoading;
     private readonly HashSet<IActorRef> _players = [];
     private const string IDLE_EXPIRE_TIMER = "instance-idle-expire";
-    private const int DEFAULT_INSTANCE_IDLE_MINUTES = 10;
+    private const int DEFAULT_INSTANCE_IDLE_MINUTES = 30;
+
+    /// <summary>
+    /// Minutes an instance zone, and a dungeon run, is kept after the last wizard inside leaves; 0 or less keeps it.
+    /// </summary>
+    internal static int InstanceIdleMinutes
+        => ConfigurationManager.GetValue("Zone.InstanceIdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES);
     private const int PUBLIC_ZONE_IDLE_MINUTES = 10; // todo: tune
     private bool _activitySinceIdleRequest;
     private readonly List<ZONE_102_PROTOCOL.MSG_PLAYERMOVE> _pendingPlayerMoves = [];
@@ -232,6 +238,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         }
 
         _players.Add(message.PlayerActor);
+        ReportOccupancy();
         _activitySinceIdleRequest = true;
         Timers.Cancel(IDLE_EXPIRE_TIMER);
         InformZoneSupervisors(message.PlayerActor, message);
@@ -262,6 +269,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         // The leaver is counted until the supervisors are told: the Players target is gated on a non-empty set.
         InformZoneSupervisors(message.PlayerActor, message);
         _players.Remove(message.PlayerActor);
+        ReportOccupancy();
         _pendingPlayerMoves.RemoveAll(move => move.PlayerActor.Equals(message.PlayerActor));
         ReleaseObjectIdentifier(message.MobileId);
         ScheduleIdleExpiryIfEmpty();
@@ -585,6 +593,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
             ErrorCode = 0,
             MobileId = GenerateObjectIdentifier(),
             ZoneDisplayName = ZoneName,
+            IsInstance = IsInstance,
             CriticalObjects = [.. _criticalObjectIds]
         };
 
@@ -606,6 +615,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
             }
             else if (pendingEvent is ZONE_102_PROTOCOL.MSG_ADDPLAYER addPlayer) {
                 _players.Add(playerActor);
+                ReportOccupancy();
                 _activitySinceIdleRequest = true;
                 Timers.Cancel(IDLE_EXPIRE_TIMER);
                 InformZoneSupervisors(playerActor, addPlayer);
@@ -625,14 +635,23 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
         _pendingPlayerEvents.Clear();
     }
 
+    private void ReportOccupancy() {
+        if (IsInstance && _players.Count <= 1) {
+            Context.Parent.Tell(new ZONE_102_PROTOCOL.MSG_INSTANCEZONEOCCUPANCY {
+                ZoneName = ZonePath,
+                HasPlayers = _players.Count > 0,
+            });
+        }
+    }
+
     private void ScheduleIdleExpiryIfEmpty() {
         if (_players.Count > 0 || _isLoading) {
             return;
         }
 
-        // Instance.IdleMinutes of 0 or less disables the instance expiry; a join cancels the timer.
+        // Zone.InstanceIdleMinutes of 0 or less disables the instance expiry; a join cancels the timer.
         var minutes = IsInstance
-            ? ConfigurationManager.GetValue("Instance.IdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES)
+            ? InstanceIdleMinutes
             : PUBLIC_ZONE_IDLE_MINUTES;
         if (minutes <= 0) {
             return;

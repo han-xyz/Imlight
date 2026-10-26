@@ -775,6 +775,7 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
         public ushort MobileId;
         public uint DynamicZoneId;
         public string ZoneDisplayName;
+        public bool IsInstance;
         public Vector3 Location;
         public float Orientation;
         public uint ErrorCode;
@@ -1159,6 +1160,20 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
 
         public byte MessageOrder { get; } = 61;
         public byte ServiceID { get; } = 102;
+
+    }
+
+    /// <summary>
+    /// Sent by an instance <see cref="Zone"/> to its <see cref="World.InstanceContainer"/> when it gains its first wizard
+    /// or loses its last, so the container never drops a copy with wizards in it.
+    /// </summary>
+    public sealed class MSG_INSTANCEZONEOCCUPANCY : IServerMessage {
+
+        public byte MessageOrder { get; } = 97;
+        public byte ServiceID { get; } = 102;
+
+        public string ZoneName;
+        public bool HasPlayers;
 
     }
 
