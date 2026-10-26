@@ -384,7 +384,10 @@ internal static class HouseDeeds {
     private static List<WizClientObjectItem> HouseItems(Wizard wizard)
         => [.. HeldItems(wizard).Where(item => HouseTemplates.TryGet(ItemHelper.GetTemplateId(item), out _))];
 
-    private static IEnumerable<WizClientObjectItem> HeldItems(Wizard wizard)
-        => wizard.InventoryBehavior.Items.Concat(wizard.EquipmentBehavior?.EquippedItems ?? []);
+    internal static IEnumerable<WizClientObjectItem> HeldItems(Wizard wizard)
+        => wizard.InventoryBehavior.Items
+            .Concat(wizard.EquipmentBehavior?.EquippedItems ?? [])
+            .Concat(wizard.StorageBehavior?.Items ?? [])
+            .Concat(wizard.Account?.SharedBank?.Items ?? []);
 
 }
