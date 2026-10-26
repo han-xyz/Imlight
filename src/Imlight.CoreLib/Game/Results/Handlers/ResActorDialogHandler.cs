@@ -20,6 +20,8 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Madlibs;
+using Imlight.CoreLib.Shared.Packets;
 
 namespace Imlight.CoreLib.Game.Results.Handlers;
 
@@ -34,7 +36,7 @@ internal sealed class ResActorDialogHandler : BaseResultHandler<ResActorDialog> 
 
         // Serialize the actor dialog into network format.
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(dialog, 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialog), 16, out var serializedData)) {
             Logger.Error("Failed to serialize dialog.");
                 
             return false;
@@ -45,6 +47,7 @@ internal sealed class ResActorDialogHandler : BaseResultHandler<ResActorDialog> 
         };
 
         context.GetPlayerRef().Tell(actorDialogMsg, Self);
+        context.GetPlayerRef().Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN(), Self);
 
         return true;
     }

@@ -31,7 +31,7 @@ internal class CommandAccountProtocol : CommandProtocol {
 
     [Command("create")]
     [AuthRequired(AuthLevel.HallMonitor)]
-    private void CreateAccountCommand(string username, [Sensitive] string password) {
+    private void CreateAccountCommand(string username, string password) {
         Reply(AccountAdministration.CreateAccount(Context.Account, Context.Character, username, password));
     }
 
@@ -77,7 +77,7 @@ internal class CommandAccountProtocol : CommandProtocol {
 
     [Command("password")]
     [AuthRequired(AuthLevel.Administrator)]
-    private void ChangePasswordCommand(string username, [Sensitive] string newPassword, [Sensitive] string newPasswordConfirm) {
+    private void ChangePasswordCommand(string username, string newPassword, string newPasswordConfirm) {
         if (newPassword != newPasswordConfirm) {
             InformSenderClient("Passwords do not match.");
 

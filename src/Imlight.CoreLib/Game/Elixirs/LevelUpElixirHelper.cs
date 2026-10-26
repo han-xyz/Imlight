@@ -39,7 +39,9 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
+using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Madlibs;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Game.Spells;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Items;
@@ -217,9 +219,12 @@ internal static class LevelUpElixirHelper {
                     if (!string.IsNullOrWhiteSpace(questName) && !wizard.QuestBehavior.HasQuest(questName) && !wizard.QuestBehavior.HasCompletedQuest(questName)) {
                         var questTemplate = QuestTemplateCollection.GetQuestByName(questName);
                         if (questTemplate != null) {
-                            var newInstance = new QuestInstance(questTemplate, wizard.CharId);
-                            if (wizard.AddQuest(newInstance)) {
-                                SendQuestStartingMessage(newInstance, questTemplate, sendToSocket);
+                            var newInstance = QuestService.StartQuestInstance(questTemplate, wizard, null, null, wizard.AddQuest);
+                            if (newInstance is not null) {
+                                var startMessage = BuildQuestStartingMessage(newInstance, questTemplate, wizard);
+                                if (startMessage is not null) {
+                                    sendToSocket(startMessage);
+                                }
                             }
                         }
                     }
@@ -341,15 +346,22 @@ internal static class LevelUpElixirHelper {
         }
     }
 
-    private static void SendQuestStartingMessage(QuestInstance questInstance, QuestTemplate qTemplate, Action<IMessage> sendToSocket) {
+    internal static QUEST_MESSAGES_52_PROTOCOL.MSG_SENDQUEST BuildQuestStartingMessage(QuestInstance questInstance, QuestTemplate qTemplate, Wizard wizard) {
         var goalSerializer = new ObjectSerializer(Versionable: false, Behaviors: SerializerFlags.None);
 
         var qMadLibs = QuestMadlibs.GetMadLibForQuest(qTemplate);
         if (!goalSerializer.Serialize(qMadLibs, 1, out var madLibData)) {
-            return;
+            return null;
         }
 
-        sendToSocket(new QUEST_MESSAGES_52_PROTOCOL.MSG_SENDQUEST {
+        var rewards = DropTableConverter.ToLootInfoList(questInstance.Rewards);
+        rewards.m_loot ??= [];
+        QuestService.AppendSpellRewards(rewards.m_loot, qTemplate, wizard);
+        if (!goalSerializer.Serialize(rewards, 1, out var serializedRewards)) {
+            return null;
+        }
+
+        return new QUEST_MESSAGES_52_PROTOCOL.MSG_SENDQUEST {
             QuestID = questInstance.ID,
             QuestNameID = StringHash.Compute(qTemplate.m_questName),
             QuestType = 0,
@@ -359,7 +371,7 @@ internal static class LevelUpElixirHelper {
             New = 1,
             QuestMadlibs = madLibData,
             GoalData = "",
-            Rewards = "",
+            Rewards = serializedRewards,
             ClientTags = "",
             AssociatedWorlds = "",
             NoQuestHelper = qTemplate.m_noQuestHelper ? (byte) 1 : (byte) 0,
@@ -368,7 +380,7 @@ internal static class LevelUpElixirHelper {
             SkipQHAutoSelect = 0,
             PetOnlyQuest = qTemplate.m_playAsYourPetNPC ? (byte) 1 : (byte) 0,
             ActivityType = 0
-        });
+        };
     }
 
 }

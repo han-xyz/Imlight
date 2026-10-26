@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -61,6 +61,8 @@ public interface IServiceComponent {
 
     IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard playerCharacter);
     void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex);
+    void ForgetPlayerState(Wizard playerCharacter) { }
+    bool FollowsQuestState => false;
 
     string ServiceName { get; }
     string NpcIcon { get; }
@@ -82,6 +84,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     private const string DEFAULT_TEXT_KEY = "GUI_NPCInteractText";
     private const string WIZBANG_UPDATE_TIMER_KEY = "WIZBANG_UPDATE_TIMER";
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
+    private const int WIZARD_QUERY_TIMEOUT_SECONDS = 5;
     private const float DEFAULT_RENDER_DISTANCE = 5000.0f; // Default wizbang render distance.
 
     private readonly float _interactionRadius = 300.0f;
@@ -114,16 +117,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     }
 
     public override void OnPlayerLeave(IActorRef playerActor, ulong id) {
-        if (_playersInInteractionRange.Any(x => x.Value == playerActor)) {
-            var playerObj = _playersInInteractionRange.First(x => x.Value == playerActor).Key;
-            _playersInInteractionRange.Remove(playerObj);
-        }
-        
-        if (_playersInRenderRange.Any(x => x.Value == playerActor)) {
-            var playerObj = _playersInRenderRange.First(x => x.Value == playerActor).Key;
-            _playersInRenderRange.Remove(playerObj);
-        }
-
+        DropPlayer(playerActor);
         _optionTable.Remove(id);
     }
 
@@ -134,6 +128,15 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         var playerId = playerObj.m_globalID.Full;
         var interactionRadius = InteractionRadius;
+
+        // The same character can come back with a new session actor; never keep the stale one.
+        if (_playersInInteractionRange.TryGetValue(playerId, out var knownActor) && knownActor != playerActor) {
+            _playersInInteractionRange[playerId] = playerActor;
+        }
+
+        if (_playersInRenderRange.TryGetValue(playerId, out var knownRenderActor) && knownRenderActor != playerActor) {
+            _playersInRenderRange[playerId] = playerActor;
+        }
 
         // Handle interaction range (for service options).
         if (IsInHorizontalRadius(playerObj, interactionRadius)
@@ -165,6 +168,20 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         ? _serviceComponents.Min(c => c.DEFAULT_INTERACTION_RADIUS)
         : _interactionRadius;
 
+    internal bool IsInInteractionRange(CoreObject playerObject)
+        => IsInHorizontalRadius(playerObject, InteractionRadius);
+
+    internal ServiceOptionBase FindSentOption(ulong playerId, IServiceComponent owner, uint localIndex)
+        => _optionTable.TryGetSentOption(playerId, owner, localIndex, out var option) ? option : null;
+
+    internal bool TryFindServiceIndex(ulong playerId, IServiceComponent owner, out uint serviceIndex)
+        => _optionTable.TryFindServiceIndex(playerId, owner, out serviceIndex);
+
+    internal void ResendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId) {
+        SendLeaveServiceRange(playerActor);
+        SendServiceOptions(playerActor, wizard, playerId, reinteract: 2);
+    }
+
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION))]
     private void PlayerInteraction(ZONE_102_PROTOCOL.MSG_ZONEINTERACTION message) {
         var playerActor = message.PlayerActor;
@@ -186,7 +203,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         Logger.Debug("Player {0} interacted with NPC {1} using service {2} at index {3} (Reinteract: {4})",
             Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_globalID.Full, serviceName, serviceIndex, reinteract));
 
-        if (!IsInHorizontalRadius(playerObject, InteractionRadius)) {
+        if (!IsInInteractionRange(playerObject)) {
             Logger.Debug("Ignoring interaction from {Player} with NPC {Npc}: out of interaction range",
                 Logger.Args(playerActor.Path.Name, Entity.ActiveGameObject.m_debugName));
             _optionTable.Remove(playerId);
@@ -220,6 +237,31 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         serviceComponent.OnServiceInteraction(playerActor, playerCharacter, playerObject, localIndex);
     }
 
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED))]
+    private void ReceiveQuestStateChanged(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED message) {
+        if (!RefreshesOnQuestChange(_serviceComponents)) {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(message.PersonaName)
+            && !(Entity.Template is GameObjectTemplate template && IsPersona(template.m_objectName, message.PersonaName))) {
+            return;
+        }
+
+        if (!_playersInInteractionRange.TryGetValue(message.PlayerGlobalId, out var playerActor)) {
+            return;
+        }
+
+        SendLeaveServiceRange(playerActor);
+        SendActorServiceOptions(playerActor, message.PlayerGlobalId);
+    }
+
+    internal static bool RefreshesOnQuestChange(IEnumerable<IServiceComponent> components)
+        => components.Any(component => component.FollowsQuestState);
+
+    internal static bool IsPersona(string objectName, string personaName)
+        => PersonaName.Normalize(objectName) == PersonaName.Normalize(personaName);
+
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL))]
     private void HandleWizBangUpdateInterval(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL message) {
         if (_serviceComponents.Count <= 0 || _playersInRenderRange.Count == 0) {
@@ -232,7 +274,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         var queryTasks = playerActors.Select(async playerActor => {
             try {
                 var msg = new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD();
-                var rsp = await playerActor.Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(msg);
+                var rsp = await playerActor.Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(msg, TimeSpan.FromSeconds(WIZARD_QUERY_TIMEOUT_SECONDS));
                 return rsp.Wizard;
             }
             catch {
@@ -255,19 +297,52 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     private void HandleWizBangUpdateResult(ZONE_102_PROTOCOL.MSG_WIZBANG_UPDATE_RESULT result) {
         for (int i = 0; i < result.PlayerActors.Length; i++) {
             var wizard = result.Wizards[i];
-            if (wizard != null) {
-                SendWizBang(result.PlayerActors[i], wizard);
+            if (wizard == null) {
+                // Timed out or failed: the player is gone or unresponsive.
+                DropPlayer(result.PlayerActors[i]);
+
+                continue;
             }
+
+            SendWizBang(result.PlayerActors[i], wizard);
+        }
+    }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_SERVICEOPTIONS_RESULT))]
+    private void HandleServiceOptionsResult(ZONE_102_PROTOCOL.MSG_SERVICEOPTIONS_RESULT result) {
+        if (result.Wizard == null) {
+            DropPlayer(result.PlayerActor);
+
+            return;
+        }
+
+        SendServiceOptions(result.PlayerActor, result.Wizard, result.PlayerId, result.Reinteract);
+    }
+
+    private void DropPlayer(IActorRef playerActor) {
+        foreach (var key in _playersInInteractionRange.Where(x => x.Value == playerActor).Select(x => x.Key).ToArray()) {
+            _playersInInteractionRange.Remove(key);
+        }
+
+        foreach (var key in _playersInRenderRange.Where(x => x.Value == playerActor).Select(x => x.Key).ToArray()) {
+            _playersInRenderRange.Remove(key);
         }
     }
 
     private void SendActorServiceOptions(IActorRef playerActor, ulong playerId, int reinteract = 0) {
         var queryCharacterMsg = new CHARACTER_103_PROTOCOL.MSG_QUERYACTIVEWIZARD();
-        var wizard = playerActor
-            .Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(queryCharacterMsg)
-            .Result
-            .Wizard;
+        playerActor
+            .Ask<CHARACTER_103_PROTOCOL.MSG_CHARACTER>(queryCharacterMsg, TimeSpan.FromSeconds(WIZARD_QUERY_TIMEOUT_SECONDS))
+            .ContinueWith(t => new ZONE_102_PROTOCOL.MSG_SERVICEOPTIONS_RESULT {
+                PlayerActor = playerActor,
+                PlayerId = playerId,
+                Wizard = t.IsCompletedSuccessfully ? t.Result.Wizard : null,
+                Reinteract = reinteract
+            })
+            .PipeTo(Self);
+    }
 
+    private void SendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId, int reinteract) {
         var serviceMemento = BuildServiceMemento(wizard, playerId);
 
         // If we have no service options, do not send anything.
@@ -318,9 +393,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         var gameObjTemplate = Entity.Template as GameObjectTemplate;
 
-        var componentOptions = _serviceComponents
-            .Select(component => (Component: component, Options: component.GetServiceOptions(playerCharacter).ToList()))
-            .ToList();
+        var componentOptions = CollectFreshOptions(_serviceComponents, playerCharacter);
         var allOptions = _optionTable.Build(playerId, componentOptions);
         var componentsWithOptions = componentOptions
             .Where(x => x.Options.Count > 0)
@@ -354,17 +427,28 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         };
     }
 
+    internal static List<(IServiceComponent Component, List<ServiceOptionBase> Options)> CollectFreshOptions(
+        IReadOnlyList<IServiceComponent> components, Wizard playerCharacter) {
+        // Every component first, since one component's options can read another's state (a pending persona goal hides offers).
+        foreach (var component in components) {
+            component.ForgetPlayerState(playerCharacter);
+        }
+
+        return [.. components.Select(component => (component, component.GetServiceOptions(playerCharacter).ToList()))];
+    }
+
     private void SetMadLibBlock() {
         // NPCs normally have a madlib of first name, last name, and title.
-        // To avoid hardcoding these values, we use the display name of the template.
+        // To avoid hardcoding these values, we use the entity's madlib name.
         // We'll also set the madlib token to just "NAME" so the client displays the name as-is.
-        if (Entity.Template is not GameObjectTemplate gameObjTemplate) {
+        var madlibName = Entity.GetMadlibName();
+        if (madlibName is null) {
             return;
         }
 
         var madlibList = new List<MadlibArg> {
             new MadlibArgT_ByteString() {
-                m_madlibArgument = gameObjTemplate.m_displayName,
+                m_madlibArgument = madlibName,
                 m_madlibToken = "NAME"
             },
         };

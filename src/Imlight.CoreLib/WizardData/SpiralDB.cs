@@ -25,7 +25,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -33,10 +35,11 @@ namespace Imlight.CoreLib.WizardData;
 
 public static class SpiralDB {
 
-    private static readonly string s_remoteUrl
+    internal static string s_remoteUrl
         = ConfigurationManager.Settings["Database.SpiralDBRemoteUrl"];
-    private static readonly string s_branch
+    internal static string s_branch
         = ConfigurationManager.Settings["Database.SpiralDBBranch"];
+    internal static int s_cloneDepth = 1;
     private static readonly string s_localPath
         = ConfigurationManager.Settings["Database.SpiralDBLocalPath"];
     private static readonly bool s_autoFetch
@@ -64,6 +67,11 @@ public static class SpiralDB {
     private static ConcurrentDictionary<string, WizardZoneData> s_zoneData
         = new(StringComparer.OrdinalIgnoreCase);
     private static ConcurrentDictionary<ulong, NpcTreasureCardInventory> s_treasureCardInventories = new();
+    private static ConcurrentDictionary<ulong, NpcSeamstress> s_npcSeamstresses = new();
+    private static ConcurrentDictionary<uint, BadgeDefinition> s_badgeDefinitions = new();
+    private static readonly Regex s_statueIdPattern = new("^[a-z0-9-]{1,32}$", RegexOptions.Compiled);
+    private static ConcurrentDictionary<string, PlayerStatue> s_playerStatues
+        = new(StringComparer.OrdinalIgnoreCase);
 
 
     public static IReadOnlyDictionary<string, CreatureSpellbook> CreatureSpellbooks => s_creatureSpellbooks;
@@ -75,6 +83,9 @@ public static class SpiralDB {
     public static IReadOnlyList<QuestTemplate> QuestTemplates => s_questTemplates;
     public static IReadOnlyDictionary<string, WizardZoneData> ZoneData => s_zoneData;
     public static IReadOnlyDictionary<ulong, NpcTreasureCardInventory> TreasureCardInventories => s_treasureCardInventories;
+    public static IReadOnlyDictionary<ulong, NpcSeamstress> NpcSeamstresses => s_npcSeamstresses;
+    public static IReadOnlyDictionary<uint, BadgeDefinition> BadgeDefinitions => s_badgeDefinitions;
+    public static IReadOnlyDictionary<string, PlayerStatue> PlayerStatues => s_playerStatues;
 
 
     /// <summary>
@@ -143,6 +154,9 @@ public static class SpiralDB {
             var questTemplatesByName = new ConcurrentDictionary<string, QuestTemplate>(StringComparer.OrdinalIgnoreCase);
             var zoneData = new ConcurrentDictionary<string, WizardZoneData>(StringComparer.OrdinalIgnoreCase);
             var treasureCardInventories = new ConcurrentDictionary<ulong, NpcTreasureCardInventory>();
+            var npcSeamstresses = new ConcurrentDictionary<ulong, NpcSeamstress>();
+            var badgeDefinitions = new ConcurrentDictionary<uint, BadgeDefinition>();
+            var playerStatues = new ConcurrentDictionary<string, PlayerStatue>(StringComparer.OrdinalIgnoreCase);
 
             var filesLoaded = 0;
 
@@ -154,8 +168,11 @@ public static class SpiralDB {
                 () => Interlocked.Add(ref filesLoaded, LoadNpcSpellInventories(basePath, npcSpellInventories)),
                 () => Interlocked.Add(ref filesLoaded, LoadNpcDropTables(basePath, npcDropTables)),
                 () => Interlocked.Add(ref filesLoaded, LoadTreasureCardInventories(basePath, treasureCardInventories)),
+                () => Interlocked.Add(ref filesLoaded, LoadNpcSeamstresses(basePath, npcSeamstresses)),
                 () => Interlocked.Add(ref filesLoaded, LoadQuestTemplates(basePath, questTemplatesBag, questTemplatesByName)),
-                () => Interlocked.Add(ref filesLoaded, LoadZoneData(basePath, zoneData))
+                () => Interlocked.Add(ref filesLoaded, LoadZoneData(basePath, zoneData)),
+                () => Interlocked.Add(ref filesLoaded, LoadBadgeDefinitions(basePath, badgeDefinitions)),
+                () => Interlocked.Add(ref filesLoaded, LoadPlayerStatues(basePath, playerStatues))
             );
 
 
@@ -170,11 +187,14 @@ public static class SpiralDB {
             s_questTemplatesByName = questTemplatesByName;
             s_zoneData = zoneData;
             s_treasureCardInventories = treasureCardInventories;
+            s_npcSeamstresses = npcSeamstresses;
+            s_badgeDefinitions = badgeDefinitions;
+            s_playerStatues = playerStatues;
 
             Logger.Information(
                 "SpiralDB loaded {0} files: {1} spellbooks, {2} drop tables, {3} NPC inventories, " +
                 "{4} NPC spell inventories, {5} NPC drop tables, {6} treasure card inventories, " +
-                "{7} quest templates, {8} zone data entries.",
+                "{7} quest templates, {8} zone data entries, {9} seamstress NPCs, {10} badge definitions, {11} player statues.",
                 Logger.Args(
                     filesLoaded,
                     s_creatureSpellbooks.Count,
@@ -184,7 +204,10 @@ public static class SpiralDB {
                     s_npcDropTables.Count,
                     s_treasureCardInventories.Count,
                     s_questTemplates.Count,
-                    s_zoneData.Count));
+                    s_zoneData.Count,
+                    s_npcSeamstresses.Count,
+                    s_badgeDefinitions.Count,
+                    s_playerStatues.Count));
         }
         catch (Exception ex) {
             Logger.Error("Failed to load SpiralDB: {0}", Logger.Args(ex.Message));
@@ -197,16 +220,24 @@ public static class SpiralDB {
                 s_npcSpellInventories.Clear();
                 s_npcDropTables.Clear();
                 s_treasureCardInventories.Clear();
+                s_npcSeamstresses.Clear();
                 s_questTemplates.Clear();
                 s_questTemplatesByName.Clear();
                 s_zoneData.Clear();
+                s_badgeDefinitions.Clear();
+                s_playerStatues.Clear();
             }
             // On rollback, the old references are still live — nothing to do.
         }
     }
 
-    private static void SyncRepository(string basePath) {
-        if (!Directory.Exists(basePath)) {
+    internal static void SyncRepository(string basePath) {
+        if (!Repository.IsValid(basePath)) {
+            if (Directory.Exists(basePath) && Directory.EnumerateFileSystemEntries(basePath).Any()) {
+                throw new InvalidOperationException(
+                    $"SpiralDB path '{basePath}' holds files that are not a git checkout.");
+            }
+
             Logger.Information(
                 "SpiralDB not found... cloning from {0} (branch {1})...",
                 Logger.Args(s_remoteUrl, s_branch));
@@ -219,7 +250,7 @@ public static class SpiralDB {
                 IsBare = false
             };
 
-            cloneOptions.FetchOptions.Depth = 1;
+            cloneOptions.FetchOptions.Depth = s_cloneDepth;
             cloneOptions.FetchOptions.OnTransferProgress = _ =>
                 Stopwatch.GetElapsedTime(startStopWatch) < TimeSpan.FromSeconds(s_fetchTimeoutSec);
 
@@ -308,6 +339,18 @@ public static class SpiralDB {
 
     public static bool TryGetTreasureCardInventory(ulong templateID, out NpcTreasureCardInventory inventory)
         => s_treasureCardInventories.TryGetValue(templateID, out inventory);
+
+    public static bool TryGetNpcSeamstress(ulong templateID, out NpcSeamstress npcSeamstress)
+        => s_npcSeamstresses.TryGetValue(templateID, out npcSeamstress);
+
+    public static bool TryGetBadgeDefinition(uint badgeId, out BadgeDefinition badgeDefinition)
+        => s_badgeDefinitions.TryGetValue(badgeId, out badgeDefinition);
+
+    public static bool TryGetPlayerStatue(string id, out PlayerStatue statue)
+        => s_playerStatues.TryGetValue(id, out statue);
+
+    public static IEnumerable<PlayerStatue> GetPlayerStatuesInZone(string zonePath)
+        => s_playerStatues.Values.Where(x => x.Enabled && string.Equals(x.Zone, zonePath, StringComparison.OrdinalIgnoreCase));
 
     public static QuestTemplate GetQuestByName(string questName)
         => s_questTemplatesByName.GetValueOrDefault(questName);
@@ -493,6 +536,97 @@ public static class SpiralDB {
                 }
             } catch (Exception e) {
                 Logger.Warning("Failed to load treasure card inventory {0}: {1}",
+                    Logger.Args(Path.GetFileName(file), e.Message));
+            }
+        });
+
+        return count;
+    }
+
+    private static int LoadNpcSeamstresses(string basePath, ConcurrentDictionary<ulong, NpcSeamstress> target) {
+        var dir = Path.Combine(basePath, "NpcSeamstress");
+        if (!Directory.Exists(dir)) {
+            return 0;
+        }
+        var files = Directory.GetFiles(dir, "*.json");
+        var count = 0;
+
+        Parallel.ForEach(files, file => {
+            try {
+                using var stream = File.OpenRead(file);
+                var seamstress = JsonSerializer.Deserialize<NpcSeamstress>(stream, s_jsonOptions);
+                if (seamstress != null) {
+                    target[seamstress.TemplateID] = seamstress;
+                    Interlocked.Increment(ref count);
+                }
+            } catch (Exception e) {
+                Logger.Warning("Failed to load NPC seamstress {0}: {1}",
+                    Logger.Args(Path.GetFileName(file), e.Message));
+            }
+        });
+
+        return count;
+    }
+
+    private static int LoadBadgeDefinitions(string basePath, ConcurrentDictionary<uint, BadgeDefinition> target) {
+        var dir = Path.Combine(basePath, "BadgeDefinitions");
+        if (!Directory.Exists(dir)) {
+            return 0;
+        }
+        var files = Directory.GetFiles(dir, "*.json");
+        var count = 0;
+
+        Parallel.ForEach(files, file => {
+            try {
+                using var stream = File.OpenRead(file);
+                var badge = JsonSerializer.Deserialize<BadgeDefinition>(stream, s_jsonOptions);
+                if (badge != null) {
+                    if (target.TryAdd(badge.Id, badge)) {
+                        Interlocked.Increment(ref count);
+                    } else {
+                        Logger.Warning("Duplicate badge definition id {0} in {1} skipped.",
+                            Logger.Args(badge.Id, Path.GetFileName(file)));
+                    }
+                }
+            } catch (Exception e) {
+                Logger.Warning("Failed to load badge definition {0}: {1}",
+                    Logger.Args(Path.GetFileName(file), e.Message));
+            }
+        });
+
+        return count;
+    }
+
+    private static int LoadPlayerStatues(string basePath, ConcurrentDictionary<string, PlayerStatue> target) {
+        var dir = Path.Combine(basePath, "PlayerStatues");
+        if (!Directory.Exists(dir)) {
+            return 0;
+        }
+        var files = Directory.GetFiles(dir, "*.json");
+        var count = 0;
+
+        Parallel.ForEach(files, file => {
+            try {
+                using var stream = File.OpenRead(file);
+                var statue = JsonSerializer.Deserialize<PlayerStatue>(stream, s_jsonOptions);
+                if (statue is null) {
+                    return;
+                }
+                if (!s_statueIdPattern.IsMatch(statue.Id ?? string.Empty)) {
+                    Logger.Warning("Player statue in {0} has an invalid id and was skipped.",
+                        Logger.Args(Path.GetFileName(file)));
+
+                    return;
+                }
+                if (!target.TryAdd(statue.Id, statue)) {
+                    Logger.Warning("Duplicate player statue id {0} in {1} skipped.",
+                        Logger.Args(statue.Id, Path.GetFileName(file)));
+
+                    return;
+                }
+                Interlocked.Increment(ref count);
+            } catch (Exception e) {
+                Logger.Warning("Failed to load player statue {0}: {1}",
                     Logger.Args(Path.GetFileName(file), e.Message));
             }
         });

@@ -30,7 +30,7 @@
  * Last Updated: 10/26/2026
  */
 
-using Imlight.CoreLib.Game.AdminPanel;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -42,7 +42,7 @@ public class AdminPanelCrownsTests {
     [InlineData(3500, -3500, 0)]
     [InlineData(0, int.MaxValue, int.MaxValue)]
     public void Change_WithinBounds_Applies(int before, int change, int expected) {
-        Assert.True(AccountAdministration.TryAdjustCrowns(before, change, out var after));
+        Assert.True(Account.TryApplyCrownsDelta(before, change, out var after));
         Assert.Equal(expected, after);
     }
 
@@ -51,7 +51,7 @@ public class AdminPanelCrownsTests {
     [InlineData(int.MaxValue, 1)]
     [InlineData(0, int.MinValue)]
     public void Change_OutOfBounds_KeepsBalance(int before, int change) {
-        Assert.False(AccountAdministration.TryAdjustCrowns(before, change, out var after));
+        Assert.False(Account.TryApplyCrownsDelta(before, change, out var after));
         Assert.Equal(before, after);
     }
 

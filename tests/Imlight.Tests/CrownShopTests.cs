@@ -32,15 +32,19 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
 using System.IO;
 using System.Linq;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Services;
+using Imlight.CoreLib.Shared.Behaviors;
+using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -49,6 +53,7 @@ public sealed class CrownShopTests : IDisposable {
 
     private const ulong GoldItemId = 1001;
     private const ulong CrownsOnlyItemId = 1002;
+    private const ulong HenchmanItemId = 1582001;
 
     private static readonly string? s_spiralDbClone = Environment.GetEnvironmentVariable("SPIRALDB_CLONE");
 
@@ -83,10 +88,39 @@ public sealed class CrownShopTests : IDisposable {
     }
 
     [Fact]
+    public void SoldEmotes_SkipsItemWhoseTemplateThrows() {
+        InitializeQuietLogging();
+        WriteTab("Tab0.json", 36, $$"""[{ "templateId": {{GoldItemId}}, "goldCost": 10 }, { "templateId": {{CrownsOnlyItemId}}, "crownsCost": 250 }]""");
+        var catalogue = CrownShopCatalogue.Load(_directory);
+        var emote = new CustomEmoteBehaviorTemplate { m_emoteType = CustomEmoteType.CE_Emote };
+
+        var emotes = CrownShopHandler.SoldEmotes.From(catalogue, id => id == GoldItemId
+            ? throw new InvalidCastException()
+            : new CoreTemplate { m_behaviors = [emote] });
+
+        Assert.Equal([CrownsOnlyItemId], emotes.ByTemplateId.Keys);
+    }
+
+    [Fact]
     public void BoosterPack_NeedsASlotPerLootTableAndPack() {
         var pack = new BoosterPackTemplate { m_lootTables = ["Common", "Rare", "Epic"] };
 
         Assert.Equal(6, GiftingService.CalculateRequiredInventorySlots(pack, 2));
+    }
+
+    [Fact]
+    public void PackLoot_EachPackFitsButBothOverflowTheBag_IsRefused() {
+        const uint ReagentId = 7001;
+        var reagent = new ReagentItemTemplate();
+        var wizard = new Wizard {
+            AlchemyBehavior = new ServerAlchemyBehavior {
+                Reagents = [new ClientReagentItem { m_templateID = ReagentId, m_quantity = ServerAlchemyBehavior.MaxReagentStack - 1 }]
+            }
+        };
+        (uint, CoreTemplate) drop = (ReagentId, reagent);
+
+        Assert.True(PackManager.HasRoomFor(wizard, [drop]));
+        Assert.False(PackManager.HasRoomFor(wizard, [drop, drop]));
     }
 
     [Fact]
@@ -113,6 +147,22 @@ public sealed class CrownShopTests : IDisposable {
 
         Assert.True(catalogue.TryGetItem(GoldItemId, out var item));
         Assert.Equal("", item.m_displayPriority);
+    }
+
+    [Fact]
+    public void Load_HenchmanCategoryItem_IsCombatOnlyHenchman() {
+        WriteTab("Tab9.json", 45, $$"""[{ "templateId": {{HenchmanItemId}}, "crownsCost": 400, "displayPriority": [18] }]""");
+        WriteTab("Tab0.json", 38, TwoItems);
+
+        var catalogue = CrownShopCatalogue.Load(_directory);
+
+        Assert.True(catalogue.TryGetItem(HenchmanItemId, out var henchman));
+        Assert.True(henchman.m_combatOnly);
+        Assert.True(henchman.m_noGift);
+        Assert.True(catalogue.IsHenchman(HenchmanItemId));
+        Assert.True(catalogue.TryGetItem(CrownsOnlyItemId, out var other));
+        Assert.False(other.m_combatOnly);
+        Assert.False(catalogue.IsHenchman(CrownsOnlyItemId));
     }
 
     [Fact]
@@ -270,6 +320,17 @@ public sealed class CrownShopTests : IDisposable {
             if (s_spiralDbClone is null || !Directory.Exists(s_spiralDbClone)) {
                 Skip = "set SPIRALDB_CLONE to a spiraldb clone to run this test";
             }
+        }
+    }
+
+    private static void InitializeQuietLogging() {
+        var iniFilePath = Path.GetTempFileName();
+        var logPath = Path.Combine(Path.GetTempPath(), "imlight-tests", "log.txt");
+        try {
+            File.WriteAllText(iniFilePath, $"[Logging]\nLogPath = {logPath}\nLogLevel = ERROR\n");
+            ConfigurationManager.Initialize(iniFilePath);
+        } finally {
+            File.Delete(iniFilePath);
         }
     }
 

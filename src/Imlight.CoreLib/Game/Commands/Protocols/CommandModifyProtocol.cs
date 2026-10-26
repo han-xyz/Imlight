@@ -17,14 +17,18 @@
  */
 
 using System;
-using Akka.Actor;
+using System.Globalization;
 using System.Linq;
+using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Bank;
 using Imlight.CoreLib.Game.Cantrips;
+using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
@@ -163,32 +167,22 @@ internal class CommandModifyProtocol : CommandProtocol {
             }
         }
 
-        WizClientObjectItem coreObject;
-        var addedItemSuccess = isPetTemplate
-            ? Context.Character.AddHatchedPetToInventory((uint) templateIdLong, out coreObject)
-            : Context.Character.AddItemToInventory(templateIdLong, out coreObject);
-        if (!addedItemSuccess) {
-            InformSenderClient("Could not add item to inventory.");
+        if (!Context.Character.TryCreateItem(templateIdLong, out var coreObject)) {
+            InformSenderClient("Could not create the item.");
 
             return;
         }
 
-        var coSerializer = new CoreObjectSerializer(
-            behaviors: Imcodec.ObjectProperty.SerializerFlags.None
-        );
-        if (!coSerializer.Serialize(coreObject, (uint) (PropertyFlags.Prop_Transmit | PropertyFlags.Prop_AuthorityTransmit), out var serializedCoreObject)) {
-            InformSenderClient("Failed to serialize core object.");
+        // Like a reward: the backpack first, then the bank.
+        var placement = ItemPlacement.Place(Context.Character, coreObject);
+        ItemPlacement.Announce(Context.SessionActor, Context.Character, coreObject, placement);
 
-            return;
-        }
-
-        var networkMessage = new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_ADDITEM {
-            GlobalID = Context.Character.GameObjectID,
-            SerializedItem = serializedCoreObject
-        };
-        Context.SessionActor.Tell(networkMessage, null);
-
-        InformSenderClient($"Added item {coreObject.m_debugName} to inventory.");
+        InformSenderClient(placement switch {
+            Placement.Backpack => $"Added item {coreObject.m_debugName} to inventory.",
+            Placement.Bank => $"Added item {coreObject.m_debugName} to the bank, the inventory is full.",
+            Placement.SharedBank => $"Added item {coreObject.m_debugName} to the shared bank, the inventory is full.",
+            _ => "Could not add the item, the inventory and the bank are full.",
+        });
     }
 
     [Command("addsnack")]
@@ -319,6 +313,33 @@ internal class CommandModifyProtocol : CommandProtocol {
         InformSenderClient($"Added reagent {reagentObj.m_debugName} to reagent bag.");
     }
 
+    [Command("addreagents")]
+    [AuthRequired(AuthLevel.QualityAssurance)]
+    private void AddReagentsCommand(string templateId, string count) {
+        if (!ulong.TryParse(templateId, out var templateIdLong)
+            || CoreObjectFactory.GetCoreTemplate(templateIdLong) is not ReagentItemTemplate) {
+            InformSenderClient("Invalid reagent id.");
+
+            return;
+        }
+
+        if (!int.TryParse(count, out var countInt) || countInt <= 0) {
+            InformSenderClient("Invalid count.");
+
+            return;
+        }
+
+        var held = Context.Character.AlchemyBehavior.GetReagent(templateIdLong)?.m_quantity ?? 0;
+        var granted = Math.Min(countInt, ServerAlchemyBehavior.MaxReagentStack - held);
+        if (granted <= 0 || !LootGranter.GrantReagents(Context.SessionActor, Context.Character, templateIdLong, granted)) {
+            InformSenderClient("The reagent stack is full.");
+
+            return;
+        }
+
+        InformSenderClient($"Added {granted} of {countInt} reagents {templateIdLong} to reagent bag.");
+    }
+
     [Command("name")]
     [AuthRequired(AuthLevel.QualityAssurance)]
     private void SetNameCommand([Remainder] string name) {
@@ -331,10 +352,11 @@ internal class CommandModifyProtocol : CommandProtocol {
     [Command("badge")]
     [AuthRequired(AuthLevel.QualityAssurance)]
     private void SetBadgeCommand([Remainder] string badge) {
-        // Set the badge of the character.
-        Context.Character.SetBadgeOverride(badge);
-
-        InformSenderClient($"Set badge to {badge}. Relog to see changes.");
+        // The badge service sets the title and tells the zone, so nobody has to relog.
+        Context.SessionActor.Tell(new CHARACTER_103_PROTOCOL.MSG_BADGECOMMAND {
+            Action = "title",
+            Argument = badge,
+        }, null);
     }
 
     [Command("maxgold")]
@@ -357,6 +379,48 @@ internal class CommandModifyProtocol : CommandProtocol {
         Context.SessionActor.Tell(networkMessage, null);
 
         InformSenderClient($"Set max gold to {goldInt}.");
+    }
+
+    [Command("maxbank")]
+    [AuthRequired(AuthLevel.QualityAssurance)]
+    private void SetMaxBankCommand(string limit) {
+        if (!int.TryParse(limit, NumberStyles.Integer, CultureInfo.InvariantCulture, out var limitInt) || limitInt < 1) {
+            InformSenderClient("Invalid bank limit.");
+
+            return;
+        }
+
+        if (!Context.Character.SetBankLimit(limitInt)) {
+            InformSenderClient("Could not save the bank limit.");
+
+            return;
+        }
+
+        Context.SessionActor.Tell(BankSync.UpdateBankLimit(Context.Character), null);
+
+        InformSenderClient($"Set the bank limit to {limitInt}.");
+    }
+
+    [Command("expandbank")]
+    [AuthRequired(AuthLevel.QualityAssurance)]
+    private void ExpandBankCommand() {
+        var amount = BankConfig.ExpandElixirAmount;
+        if (amount <= 0) {
+            InformSenderClient("[Bank] ExpandElixirAmount is not set, so the bank cannot be expanded.");
+
+            return;
+        }
+
+        var before = Context.Character.StorageBehavior.Limit;
+        if (!Context.Character.ExpandBank(amount)) {
+            InformSenderClient("Could not save the bank limit.");
+
+            return;
+        }
+
+        Context.SessionActor.Tell(BankSync.UpdateBankLimit(Context.Character), null);
+
+        InformSenderClient($"Expanded the bank from {before} to {Context.Character.StorageBehavior.Limit}.");
     }
 
     [Command("addgold")]
@@ -749,12 +813,17 @@ internal class CommandModifyProtocol : CommandProtocol {
     [Alias("crowns")]
     [AuthRequired(AuthLevel.QualityAssurance)]
     private void SetCrownsCommand(string crowns) {
-        if (!int.TryParse(crowns, out var crownsAmount) || crownsAmount < 0) {
+        if (!int.TryParse(crowns, NumberStyles.Integer, CultureInfo.InvariantCulture, out var crownsAmount) || crownsAmount < 0) {
             InformSenderClient("Invalid Crowns amount.");
+
             return;
         }
 
-        Context.Account.SetCrowns(crownsAmount);
+        if (!Context.Account.SetCrowns(crownsAmount)) {
+            InformSenderClient("The Crowns could not be saved.");
+
+            return;
+        }
 
         // CacheBalanceForCSSegmentation Updates the internal Crown Shop cache so the client uses this balance
         // for Crown Shop segment checks and affordability calculation

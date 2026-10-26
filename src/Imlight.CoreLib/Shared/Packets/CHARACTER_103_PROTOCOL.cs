@@ -26,6 +26,14 @@ using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Shared.Packets;
 
+/// <summary>
+/// What a <see cref="CHARACTER_103_PROTOCOL.MSG_BADGEEVENT"/> asks the badge service to do.
+/// </summary>
+public enum BadgeEventKind : byte {
+    Award,
+    Recheck,
+}
+
 public class CHARACTER_103_PROTOCOL : IServerProtocol {
 
     public byte ServiceID { get; } = 103;
@@ -303,6 +311,45 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Internal message: the QuestService tells the NPCs around its player to re-send their options, once the
+    /// current batch of quest changes is done and no quest dialog is open.
+    /// </summary>
+    public sealed class MSG_FLUSHNPCREFRESH : IServerMessage {
+
+        public byte MessageOrder { get; } = 51;
+        public byte ServiceID { get; } = 103;
+
+        /// <summary>
+        /// Set by the safety timer when an open dialog was never reported closed.
+        /// </summary>
+        public bool DialogTimedOut;
+
+    }
+
+    /// <summary>
+    /// Sent to a player's session by a ResReInteract result: the NPC with this persona name re-sends its options.
+    /// </summary>
+    public sealed class MSG_REQUESTNPCREFRESH : IServerMessage {
+
+        public byte MessageOrder { get; } = 52;
+        public byte ServiceID { get; } = 103;
+
+        public string PersonaName;
+
+    }
+
+    /// <summary>
+    /// Sent to a player's session by anything outside the QuestService that shows the player an actor dialog, so the
+    /// QuestService holds its NPC option refresh until that dialog's close.
+    /// </summary>
+    public sealed class MSG_DIALOGSHOWN : IServerMessage {
+
+        public byte MessageOrder { get; } = 53;
+        public byte ServiceID { get; } = 103;
+
+    }
+
+    /// <summary>
     /// Sent by the ResCinematicActor handler to the player's session: the CinematicService plays it.
     /// </summary>
     public sealed class MSG_PLAYCINEMATICACTOR : IServerMessage {
@@ -391,7 +438,7 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
     /// </summary>
     public sealed class MSG_DOELIXIRTICK : IServerMessage {
 
-        public byte MessageOrder { get; } = 31;
+        public byte MessageOrder { get; } = 42;
         public byte ServiceID { get; } = 103;
 
     }
@@ -401,12 +448,134 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
     /// </summary>
     public sealed class MSG_UPDATE_WISHLIST : IServerMessage {
 
-        public byte MessageOrder { get; } = 32;
+        public byte MessageOrder { get; } = 43;
         public byte ServiceID { get; } = 103;
 
         public ulong CharId;
         public ByteString WishlistData;
         public uint RemovedTemplateId;
+    }
+
+    /// <summary>
+    /// Sent by a service to the EquipmentService: takes the equipped item off the player the way an unequip
+    /// request from the client does. The EquipmentService answers with <see cref="MSG_UNEQUIPITEMRSP"/>.
+    /// </summary>
+    public sealed class MSG_UNEQUIPITEM : IServerMessage {
+
+        public byte MessageOrder { get; } = 31;
+        public byte ServiceID { get; } = 103;
+
+        public ulong ItemId;
+
+    }
+
+    /// <summary>
+    /// The EquipmentService's answer to <see cref="MSG_UNEQUIPITEM"/>.
+    /// </summary>
+    public sealed class MSG_UNEQUIPITEMRSP : IServerMessage {
+
+        public byte MessageOrder { get; } = 32;
+        public byte ServiceID { get; } = 103;
+
+        /// <summary>
+        /// True when the item is no longer equipped.
+        /// </summary>
+        public bool Success;
+
+    }
+
+    /// <summary>
+    /// Sent to the BadgeService: award one badge, or recheck the auto-add badges against the character's state.
+    /// </summary>
+    public sealed class MSG_BADGEEVENT : IServerMessage {
+
+        public byte MessageOrder { get; } = 40;
+        public byte ServiceID { get; } = 103;
+
+        public BadgeEventKind Kind;
+
+        /// <summary>
+        /// The badge to award; only used by <see cref="BadgeEventKind.Award"/>.
+        /// </summary>
+        public uint BadgeId;
+
+    }
+
+    /// <summary>
+    /// Sent by the badge commands: the badge service runs the action through its normal award, counter and title paths and replies to the player with a server message.
+    /// </summary>
+    public sealed class MSG_BADGECOMMAND : IServerMessage {
+
+        public byte MessageOrder { get; } = 41;
+        public byte ServiceID { get; } = 103;
+
+        /// <summary>
+        /// One of: grant, progress, list, reset, title.
+        /// </summary>
+        public string Action;
+
+        /// <summary>
+        /// The badge id or name for grant, the counter key for progress, the title key for title.
+        /// </summary>
+        public string Argument;
+
+        /// <summary>
+        /// The amount added to the counter; only used by progress.
+        /// </summary>
+        public ulong Amount;
+
+    }
+
+    /// <summary>
+    /// Sent by a bank NPC to the BankService of the player who picked its bank option: the bank counts as open
+    /// until the window is closed, the zone changes or the session attaches again.
+    /// </summary>
+    public sealed class MSG_BEGINBANKSESSION : IServerMessage {
+
+        public byte MessageOrder { get; } = 50;
+        public byte ServiceID { get; } = 103;
+
+        /// <summary>
+        /// The global id of the bank NPC.
+        /// </summary>
+        public ulong EntityId;
+
+    }
+
+    /// <summary>
+    /// Sent by the EquipmentService to the RentalService after a rental item was equipped: the timer of the rental
+    /// starts if it has not started yet.
+    /// </summary>
+    public sealed class MSG_STARTRENTAL : IServerMessage {
+
+        public byte MessageOrder { get; } = 60;
+        public byte ServiceID { get; } = 103;
+
+        public ulong ItemId;
+
+    }
+
+    /// <summary>
+    /// Internal timer message and request to the RentalService: expires every rental of the player that has run out,
+    /// then arms the timer for the next one.
+    /// </summary>
+    public sealed class MSG_CHECKRENTALS : IServerMessage {
+
+        public byte MessageOrder { get; } = 61;
+        public byte ServiceID { get; } = 103;
+
+    }
+
+    /// <summary>
+    /// Sent by the RentalService to the EquipmentService: the rental has run out, so it is taken off the player and removed.
+    /// </summary>
+    public sealed class MSG_EXPIRERENTAL : IServerMessage {
+
+        public byte MessageOrder { get; } = 62;
+        public byte ServiceID { get; } = 103;
+
+        public ulong ItemId;
+
     }
 
 }

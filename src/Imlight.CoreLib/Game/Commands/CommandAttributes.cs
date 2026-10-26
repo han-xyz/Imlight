@@ -46,11 +46,3 @@ internal sealed class AuthRequiredAttribute(AuthLevel level) : Attribute {
 internal class RemainderAttribute : Attribute {
 
 }
-
-/// <summary>
-/// Marks a command parameter, such as a password, that must never be written to logs.
-/// </summary>
-[AttributeUsage(AttributeTargets.Parameter)]
-internal sealed class SensitiveAttribute : Attribute {
-
-}

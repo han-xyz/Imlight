@@ -41,10 +41,24 @@ public class ServerWizInventoryBehavior : IClientBehaviorProvider<ClientWizInven
 
     [JsonIgnore] public List<WizClientObjectItem> Items { get; set; }
 
-    public bool HasInventorySpace(int count) {
-        var max = s_maxItemsAllowed > 0 ? s_maxItemsAllowed : s_maxItemsAllowedFallback;
-        return (Items?.Count ?? 0) + count <= max;
-    }
+    /// <summary>
+    /// The slots the wizard's Expand Backpack Elixirs added. The client learns it as
+    /// WizGameStats.m_extraInventorySpace.
+    /// </summary>
+    public int ExtraSpace { get; set; }
+
+    [JsonIgnore] public int NumItemsAllowed
+        => (s_maxItemsAllowed > 0 ? s_maxItemsAllowed : s_maxItemsAllowedFallback) + ExtraSpace;
+
+    public bool HasInventorySpace(int count)
+        => (Items?.Count ?? 0) + count <= NumItemsAllowed;
+
+    /// <summary>
+    /// The number of items that still fit in the inventory. Equipped items are not counted, as in
+    /// <see cref="AddItem"/>.
+    /// </summary>
+    [JsonIgnore] public int FreeSlots
+        => Math.Max(0, NumItemsAllowed - Items.Count);
 
     /// <summary>
     /// Adds an item to the player's inventory.
@@ -60,7 +74,7 @@ public class ServerWizInventoryBehavior : IClientBehaviorProvider<ClientWizInven
             s_maxItemsAllowed = s_maxItemsAllowedFallback;
         }
 
-        if (Items.Count >= s_maxItemsAllowed) {
+        if (Items.Count >= NumItemsAllowed) {
             Logger.Debug("Player inventory is full. Cannot add item with global id {0}.", Logger.Args(item.m_globalID));
 
             return false;
@@ -138,7 +152,7 @@ public class ServerWizInventoryBehavior : IClientBehaviorProvider<ClientWizInven
     public WizClientObjectItem GetItem(ulong globalId) => Items.FirstOrDefault(item => item.m_globalID == globalId);
 
     public ClientWizInventoryBehavior GetClientBehaviorInstance() => new() {
-        m_numItemsAllowed = s_maxItemsAllowed,
+        m_numItemsAllowed = NumItemsAllowed,
         m_numJewelsAllowed = s_maxJewelsAllowed,
         m_itemList = Items.ConvertAll(item =>
             (item as IClientBehaviorProvider<CoreObject>)?.GetClientBehaviorInstance() ?? item),

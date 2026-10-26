@@ -7,7 +7,8 @@ namespace Imlight.CoreLib.Game.Requirements.Handlers;
 /// <summary>
 /// Requirement classes the server does not track (effects, transformations, the tutorial, placeholders whose
 /// purpose is unknown). They passed while their class decoded as null, so they keep passing, except polymorph
-/// and transformation checks: the server applies neither outside combat, so those answer false. Each class logs
+/// and transformation checks: the server applies neither outside combat, so those answer false. No class project
+/// runs on the server, so ReqClassProjectActive answers false. Each class logs
 /// once so a trigger that depends on one can be found.
 /// </summary>
 internal static class UntrackedRequirement {
@@ -101,5 +102,11 @@ internal sealed class ReqUnknown6A164DC9Handler : BaseRequirementHandler<ReqUnkn
 internal sealed class ReqUnknown001CD4F2Handler : BaseRequirementHandler<ReqUnknown001CD4F2> {
 
     public override bool Evaluate(IRequirementContext context) => UntrackedRequirement.Pass(nameof(ReqUnknown001CD4F2));
+
+}
+
+internal sealed class ReqClassProjectActiveHandler : BaseRequirementHandler<ReqClassProjectActive> {
+
+    public override bool Evaluate(IRequirementContext context) => UntrackedRequirement.Answer(nameof(ReqClassProjectActive), false);
 
 }

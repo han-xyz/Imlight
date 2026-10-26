@@ -35,7 +35,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System.Collections.Generic;
@@ -45,16 +45,18 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 
 internal sealed class ServiceOptionTable {
 
-    private readonly Dictionary<ulong, List<(IServiceComponent Owner, uint LocalIndex)>> _routesByPlayer = [];
+    private readonly Dictionary<ulong, List<(IServiceComponent Owner, uint LocalIndex, ServiceOptionBase Option)>> _routesByPlayer = [];
 
     public List<ServiceOptionBase> Build(
         ulong playerId,
         IEnumerable<(IServiceComponent Component, List<ServiceOptionBase> Options)> componentOptions) {
         var allOptions = new List<ServiceOptionBase>();
-        var routes = new List<(IServiceComponent Owner, uint LocalIndex)>();
+        var routes = new List<(IServiceComponent Owner, uint LocalIndex, ServiceOptionBase Option)>();
         foreach (var (component, options) in componentOptions) {
             for (var i = 0; i < options.Count; i++) {
-                routes.Add((component, (uint) i));
+                // The client echoes m_serviceIndex on a click, so it has to be the flat index routed below.
+                options[i].m_serviceIndex = (uint) allOptions.Count;
+                routes.Add((component, (uint) i, options[i]));
                 allOptions.Add(options[i]);
             }
         }
@@ -70,7 +72,31 @@ internal sealed class ServiceOptionTable {
             return false;
         }
 
-        (owner, localIndex) = routes[(int) serviceIndex];
+        (owner, localIndex, _) = routes[(int) serviceIndex];
+        return true;
+    }
+
+    public bool TryGetSentOption(ulong playerId, IServiceComponent owner, uint localIndex, out ServiceOptionBase option) {
+        option = null;
+        if (!_routesByPlayer.TryGetValue(playerId, out var routes)) {
+            return false;
+        }
+
+        var route = routes.Find(r => ReferenceEquals(r.Owner, owner) && r.LocalIndex == localIndex);
+        option = route.Option;
+        return option is not null;
+    }
+
+    public bool TryFindServiceIndex(ulong playerId, IServiceComponent owner, out uint serviceIndex) {
+        serviceIndex = 0;
+        var index = _routesByPlayer.TryGetValue(playerId, out var routes)
+            ? routes.FindIndex(r => ReferenceEquals(r.Owner, owner))
+            : -1;
+        if (index < 0) {
+            return false;
+        }
+
+        serviceIndex = (uint) index;
         return true;
     }
 

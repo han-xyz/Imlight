@@ -25,6 +25,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
@@ -65,6 +66,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
         Versionable: false,
         Behaviors: SerializerFlags.None
     );
+    private bool _controlQuestsRemoved;
     private readonly TutorialInfo _tutorialInfo = new() {
         m_tutorialNameID = TUTORIAL_NAME_STRING_ID,
         m_tutorialStage = 0,
@@ -237,7 +239,13 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
         return true;
     }
 
-    private static bool HandleCommandAddQuest(Wizard wizard, string questName) {
+    private bool HandleCommandAddQuest(Wizard wizard, string questName) {
+        if (_controlQuestsRemoved && Array.IndexOf(s_controlQuests, questName) >= 0) {
+            Logger.Debug("Refused re-add of control quest '{0}' after the tutorial ended.", Logger.Args(questName));
+
+            return true;
+        }
+
         // The client re-adds quests it already holds (add/remove flickers); re-adds are idempotent.
         if (wizard.QuestBehavior.CurrentQuestInstances.Any(q => q.QuestName == questName)) {
             return true;
@@ -250,9 +258,8 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             return false;
         }
 
-        var qInstance = new QuestInstance(questTemplate, wizard.CharId);
-
-        return wizard.AddQuest(qInstance);
+        return QuestService.StartQuestInstance(questTemplate, wizard, SessionActor.ActorRef, GetActiveGameObject(), wizard.AddQuest)
+            is not null;
     }
 
     private bool HandleCommandRemoveQuest(Wizard wizard, string questName) {
@@ -263,11 +270,16 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
     }
 
     private void RemoveQuestAndClearFromJournal(Wizard wizard, string questName) {
+        if (!wizard.HasQuest(questName)) {
+            return;
+        }
+
         var instance = wizard.QuestBehavior.CurrentQuestInstances.FirstOrDefault(q => q.QuestName == questName);
         var questId = instance?.ID ?? 0;
         wizard.RemoveQuest(questName);
 
-        if (questId != 0) {
+        var template = QuestTemplateCollection.GetQuestByName(questName);
+        if (questId != 0 && !string.IsNullOrEmpty(template?.m_questTitle)) {
             SendToSocket(new QUEST_MESSAGES_52_PROTOCOL.MSG_REMOVEQUEST {
                 QuestID = questId,
             });
@@ -283,7 +295,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             _tutorialInfo.m_tutorialStage = 99;
             RemoveControlQuests(wizard);
             CompleteTutorialIntro(wizard, playerObj);
-            EquipStarterWandAndDeck(wizard);
+            EquipStarterKit(wizard);
             Teleport(ConfigurationManager.Settings["Character.StartingZone"]);
 
             return true;
@@ -385,9 +397,9 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             );
 
             // The intro quest is the shared finale for the tutorial and the skip flow;
-            // the starter wand and deck must be equipped in both.
+            // the starter kit must be equipped in both.
             if (goalInstance.quest.QuestName == TUTORIAL_INTRO_QUEST_NAME) {
-                EquipStarterWandAndDeck(wizard);
+                EquipStarterKit(wizard);
             }
 
             return removeSuccess;
@@ -431,6 +443,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
     }
 
     private void RemoveControlQuests(Wizard wizard) {
+        _controlQuestsRemoved = true;
         foreach (var questName in s_controlQuests) {
             RemoveQuestAndClearFromJournal(wizard, questName);
         }
@@ -447,7 +460,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
                 return false;
             }
 
-            wizard.AddQuest(new QuestInstance(introTemplate, wizard.CharId));
+            QuestService.StartQuestInstance(introTemplate, wizard, SessionActor.ActorRef, playerObj, wizard.AddQuest);
         }
 
         var instance = wizard.QuestBehavior.CurrentQuestInstances
@@ -478,12 +491,16 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
         return removeSuccess;
     }
 
-    private void EquipStarterWandAndDeck(Wizard wizard) {
-        // The starter kit is config-driven, so resolve the wand and deck by slot rather
+    private void EquipStarterKit(Wizard wizard) {
+        // The starter kit is config-driven, so resolve its items by slot rather
         // than template ID; equip only the first instance of each.
-        EquipFirstStarterItem(wizard, EquipmentSlotType.Weapon);
-        EquipFirstStarterItem(wizard, EquipmentSlotType.Deck);
+        foreach (var slotType in StarterKitOf(wizard).EquippedSlots) {
+            EquipFirstStarterItem(wizard, slotType);
+        }
     }
+
+    private static StarterKit StarterKitOf(Wizard wizard)
+        => StarterKits.Instance.For(wizard.Account?.AuthLevel, wizard.MagicSchoolBehavior.MagicSchool);
 
     private void EquipFirstStarterItem(Wizard wizard, EquipmentSlotType slotType) {
         var item = wizard.InventoryBehavior.Items.FirstOrDefault(item => {
@@ -602,15 +619,12 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             return;
         }
 
-        var templateIds = ConfigurationManager.Settings["Character.DefaultItems"].AsList()
-            .Select(id => ulong.TryParse(id, out var parsed) ? parsed : 0)
-            .Where(id => id > 0)
-            .ToArray();
-        if (templateIds.Length == 0) {
+        var kit = StarterKitOf(wizard);
+        if (kit.ItemTemplateIds.Count == 0) {
             return;
         }
 
-        var grantedItems = wizard.GrantStarterItems(templateIds);
+        var grantedItems = wizard.GrantStarterItems(kit);
         Logger.Information("Granted starter kit ({0} items) to {1}.",
             Logger.Args(grantedItems.Count, wizard.PlayerNameBehavior.GetWizardName()));
 

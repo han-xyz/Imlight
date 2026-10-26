@@ -145,6 +145,7 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
 
         public ByteString Key;
         public ulong UserID;
+        public string ZoneName;
         public SessionActor SessionActor;
         
     }
@@ -272,8 +273,11 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
         public byte MessageOrder { get; } = 24;
         public byte ServiceID { get; } = 100;
 
-        public Account Account;
+        public ulong UserId;
         public string TargetRealmName;
+        public string RemoteIp;
+        public string ZoneName;
+        public string FallbackZoneName;
 
     }
 
@@ -282,7 +286,6 @@ public sealed class SERVER_100_PROTOCOL : IServerProtocol {
         public byte MessageOrder { get; } = 25;
         public byte ServiceID { get; } = 100;
 
-        public int Key;
         public string IP;
         public ushort Port;
         public string RealmName;

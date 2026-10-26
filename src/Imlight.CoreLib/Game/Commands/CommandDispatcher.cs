@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -66,6 +66,7 @@ namespace Imlight.CoreLib.Game.Commands;
 internal class CommandDispatcher : ReceiveProtocolDispatcher {
 
     private const string GrouplessCommandPrefix = "nogroup";
+    private const string RedactedArguments = "[redacted]";
 
     public static IActorRef Instance { get; private set; }
 
@@ -85,7 +86,8 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
         }
 
         try {
-            var redacted = CommandLogCollection.RedactMessages(RedactForLog);
+            var redacted = CommandLogCollection.RedactMessages(
+                message => string.IsNullOrEmpty(message) ? message : RedactPasswords(message));
             if (redacted > 0) {
                 Logger.Information("Redacted sensitive parameters from {0} saved command logs.", Logger.Args(redacted));
             }
@@ -93,35 +95,6 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
         catch (Exception ex) {
             Logger.Error("Could not redact saved command logs: {0}", Logger.Args(ex.Message));
         }
-    }
-
-    /// <summary>
-    /// Returns the command text with every <see cref="SensitiveAttribute"/> parameter replaced.
-    /// </summary>
-    internal static string RedactForLog(string commandText) {
-        if (string.IsNullOrWhiteSpace(commandText)) {
-            return commandText;
-        }
-
-        // Mirror ExecuteCommand's resolution: a grouped command first, then groupless protocols.
-        var split = commandText.Trim().Split(' ');
-        var protocolName = split[0].ToLower();
-        if (s_protocols.TryGetValue(protocolName, out var protocol)) {
-            var command = split.Length > 1 ? split[1] : "";
-            if (protocol.TryRedactParameters(command, split.Skip(2).ToArray(), out var redacted)) {
-                return string.Join(" ", split.Take(2).Concat(redacted));
-            }
-
-            return commandText;
-        }
-
-        foreach (var groupless in s_protocols.Values.Where(x => x is not null && string.IsNullOrEmpty(x.Group))) {
-            if (groupless.TryRedactParameters(protocolName, split.Skip(1).ToArray(), out var redacted)) {
-                return string.Join(" ", split.Take(1).Concat(redacted));
-            }
-        }
-
-        return commandText;
     }
 
     public static Props Props()
@@ -151,6 +124,21 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
         }
 
         return protocols;
+    }
+
+    internal static string RedactPasswords(string commandText) {
+        var words = commandText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length < 2) {
+            return commandText;
+        }
+
+        if (s_protocols.TryGetValue(words[0].ToLower(), out var protocol)) {
+            return protocol.TakesPassword(words[1]) ? $"{words[0]} {words[1]} {RedactedArguments}" : commandText;
+        }
+
+        var takesPassword = s_protocols.Values
+            .Any(groupless => string.IsNullOrEmpty(groupless.Group) && groupless.TakesPassword(words[0]));
+        return takesPassword ? $"{words[0]} {RedactedArguments}" : commandText;
     }
 
     private void ExecuteCommand(string commandName, CommandContext context) {
@@ -214,8 +202,8 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             SelectedAccount = message.SelectedAccount
         };
 
-        var loggedCommand = RedactForLog(message.CommandText.ToString());
-        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, loggedCommand));
+        var loggedCommandText = RedactPasswords(message.CommandText.ToString());
+        Logger.Information("{0} Uses command: {1}", Logger.Args(accountContext.Username, loggedCommandText));
 
         // Log the use of this command to the database.
         var chatLog = new ChatLog() {
@@ -223,7 +211,7 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             ZoneName = characterContext.Zone,
             CharacterId = characterContext.CharId,
             AccountId = accountContext.AccountId,
-            Message = loggedCommand,
+            Message = loggedCommandText,
         };
         CommandLogCollection.AddCommandLog(chatLog);
 

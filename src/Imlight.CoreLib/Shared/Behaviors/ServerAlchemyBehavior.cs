@@ -125,6 +125,63 @@ public class ServerAlchemyBehavior : IClientBehaviorProvider<ClientAlchemyBehavi
     }
 
     /// <summary>
+    /// Adds a count of one reagent template to the bag, all or nothing.
+    /// </summary>
+    /// <param name="templateId">The reagent's template ID.</param>
+    /// <param name="count">How many to add.</param>
+    /// <param name="createStack">Makes the stack object when the bag holds none of this reagent yet.</param>
+    /// <param name="stack">The stack after the addition.</param>
+    /// <returns><c>false</c>, with nothing added, when the count does not fit under the stack limit.</returns>
+    public bool AddReagents(ulong templateId, int count, Func<ClientReagentItem> createStack, out ClientReagentItem stack) {
+        stack = null;
+        if (count <= 0 || !HasReagentSpace(templateId, count)) {
+            return false;
+        }
+
+        stack = GetReagent(templateId);
+        if (stack is not null) {
+            stack.m_quantity += count;
+
+            return true;
+        }
+
+        stack = createStack();
+        if (stack is null) {
+            return false;
+        }
+
+        stack.m_quantity = count;
+        Reagents ??= [];
+        ReagentItemIds ??= [];
+        Reagents.Add(stack);
+        ReagentItemIds.Add(stack.m_globalID);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Removes a count of one reagent template from the bag, all or nothing.
+    /// </summary>
+    /// <param name="templateId">The reagent's template ID.</param>
+    /// <param name="count">How many to remove.</param>
+    /// <param name="updatedReagent">The stack after the removal; its quantity is 0 when the stack is gone.</param>
+    /// <returns><c>false</c>, with nothing removed, when the bag holds fewer than <paramref name="count"/>.</returns>
+    public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem updatedReagent) {
+        updatedReagent = GetReagent(templateId);
+        if (updatedReagent is null || updatedReagent.m_quantity < count) {
+            return false;
+        }
+
+        updatedReagent.m_quantity -= count;
+        if (updatedReagent.m_quantity <= 0) {
+            Reagents.Remove(updatedReagent);
+            ReagentItemIds?.Remove(updatedReagent.m_globalID);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Checks if the reagent bag contains a reagent with the specified global ID.
     /// </summary>
     /// <param name="globalId">The global ID of the reagent to check.</param>
@@ -144,6 +201,15 @@ public class ServerAlchemyBehavior : IClientBehaviorProvider<ClientAlchemyBehavi
     /// <param name="templateId">The template ID of the reagent to get.</param>
     /// <returns>Returns the reagent object with the specified template ID, otherwise null.</returns>
     public ClientReagentItem GetReagent(ulong templateId) => Reagents?.FirstOrDefault(reagent => reagent.m_templateID == templateId) ?? null;
+
+    /// <summary>
+    /// Checks if the reagent bag has space to hold the specified number of reagents for a given template ID.
+    /// </summary>
+    /// <param name="templateId">The template ID of the reagent to check.</param>
+    /// <param name="count">The number of reagents to add.</param>
+    /// <returns><c>true</c> if the reagent stack has enough space; otherwise, <c>false</c>.</returns>
+    public bool HasReagentSpace(ulong templateId, int count = 1)
+        => count >= 0 && (GetReagent(templateId)?.m_quantity ?? 0) + count <= s_maxReagentStackAllowed;
 
     public ClientAlchemyBehavior GetClientBehaviorInstance() => new() {
         m_reagentBag = new ObjectBag() {

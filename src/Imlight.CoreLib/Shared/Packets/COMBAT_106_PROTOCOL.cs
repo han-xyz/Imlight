@@ -21,9 +21,11 @@ using Akka.Actor;
 using Imcodec.Math;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.Game.Combat;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Zone.Components;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
+using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Shared.Packets; 
 
@@ -118,6 +120,10 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
         public byte SpellSelection;
         public uint SpellTarget;
         public int TimeLeft;
+        public uint RawSpellTarget;
+        public int ShadowPactTarget;
+        public int SelectedTieredSpellID;
+        public IReadOnlyList<TieredSpellProgress> TieredSpells;
 
     }
 
@@ -251,6 +257,90 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
 
         public bool Enabled;
         public IActorRef Actor;
+
+    }
+
+    /// <summary>
+    /// Sent to each participant session when a PvP duel is over. Unlike a PvE win it grants no experience or loot.
+    /// </summary>
+    public sealed class MSG_PVPDUELENDED : IServerMessage {
+
+        public byte MessageOrder => 26;
+        public byte ServiceID => 106;
+
+        public ulong MatchId;
+        public int WinningTeam;
+        public bool Forfeited;
+
+    }
+
+    /// <summary>
+    /// Sent by a session to the duel of a PvP match when its client reports that it finished the victory scene.
+    /// </summary>
+    public sealed class MSG_PVPVICTORYSEEN : IServerMessage {
+
+        public byte MessageOrder => 27;
+        public byte ServiceID => 106;
+
+        public IActorRef Actor;
+
+    }
+
+    /// <summary>
+    /// A timer message of a PvP duel: the clients had enough time for the victory scene, end the duel.
+    /// </summary>
+    public sealed class MSG_PVPENDGRACEOVER : IServerMessage {
+
+        public byte MessageOrder => 28;
+        public byte ServiceID => 106;
+
+    }
+
+    /// <summary>
+    /// Sent by a session's crown shop, through its combat service, to its duel: summon a bought henchman.
+    /// </summary>
+    public sealed class MSG_SUMMONHENCHMAN : IServerMessage {
+
+        public byte MessageOrder => 29;
+        public byte ServiceID => 106;
+
+        public IActorRef Owner;
+        public uint CreatureTid;
+        public bool IsPvPEnabled;
+        public ulong PurchaseId;
+        public ulong Item;
+        public int Currency;
+        public int Cost;
+
+    }
+
+    /// <summary>
+    /// The answer to MSG_SUMMONHENCHMAN. SubCircle is the henchman's slot when Result is Summoned.
+    /// </summary>
+    public sealed class MSG_HENCHMANSUMMONED : IServerMessage {
+
+        public byte MessageOrder => 30;
+        public byte ServiceID => 106;
+
+        public MSG_SUMMONHENCHMAN Request;
+        public HenchmanSummonResult Result;
+        public IActorRef DuelActor;
+        public int SubCircle;
+
+    }
+
+    /// <summary>
+    /// Sent by a session to its duel: remove the minion in SubCircle. With a PurchaseId it must be the henchman of
+    /// that purchase; without one, Owner must have summoned it.
+    /// </summary>
+    public sealed class MSG_DISMISSMINION : IServerMessage {
+
+        public byte MessageOrder => 31;
+        public byte ServiceID => 106;
+
+        public IActorRef Owner;
+        public int SubCircle;
+        public ulong PurchaseId;
 
     }
 

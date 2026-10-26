@@ -45,7 +45,6 @@ using Imlight.Common;
 using Imlight.CoreLib.Shared.Cryptography;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.WizardData.Collections;
-using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using static Imcodec.MessageLayer.Generated.LOGIN_7_PROTOCOL;
 
@@ -79,6 +78,9 @@ internal static class UserAuthenticator {
     private static readonly string s_serverRevision 
         = ConfigurationManager.Settings["Global Settings.GameRevision"].AsString();
     private static readonly TimeSpan s_deadline = TimeSpan.FromSeconds(10);
+    private static readonly LoginThrottle s_loginThrottle = new(
+        ConfigurationManager.GetValue("Login Server.FailedLoginLimit", 10),
+        TimeSpan.FromSeconds(ConfigurationManager.GetValue("Login Server.FailedLoginWindowSeconds", 300)));
 
     internal class AuthenticationDetails {
         
@@ -96,8 +98,22 @@ internal static class UserAuthenticator {
     /// <param name="authMessage">The authentication message.</param>
     /// <returns>The authentication details.</returns>
     internal static AuthenticationDetails Authenticate(SessionActor sessionActor, MSG_USER_AUTHEN_V3 authMessage) {
+        if (!s_loginThrottle.TryBeginAttempt(sessionActor.RemoteIp, DateTimeOffset.UtcNow)) {
+            Logger.Warning("SessionActor {Id} from {Ip} was refused: too many failed or running logins from this address.",
+                Logger.Args(sessionActor.SessionID, sessionActor.RemoteIp));
+
+            return new AuthenticationDetails { _result = UserAuthenResult.AuthenFailed };
+        }
+
         var stopwatch = Stopwatch.StartNew();
-        var details = AuthenticateUser(sessionActor, authMessage);
+        AuthenticationDetails details = null;
+        try {
+            details = AuthenticateUser(sessionActor, authMessage);
+        } finally {
+            var failed = details is null || details._result == UserAuthenResult.AuthenFailed;
+            s_loginThrottle.EndAttempt(sessionActor.RemoteIp, DateTimeOffset.UtcNow, failed);
+        }
+
         Logger.Debug("SessionActor {Id} authentication finished in {Elapsed} ms with {Result}.",
             Logger.Args(sessionActor.SessionID, stopwatch.ElapsedMilliseconds, details._result));
 
@@ -134,75 +150,48 @@ internal static class UserAuthenticator {
             }
         }
 
-        // Check if we can find the account.
-        var matchedAccount = AccountCollection.GetAccountForCharacterList(username);
-        if (matchedAccount is null) {
-            Logger.Warning("SessionActor {0} was rejected: account not found.", Logger.Args(sessionId));
-            details._result = UserAuthenResult.AuthenFailed;
+        var (admission, matchedAccount) = LoginGate.Admit(
+            () => InfractionCollection.IsMachineBanned(authMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.RemoteIp),
+            () => AccountCollection.GetAccountForCharacterList(username),
+            () => stopwatch.Elapsed > s_deadline,
+            account => ClientKey.VerifyCK1(account.PasswordHash, sessionId, offerTime, offerMilli, clientKey1));
 
-            return details;
-        }
+        switch (admission) {
+            case LoginGate.Admission.OriginBanned:
+                Logger.Warning("SessionActor {Id} was refused: banned machine id or address.", Logger.Args(sessionId));
+                details._result = UserAuthenResult.MachineBanned;
 
-        if (stopwatch.Elapsed > s_deadline) {
-            return TimedOut(details, sessionActor, stopwatch);
-        }
+                return details;
+            case LoginGate.Admission.BadCredentials:
+                Logger.Warning("SessionActor {0} was rejected: unknown account or bad password.", Logger.Args(sessionId));
+                details._result = UserAuthenResult.AuthenFailed;
 
-        // Check to see if this machine is banned.
-        if (InfractionCollection.IsMachineBanned(authMessage.MachineID)) {
-            // Add an infraction to the account.
-            matchedAccount.AddInfraction(InfractionType.Warn, "Logged in with banned machine ID.", null);
+                return details;
+            case LoginGate.Admission.AccountBanned:
+                details._result = UserAuthenResult.AccountBanned;
 
-            details._result = UserAuthenResult.MachineBanned;
-
-            return details;
-        }
-
-        // Check to see if the IP is banned.
-        if (InfractionCollection.IsIpBanned(sessionActor.Ip)) {
-            // Add an infraction to the account.
-            matchedAccount.AddInfraction(InfractionType.Warn, "Logged in with banned IP.", null);
-            details._result = UserAuthenResult.MachineBanned;
-
-            return details;
-        }
-
-        // Check to see if this account is currently banned.
-        if (matchedAccount.InfractionHistory.IsCurrentlyBanned || matchedAccount.IsLocked) {
-            details._result = UserAuthenResult.AccountBanned;
-
-            return details;
-        }
-
-        if (stopwatch.Elapsed > s_deadline) {
-            return TimedOut(details, sessionActor, stopwatch);
+                return details;
+            case LoginGate.Admission.PastDeadline:
+                return TimedOut(details, sessionActor, stopwatch);
         }
 
         details._account = matchedAccount;
 
-        var doesPasswordMatch = ClientKey.VerifyCK1(matchedAccount.PasswordHash, sessionId, offerTime, offerMilli, clientKey1);
-        if (doesPasswordMatch) {
-            // Create a new session key and store it in the database.
-            var sessionKey = ClientKey.HashSessionKey(sessionId, offerTime, offerMilli);
-            ClientKeyCollection.AddSessionKey(matchedAccount.AccountId, authMessage.MachineID, sessionKey);
-            details._sessionKey = sessionKey;
+        // Create a new session key and store it in the database.
+        var sessionKey = ClientKey.HashSessionKey(sessionId, offerTime, offerMilli);
+        ClientKeyCollection.AddSessionKey(matchedAccount.AccountId, authMessage.MachineID, sessionKey);
+        details._sessionKey = sessionKey;
 
-            matchedAccount.LastLoginMachineId = authMessage.MachineID;
-            matchedAccount.LastLoginTime = DateTime.UtcNow;
-            matchedAccount.LastLoginIp = sessionActor.Ip;
-            RecordLogin(matchedAccount);
+        matchedAccount.LastLoginMachineId = authMessage.MachineID;
+        matchedAccount.LastLoginTime = DateTime.UtcNow;
+        matchedAccount.LastLoginIp = sessionActor.RemoteIp;
+        RecordLogin(matchedAccount);
 
-            // Craft a successful reply and return.
-            var rec1 = Rec1.Encode(sessionKey, sessionId, offerTime, offerMilli);
-            details._rec1 = rec1;
+        // Craft a successful reply and return.
+        var rec1 = Rec1.Encode(sessionKey, sessionId, offerTime, offerMilli);
+        details._rec1 = rec1;
 
-            return details;
-        }
-        else {
-            Logger.Warning("SessionActor {0} was rejected: bad password.", Logger.Args(sessionId));
-            details._result = UserAuthenResult.AuthenFailed;
-
-            return details;
-        }
+        return details;
     }
 
     // Saved in the background so logging in waits for nothing extra; a failure only loses this login's record.

@@ -31,7 +31,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using Imcodec.IO;
@@ -43,6 +43,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Imlight.CoreLib.Game.CrownShop;
 
@@ -66,18 +67,30 @@ public static class CrownShopHandler {
 
     private sealed record Snapshot(CrownShopCatalogue Catalogue, ByteString SerializedData) {
         // Loading every sold item's template is slow, so it waits for the first emote that needs it.
-        public Lazy<SoldEmotes> Emotes { get; } = new(() => SoldEmotes.From(Catalogue));
+        public Lazy<SoldEmotes> Emotes { get; } = new(() => SoldEmotes.From(Catalogue), LazyThreadSafetyMode.PublicationOnly);
     }
 
-    private sealed record SoldEmotes(
+    internal sealed record SoldEmotes(
         Dictionary<string, CustomEmoteBehaviorTemplate> ByAnimation,
         Dictionary<ulong, CustomEmoteBehaviorTemplate> ByTemplateId) {
 
-        public static SoldEmotes From(CrownShopCatalogue catalogue) {
+        public static SoldEmotes From(CrownShopCatalogue catalogue)
+            => From(catalogue, CoreObjectFactory.GetCoreTemplate);
+
+        internal static SoldEmotes From(CrownShopCatalogue catalogue, Func<ulong, CoreTemplate> getTemplate) {
             var byAnimation = new Dictionary<string, CustomEmoteBehaviorTemplate>(StringComparer.OrdinalIgnoreCase);
             var byTemplateId = new Dictionary<ulong, CustomEmoteBehaviorTemplate>();
             foreach (var item in catalogue.Items) {
-                var emote = CoreObjectFactory.GetCoreTemplate(item.m_itemTemplateId)?.m_behaviors?
+                CoreTemplate template;
+                try {
+                    template = getTemplate(item.m_itemTemplateId);
+                } catch (Exception ex) {
+                    Logger.Warning("Crown shop item {ItemId} template could not be decoded; skipped for emotes ({ExceptionType})",
+                        Logger.Args(item.m_itemTemplateId, ex.GetType().Name));
+                    continue;
+                }
+
+                var emote = template?.m_behaviors?
                     .OfType<CustomEmoteBehaviorTemplate>()
                     .FirstOrDefault(b => b.m_emoteType == CustomEmoteType.CE_Emote);
                 if (emote is null) {
@@ -220,6 +233,8 @@ public static class CrownShopHandler {
     public static List<CrownShopItem> GetCrownShopItems() => s_snapshot.Catalogue.Items.ToList();
     public static bool TryGetCrownShopItem(ulong id, out CrownShopItem item)
         => s_snapshot.Catalogue.TryGetItem(id, out item);
+
+    public static bool IsHenchman(ulong id) => s_snapshot.Catalogue.IsHenchman(id);
 
     public static bool TryGetSoldEmote(string animation, out CustomEmoteBehaviorTemplate emote)
         => s_snapshot.Emotes.Value.ByAnimation.TryGetValue(animation ?? string.Empty, out emote);

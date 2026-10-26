@@ -55,6 +55,8 @@ namespace Imlight.CoreLib.Game;
 
 public class GameServer : Server {
 
+    protected override bool RegistersOnlinePlayers => true;
+
     private readonly ushort _sessionKeyValidityTime = ConfigurationManager.Settings["Game Server.SessionKeyValidityTime"].AsUShort();
     private readonly ushort _playerLimit = ConfigurationManager.Settings["Game Server.GameServerPlayerLimit"].AsUShort();
 
@@ -107,12 +109,11 @@ public class GameServer : Server {
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY))]
     private void ReceiveCreatePlayerKey(SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEY message) {
-        // If this server is the target realm, create the key locally.
+        // If this server is the target realm, issue the transfer ticket locally.
         if (message.TargetRealmName == RealmName) {
-            var key = _sessionKeys.IssueTransferKey(message.Account.AccountId);
+            _sessionKeys.IssueTransferTicket(message.UserId, message.RemoteIp, message.ZoneName, message.FallbackZoneName);
 
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_CREATEPLAYERKEYRSP {
-                Key = key,
                 IP = Ip,
                 Port = (ushort) Port,
                 RealmName = RealmName,
@@ -142,7 +143,13 @@ public class GameServer : Server {
     private void ReceiveValidateSessionKey(SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEY message) {
         // A user has requested to join this server. We're going to check if the session key is valid.
         // If it is, we'll return the account associated with it. If not, we'll return an error code.
-        if (!_sessionKeys.Validate(message.UserID, (byte[]) message.Key)) {
+        var key = (byte[]) message.Key;
+        var verdict = _sessionKeys.Validate(message.UserID, key, message.SessionActor.RemoteIp, message.ZoneName);
+        if (verdict is not (SessionKeyStore.AttachVerdict.LoginKey or SessionKeyStore.AttachVerdict.TransferTicket)) {
+            var (hasLoginKey, hasTransferTicket) = _sessionKeys.Describe(message.UserID);
+            Logger.Debug("Attach refused for user {UserId}: {Verdict}, {Shape}, store holds login key {HasLoginKey}, transfer ticket {HasTransferTicket}.",
+                Logger.Args(message.UserID, verdict, DescribeKeyShape(key), hasLoginKey, hasTransferTicket));
+
             Sender.Tell(new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP() { ErrorCode = 1 });
             return;
         }
@@ -156,6 +163,24 @@ public class GameServer : Server {
             ErrorCode = account is null ? 1 : 0,
             Account = account
         });
+    }
+
+    private static string DescribeKeyShape(byte[] key) {
+        var endsWithNul = key.Length > 0 && key[^1] == 0;
+        return $"{key.Length} bytes, {ClassifyKeyShape(key)}, ends with NUL {endsWithNul}";
+    }
+
+    private static string ClassifyKeyShape(ReadOnlySpan<byte> key) {
+        if (key.Length > 0 && key.IndexOfAnyExceptInRange((byte) '0', (byte) '9') < 0) {
+            return "digits";
+        }
+
+        var isBase64 = key.Length > 0;
+        foreach (var b in key) {
+            isBase64 &= char.IsAsciiLetterOrDigit((char) b) || b is (byte) '+' or (byte) '/' or (byte) '=';
+        }
+
+        return isBase64 ? "base64" : "other";
     }
 
     [MessageHandler(typeof(SERVER_100_PROTOCOL.MSG_PLAYERENQUEUED))]
@@ -290,6 +315,13 @@ public class GameServer : Server {
         return newId;
     }
 
+    protected override void ReceiveDeallocateSocket(SERVER_100_PROTOCOL.MSG_DEALLOCATESOCKET message) {
+        // A queued session that disconnects must not stay in the queue.
+        _playerQueue.RemoveAll(s => s.SessionID == message.Id);
+
+        base.ReceiveDeallocateSocket(message);
+    }
+
     private void ActiveSessionsChangedEvent(object obj, NotifyCollectionChangedEventArgs args) {
         // Anytime a player has left, we'll check to see if a queue is active. If so, we'll grab the next player
         // and finally allocate their slot.
@@ -330,7 +362,7 @@ public class GameServer : Server {
         public ulong UserId;
         public ulong CharId;
         public string FallbackZone;
-        public uint FallbackZoneId;
+        public ulong FallbackZoneId;
         public string FallbackLocation;
         public string GameServerIp;
         public ushort GameServerPort;

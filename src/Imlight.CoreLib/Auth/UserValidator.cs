@@ -43,7 +43,6 @@ using System;
 using Imlight.CoreLib.Shared.Cryptography;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.WizardData.Collections;
-using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using static Imcodec.MessageLayer.Generated.LOGIN_7_PROTOCOL;
 
@@ -85,71 +84,32 @@ internal static class UserValidator {
     internal static ValidationDetails Validate(SessionActor sessionActor, MSG_USER_VALIDATE validateMessage) {
         var details = new ValidationDetails();
 
-        // Try getting the account from the message's UserID.
-        var matchedAccount = AccountCollection.GetAccountForCharacterList(validateMessage.UserID);
-        if (matchedAccount is null) {
-            details._result = UserValidateResult.ValidateFailed;
+        string sessionKey = null;
+        var (admission, matchedAccount) = LoginGate.Admit(
+            () => InfractionCollection.IsMachineBanned(validateMessage.MachineID) || InfractionCollection.IsIpBanned(sessionActor.RemoteIp),
+            () => AccountCollection.GetAccountForCharacterList(validateMessage.UserID),
+            () => false,
+            account => {
+                sessionKey = ClientKeyCollection.GetSessionKey(account.AccountId, validateMessage.MachineID);
 
-            return details;
-        }
+                return !string.IsNullOrEmpty(sessionKey) && PassKey3.VerifyPK3(sessionKey, sessionActor.SessionID,
+                    sessionActor.OfferTime, sessionActor.OfferMillisecondsIntoSecond, validateMessage.PassKey3);
+            });
 
-        // Check to see if this account is banned.
-        if (matchedAccount.InfractionHistory.IsCurrentlyBanned || matchedAccount.IsLocked) {
-            details._result = UserValidateResult.AccountBanned;
-
-            return details;
-        }
-
-        // Check to see if this machine is banned.
-        if (InfractionCollection.IsMachineBanned(validateMessage.MachineID)) {
-            // Add an infraction to the account.
-            matchedAccount.AddInfraction(InfractionType.Warn, "Logged in with banned machine ID.", null);
-
-            details._result = UserValidateResult.MachineBanned;
-
-            return details;
-        }
-
-        // Check to see if this IP is banned.
-        if (InfractionCollection.IsIpBanned(sessionActor.Ip)) {
-            // Add an infraction to the account.
-            matchedAccount.AddInfraction(InfractionType.Warn, "Logged in with banned IP.", null);
-
-            details._result = UserValidateResult.MachineBanned;
-
-            return details;
-        }
-
-        // Validation happens after authentication, so we need to check if the session key matches.
-        var sessionKey = ClientKeyCollection.GetSessionKey(matchedAccount.AccountId, validateMessage.MachineID);
-        if (string.IsNullOrEmpty(sessionKey)) {
-            details._result = UserValidateResult.ValidateFailed;
-
-            return details;
-        }
-
-        // Finally, see if the session key matches.
-        var passKey = validateMessage.PassKey3;
-        var sessionId = sessionActor.SessionID;
-        var offerTime = sessionActor.OfferTime;
-        var offerMilli = sessionActor.OfferMillisecondsIntoSecond;
-        var doesSessionMatch = PassKey3.VerifyPK3(sessionKey, sessionId, offerTime, offerMilli, passKey);
-
-        // Developers get a free pass.
-#if DEBUG
-        //doesSessionMatch = true;
-#endif
-
-        if (!doesSessionMatch) {
-            details._result = UserValidateResult.ValidateFailed;
-
+        details._result = admission switch {
+            LoginGate.Admission.Admitted => UserValidateResult.Success,
+            LoginGate.Admission.OriginBanned => UserValidateResult.MachineBanned,
+            LoginGate.Admission.AccountBanned => UserValidateResult.AccountBanned,
+            _ => UserValidateResult.ValidateFailed
+        };
+        if (admission != LoginGate.Admission.Admitted) {
             return details;
         }
 
         // If we've made it this far, the user is valid.
         matchedAccount.LastLoginMachineId = validateMessage.MachineID;
         matchedAccount.LastLoginTime = DateTime.UtcNow;
-        matchedAccount.LastLoginIp = sessionActor.Ip;
+        matchedAccount.LastLoginIp = sessionActor.RemoteIp;
 
         details._account = matchedAccount;
         details._sessionKey = sessionKey;

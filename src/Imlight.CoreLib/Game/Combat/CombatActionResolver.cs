@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/22/2026
  */
 
 using Imcodec.ObjectProperty.TypeCache;
@@ -107,6 +107,49 @@ internal static class CombatActionResolver {
                 _ => spellEffect,
             };
 
+            // If the spell is enchanted with a flat adjustment (+X amount), apply it to damage/heal effects
+            if (action.Spell is { m_regularAdjust: not 0 }) {
+                // todo: find out when those enchants are applied.
+
+                var isDamageOrHeal = chosenEffect.m_effectType is kSpellEffects.kDamage 
+                    or kSpellEffects.kDamageOverTime 
+                    or kSpellEffects.kDamageNoCrit
+                    or kSpellEffects.kDamagePerTotalPipPower
+                    or kSpellEffects.kHeal 
+                    or kSpellEffects.kHealOverTime 
+                    or kSpellEffects.kStealHealth
+                    or kSpellEffects.kModifyOutgoingDamage
+                    or kSpellEffects.kModifyIncomingDamage;
+
+                if (isDamageOrHeal) {
+                    var damageEffectsCount = action.SpellTemplate.m_effects.Count(e => e.m_effectType is kSpellEffects.kDamage 
+                        or kSpellEffects.kDamageOverTime 
+                        or kSpellEffects.kDamageNoCrit
+                        or kSpellEffects.kDamagePerTotalPipPower
+                        or kSpellEffects.kHeal 
+                        or kSpellEffects.kHealOverTime 
+                        or kSpellEffects.kStealHealth);
+
+                    int adjust;
+                    if (damageEffectsCount > 1) {
+                        if (chosenEffect.m_effectType is kSpellEffects.kDamage or kSpellEffects.kDamageNoCrit or kSpellEffects.kHeal) {
+                            adjust = (int) Math.Round(action.Spell.m_regularAdjust / 3.0);
+                        }
+                        else {
+                            var initialPart = (int) Math.Round(action.Spell.m_regularAdjust / 3.0);
+                            adjust = action.Spell.m_regularAdjust - initialPart;
+                        }
+                    }
+                    else {
+                        adjust = action.Spell.m_regularAdjust;
+                    }
+
+                    chosenEffect = chosenEffect with {
+                        m_effectParam = chosenEffect.m_effectParam + adjust
+                    };
+                }
+            }
+
             allEffects.Add(chosenEffect);
 
             charmsAffectingThisSpell = CombatCharms.FindAppliedCharms(action.SpellCaster, [.. allEffects]);
@@ -139,12 +182,17 @@ internal static class CombatActionResolver {
                 }
             }
 
+            var effectContext = new CombatEffectContext(action.Spell.m_templateID, critMultiplier);
             cinematicTime += CombatEffectApplicator.ApplyEffect(chosenEffect,
                                                                 [.. charmsAffectingThisSpell],
                                                                 action.SpellCaster,
                                                                 targets,
-                                                                critMultiplier);
+                                                                effectContext);
+            CombatHangingEffects.LogHangingState(action.SpellCaster, targets);
         }
+
+        // A charm is spent once per cast however many of the spell's effects it boosts.
+        cinematicTime += charmsAffectingThisSpell.Count * CombatHangingEffects.HANGING_EFFECT_CONSUME_TIME;
 
         if (critEligibleTargetSlots.Count > 0) {
             combatAction.m_CritHitList = [.. critEligibleTargetSlots.Select(slot => new TargetCritHit {

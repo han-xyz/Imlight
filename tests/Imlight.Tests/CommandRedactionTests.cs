@@ -16,47 +16,45 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
  * ========================================================================
- * COMMAND REDACTION TESTS
+ * COMMAND LOG REDACTION TESTS
  * ========================================================================
- *
+ * 
  * PURPOSE:
- * Checks that password parameters are replaced before a command is logged.
- *
+ * Behaviour tests for keeping passwords out of the logged command text.
+ * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
- *
- * Created by: BobFromIHT with Claude
+ * 
+ * NOTE:
+ * 
+ * TODO:
+ * 
+ * Created by: Han
  * Version: KALI 1.0
  * Last Updated: 10/26/2026
  */
 
-using Imlight.CoreLib.Game.Commands.Protocols;
+using Imlight.CoreLib.Game.Commands;
 using Xunit;
 
 namespace Imlight.Tests;
 
 public class CommandRedactionTests {
 
-    [Fact]
-    public void AccountCreate_RedactsPasswordOnly() {
-        Assert.True(new CommandAccountProtocol().TryRedactParameters("create", ["erin", "hunter2"], out var redacted));
-        Assert.Equal(["erin", "<redacted>"], redacted);
+    [Theory]
+    [InlineData("account create bob hunter2", "account create [redacted]")]
+    [InlineData("account password bob hunter2 hunter2", "account password [redacted]")]
+    [InlineData("  Account PASSWORD  bob hunter2 hunter2", "Account PASSWORD [redacted]")]
+    public void PasswordCommand_ArgumentsRedacted(string commandText, string expected) {
+        Assert.Equal(expected, CommandDispatcher.RedactPasswords(commandText));
     }
 
-    [Fact]
-    public void AccountPassword_RedactsBothCopies() {
-        Assert.True(new CommandAccountProtocol().TryRedactParameters("PASSWORD", ["erin", "a", "a"], out var redacted));
-        Assert.Equal(["erin", "<redacted>", "<redacted>"], redacted);
+    [Theory]
+    [InlineData("account info bob")]
+    [InlineData("account lock bob")]
+    [InlineData("unknowngroup create bob hunter2")]
+    public void OtherCommand_Unchanged(string commandText) {
+        Assert.Equal(commandText, CommandDispatcher.RedactPasswords(commandText));
     }
-
-    [Fact]
-    public void CommandWithoutSensitiveParameters_Unchanged() {
-        Assert.True(new CommandAccountProtocol().TryRedactParameters("lock", ["erin"], out var redacted));
-        Assert.Equal(["erin"], redacted);
-    }
-
-    [Fact]
-    public void UnknownCommand_NotHandled()
-        => Assert.False(new CommandAccountProtocol().TryRedactParameters("nonsense", ["x"], out _));
 
 }

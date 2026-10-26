@@ -41,7 +41,7 @@ public static class GlobalRegistryCollection {
         }
 
         if (!model.GlobalRegistryValues.ContainsKey(entry)) {
-            Logger.Warning("Global registry entry {0} does not exist.",
+            Logger.Debug("Global registry entry {0} does not exist.",
                 Logger.Args(entry));
 
             return 0;

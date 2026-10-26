@@ -105,7 +105,7 @@ public class PetFactory : RootDirectoryResourceSingleton<PetFactory>, IMemoryStr
             ]
         };
 
-        return pet;
+        return CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
     }
 
     /// <summary>

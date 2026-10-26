@@ -37,11 +37,12 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.CoreObject;
 using Imcodec.IO;
@@ -50,7 +51,10 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.DropTables;
+using Imlight.CoreLib.Game.Housing.Items;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -125,6 +129,20 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         // We've fled or have been defeated in this duel. Send us back to the world hub.
         var hubMsg = new ZONE_102_PROTOCOL.MSG_SENDTOHUB();
         TellOtherServices(hubMsg);
+    }
+
+    [MessageHandler(typeof(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATVICTORY))]
+    private void ReceiveVictorySceneDone(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATVICTORY message) {
+        // The client sends this when its victory scene is over; a PvP duel waits for it before it lets everyone go.
+        _currentDuelActor?.Tell(new COMBAT_106_PROTOCOL.MSG_PVPVICTORYSEEN { Actor = SessionActor.ActorRef });
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_PVPDUELENDED))]
+    private void ReceivePvPDuelEnded(COMBAT_106_PROTOCOL.MSG_PVPDUELENDED message) {
+        // A PvP duel grants no experience or loot and sends nobody to a hub; the director sends the players back.
+        GetActiveWizard().IsInDuel = false;
+        _currentDuelActor = null;
+        EquipMount();
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_COMBATWIN))]
@@ -234,17 +252,40 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         // The spell target given by the client is logarithmic. We need to convert it to a linear scale.
-        // A selection of 0 means a target of self.
-        int actualSelection = (int) Math.Log(message.SpellTarget, 2);
+        // If it's a single-bit power of 2, convert to 0-based circle slot. Otherwise keep raw value.
+        // Check SpellTarget before Log2, because Log2(0) results in -Infinity!
+        uint actualSelection;
+        if (message.SpellTarget > 0 && (message.SpellTarget & (message.SpellTarget - 1)) == 0) {
+            actualSelection = (uint) Math.Log2(message.SpellTarget);
+        }
+        else {
+            actualSelection = message.SpellTarget;
+        }
 
         var msg = new COMBAT_106_PROTOCOL.MSG_ACTORCOMBATMOVE {
             Actor = SessionActor.ActorRef,
             MoveType = message.MoveType,
             SpellSelection = message.SpellSelection,
-            SpellTarget = (uint) actualSelection,
-            TimeLeft = message.TimeLeft
+            SpellTarget = actualSelection,
+            RawSpellTarget = message.SpellTarget,
+            TimeLeft = message.TimeLeft,
+            ShadowPactTarget = message.ShadowPactTarget, // -1 (If not used(?))
+            SelectedTieredSpellID = message.SelectedTieredSpellID,
+            TieredSpells = TieredSpellSnapshot(),
         };
+
         _currentDuelActor.Tell(msg);
+    }
+
+    private List<TieredSpellProgress> TieredSpellSnapshot() {
+        var wizard = GetActiveWizard();
+        if (wizard is null) {
+            return [];
+        }
+
+        lock (HousingItems.BackpackLock(wizard)) {
+            return [.. wizard.TieredSpells.Select(TieredSpellLedger.Copy)];
+        }
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_NOAGGROGRACEOVER))]
@@ -290,6 +331,34 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         _currentDuelActor?.Tell(message, SessionActor.ActorRef);
     }
 
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN))]
+    private void ReceiveSummonHenchman(COMBAT_106_PROTOCOL.MSG_SUMMONHENCHMAN message) {
+        if (_currentDuelActor is null) {
+            TellOtherServices(new COMBAT_106_PROTOCOL.MSG_HENCHMANSUMMONED {
+                Request = message,
+                Result = HenchmanSummonResult.NotInDuel,
+                SubCircle = -1
+            });
+            return;
+        }
+
+        _currentDuelActor.Tell(message);
+    }
+
+    [MessageHandler(typeof(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_DISMISS_SUMMON))]
+    private void ReceiveDismissSummon(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_DISMISS_SUMMON message) {
+        if (_currentDuelActor is null) {
+            Logger.Debug("Session {SessionId} asked to dismiss a summon with no active duel; dropping it.",
+                Logger.Args(SessionActor.SessionID));
+            return;
+        }
+
+        _currentDuelActor.Tell(new COMBAT_106_PROTOCOL.MSG_DISMISSMINION {
+            Owner = SessionActor.ActorRef,
+            SubCircle = (int) message.Subcircle
+        });
+    }
+
     [MessageHandler(typeof(TUTORIAL_108_PROTOCOL.MSG_TUTORIALREBUILDDUELHAND))]
     private void ReceiveTutorialRebuildDuelHand(TUTORIAL_108_PROTOCOL.MSG_TUTORIALREBUILDDUELHAND message) {
         // Sender is forced to SessionActor.ActorRef so the duel matches it to this player's sub-circle; null out
@@ -309,6 +378,12 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         var wizard = GetActiveWizard();
+        if (!wizard.InventoryBehavior.HasItem(_cachedMountId)) {
+            _cachedMountId = 0;
+
+            return;
+        }
+
         var wizEquipmentBehavior = wizard.EquipmentBehavior;
         var slot = wizEquipmentBehavior.GetSlotOfItem(_cachedMountId);
 
@@ -338,6 +413,12 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         var wizard = GetActiveWizard();
+        if (!wizard.InventoryBehavior.HasItem(_cachedMountId)) {
+            _cachedMountId = 0;
+
+            return;
+        }
+
         if (!wizard.InventoryToEquipmentTransfer(_cachedMountId, out var addedEffects, out var _)) {
             Logger.Warning("Equip failed on item {0}", Logger.Args(_cachedMountId));
             return;

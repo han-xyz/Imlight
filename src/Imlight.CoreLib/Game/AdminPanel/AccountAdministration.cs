@@ -164,9 +164,8 @@ internal static class AccountAdministration {
 
         balance = adjustOnline(target.AccountId, change);
         if (balance is null) {
-            var applied = AccountCollection.AdjustCrowns(target.AccountId,
-                stored => TryAdjustCrowns(stored, change, out var after) ? after : null, out var before);
-            balance = new(applied, before, applied ? before + change : before);
+            var applied = AccountCollection.TryAdjustCrowns(target.AccountId, change, out var after);
+            balance = new(applied, applied ? after - change : after, after);
         }
 
         if (balance.Problem is not null) {
@@ -190,8 +189,8 @@ internal static class AccountAdministration {
     /// Applies a Crowns change through an online account's session. Returns null when the account is not online.
     /// </summary>
     /// <remarks>
-    /// An online player's Crowns are cached by their session, which saves the cached balance after each purchase,
-    /// so the change must be made there; that session's Crown Shop also tells their client.
+    /// An online player's session caches their Crowns, so the change is made there to keep that copy current;
+    /// that session's Crown Shop also tells their client.
     /// </remarks>
     internal static CrownChange AdjustOnlineCrowns(IActorRefFactory actors, ulong accountId, int change) {
         var player = OnlinePlayerCollection.GetOnlinePlayers()
@@ -214,16 +213,6 @@ internal static class AccountAdministration {
 
             return new(false, 0, 0, "The player's session did not answer, so the change may not have applied. Look the account up again before retrying.");
         }
-    }
-
-    /// <summary>
-    /// Adds a signed change to a balance unless it would go below zero or past the largest balance.
-    /// </summary>
-    internal static bool TryAdjustCrowns(int before, int change, out int after) {
-        var result = (long) before + change;
-        after = result is >= 0 and <= int.MaxValue ? (int) result : before;
-
-        return result is >= 0 and <= int.MaxValue;
     }
 
     internal static string FormatCrowns(long crowns) => crowns.ToString("N0", CultureInfo.InvariantCulture);

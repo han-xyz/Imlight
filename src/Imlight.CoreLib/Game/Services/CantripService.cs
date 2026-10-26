@@ -119,11 +119,6 @@ internal class CantripService(SessionActor sessionActor) : MessageService(sessio
         SendToSocket(message);
     }
 
-    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONETRANSFER))]
-    private void ReceiveZoneTransferRequest(ZONE_102_PROTOCOL.MSG_ZONETRANSFER message) {
-        TellOtherServices(message);
-    }
-
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_ADDEFFECT))]
     private void ReceiveAddEffect(GAME_5_PROTOCOL.MSG_ADDEFFECT message) {
         SendToSocket(message);

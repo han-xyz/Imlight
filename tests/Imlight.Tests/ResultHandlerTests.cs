@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -44,8 +44,10 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Results;
+using Imlight.CoreLib.Game.Results.Contexts;
 using Imlight.CoreLib.Game.Results.Handlers;
 using Imlight.CoreLib.Game.Zone.Core;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
@@ -56,6 +58,7 @@ namespace Imlight.Tests;
 public sealed class ResultHandlerTests : IDisposable {
 
     private const uint WoodChestOpenedTemplateId = 1374674914;
+    private const uint AddExpansionHash = 0x5820E493;
     private const string ChestName = "Chest_01";
     private const ulong CharacterId = 1001;
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(5);
@@ -135,6 +138,13 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
+    public void AddExpansionHash_RegistersAResult() {
+        var type = new ServerGeneratedTypeRegistry().LookupType(AddExpansionHash);
+
+        Assert.True(typeof(Result).IsAssignableFrom(type));
+    }
+
+    [Fact]
     public void ResPlaySound_KnownName_ResolvesTemplate() {
         var success = Execute<ResPlaySoundHandler>(new ResPlaySound { m_soundName = "Wood Chest Opened" });
 
@@ -150,6 +160,146 @@ public sealed class ResultHandlerTests : IDisposable {
         Assert.True(success);
         Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
     }
+
+    public static TheoryData<Result> UnhandledQuestResults => [
+        new ResWizPlayMusic(),
+        new ResDownloadPackage(),
+        new ResDownloadElement(),
+        new ResMarkZoneNoWarn(),
+        new ResTimeStampEntry(),
+        new ResAddMissionDoor(),
+        new ResRemoveMissionDoor(),
+        new ResCinematic(),
+        new ResAddBadge(),
+        new ResAddTrainingPoints(),
+        new ResAddTreasureSpell(),
+        new ResAddEncounterXP(),
+        new ResReInteract(),
+        new ResSetGardeningLevel(),
+        new ResAddExpansion(),
+    ];
+
+    [Theory]
+    [MemberData(nameof(UnhandledQuestResults))]
+    public void UnhandledQuestResults_AllRegistered(Result result) {
+        var handler = ResultDispatcher.FindHandlerForResult(result.GetType(), new PlayerContext(_player.Receiver, result));
+
+        Assert.NotNull(handler);
+    }
+
+    [Fact]
+    public void ResWizPlayMusic_ForwardsToClient() {
+        var success = Execute<ResWizPlayMusicHandler>(new ResWizPlayMusic {
+            m_musicName = "WizardCity4M",
+            m_fadeTime = 3f,
+            m_startDelay = 1.5f,
+        });
+
+        Assert.True(success);
+        var playMusic = Assert.IsType<WIZARD_12_PROTOCOL.MSG_PLAYMUSIC>(_player.Receive(s_timeout));
+        Assert.Equal(("WizardCity4M", 3f, 1.5f), (playMusic.SoundFilename.ToString(), playMusic.FadeTime, playMusic.StartDelay));
+    }
+
+    [Fact]
+    public void ResAddBadge_WithoutBadgeStorage_Succeeds() {
+        Assert.True(Execute<ResAddBadgeHandler>(new ResAddBadge { m_badgeName = "FinishG14BarkinghamPalace" }));
+    }
+
+    [Fact]
+    public void ResAddTrainingPoints_AddsOnePoint() {
+        Assert.Equal(4, ResAddTrainingPointsHandler.TrainingPointsAfterGrant(3));
+    }
+
+    [Fact]
+    public void ResAddEncounterXP_SendsTheExperienceToTheSession() {
+        Assert.True(Execute<ResAddEncounterXPHandler>(new ResAddEncounterXP { m_experience = 25 }));
+
+        var gainXp = Assert.IsType<CHARACTER_103_PROTOCOL.MSG_GAINXP>(_player.Receive(s_timeout));
+        Assert.Equal(25, gainXp.XP);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("No Such Card")]
+    public void ResAddTreasureSpell_UnresolvedCard_GrantsNothing(string spellName) {
+        var result = new ResAddTreasureSpell { m_spellName = spellName };
+        var player = StubPlayer(new Wizard { CharId = CharacterId });
+
+        Assert.True(Execute<ResAddTreasureSpellHandler>(result, new PlayerContext(player, result)));
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    [Fact]
+    public void ResGiveSpell_TemplateId_NamesTheRecipient() {
+        Assert.True(Execute<ResGiveSpellHandler>(new ResGiveSpell { m_templateID = 35528, m_spellID = 2064457962 }));
+
+        var rebuild = Assert.IsType<TUTORIAL_108_PROTOCOL.MSG_TUTORIALREBUILDDUELHAND>(_player.Receive(s_timeout));
+        Assert.Equal([2064457962u], rebuild.SpellIdsToGrant);
+        Assert.Equal(35528UL, rebuild.RecipientTemplateId);
+    }
+
+    [Fact]
+    public void ResSetGardeningLevel_UnlocksGardening() {
+        var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) };
+        var result = new ResSetGardeningLevel();
+
+        Assert.True(Execute<ResSetGardeningLevelHandler>(result, new PlayerContext(StubPlayer(wizard), result)));
+        Assert.Equal(1, wizard.GameStats.m_gardeningLevel);
+    }
+
+    [Fact]
+    public void ResSetGardeningLevel_KeepsHigherLevel() {
+        var wizard = new Wizard { GameStats = new ServerWizGameStats(MagicSchool.Fire, 1) { m_gardeningLevel = 5 } };
+        var result = new ResSetGardeningLevel();
+
+        Assert.True(Execute<ResSetGardeningLevelHandler>(result, new PlayerContext(StubPlayer(wizard), result)));
+        Assert.Equal(5, wizard.GameStats.m_gardeningLevel);
+    }
+
+    [Fact]
+    public void ResReInteract_AsksSessionToRefreshThePersona() {
+        var result = new ResReInteract { m_personaName = "GH2-HFJORD-NPC15_Persona" };
+
+        Assert.True(Execute<ResReInteractHandler>(result));
+
+        var request = Assert.IsType<CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH>(_player.Receive(s_timeout));
+        Assert.Equal("GH2-HFJORD-NPC15_Persona", request.PersonaName);
+    }
+
+    [Fact]
+    public void ResActorDialog_ReportsTheDialogToTheSession() {
+        Assert.True(Execute<ResActorDialogHandler>(new ResActorDialog()));
+
+        Assert.IsType<WIZARD_12_PROTOCOL.MSG_ACTORDIALOG>(_player.Receive(s_timeout));
+        Assert.IsType<CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN>(_player.Receive(s_timeout));
+    }
+
+    [Fact]
+    public void ResTeleport_FromQuestGoal_SendsZoneTransferToDestination() {
+        var result = new ResTeleport {
+            m_destinationZone = "WizardCity/Interiors/WC_SchoolStorm",
+            m_destinationLoc = "-85.74344,6.126312,0.5001201,-1.578804",
+        };
+
+        Assert.True(Execute<ResTeleportHandler>(result, QuestGoalContext(result)));
+
+        var transfer = Assert.IsType<ZONE_102_PROTOCOL.MSG_ZONETRANSFER>(_player.Receive(s_timeout));
+        Assert.Equal(("WizardCity/Interiors/WC_SchoolStorm", true, CharacterId),
+            (transfer.DestinationZone, transfer.SendToClient, transfer.OwnerCharId));
+    }
+
+    [Fact]
+    public void ResTeleport_FromQuestGoal_WithoutDestination_FailsAndSendsNothing() {
+        var result = new ResTeleport { m_destinationZone = "" };
+
+        Assert.False(Execute<ResTeleportHandler>(result, QuestGoalContext(result)));
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    private GenericResultContext QuestGoalContext(Result result)
+        => new(new ResultList { m_results = [result] }, _player.Receiver,
+            new WizClientObject { m_characterId = CharacterId },
+            questName: "WC-COMMONS-MAIN-002-STORM", goalName: "Goal 1");
 
     private bool Execute<THandler>(Result result) where THandler : ActorBase
         => Execute<THandler>(result, new PlayerContext(_player.Receiver, result));

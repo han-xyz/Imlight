@@ -16,15 +16,19 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+using System.Collections.Generic;
 using System.Linq;
+using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
 using Raven.Client.Documents;
+using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Shared.Items;
+using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Raven.Client.Documents.Session;
 using System;
-using System.Collections.Generic;
-using Imcodec.ObjectProperty.TypeCache;
 
 namespace Imlight.CoreLib.WizardData.Collections;
 
@@ -126,7 +130,75 @@ public static class AccountCollection {
 
         account.InfractionHistory = new InfractionHistory(account.AccountId, infractions);
 
+        if (!characterListOnly) {
+            account.SharedBank ??= new AccountSharedBank();
+            LoadSharedBank(session, account.AccountId, account.SharedBank);
+        }
+
         return account;
+    }
+
+    private static void LoadSharedBank(IDocumentSession session, ulong accountId, AccountSharedBank sharedBank) {
+        // The shared bank items are stored like character items, owned by the account id.
+        sharedBank.Items = LoadSharedItems(session, accountId, sharedBank.ItemIds);
+        sharedBank.Reagents = LoadSharedDocuments<ClientReagentItem>(session, WizardReagentCollection.CollectionName, accountId, sharedBank.ReagentIds);
+        sharedBank.Snacks = LoadSharedDocuments<ClientPetSnackItem>(session, WizardPetSnackCollection.CollectionName, accountId, sharedBank.SnackIds);
+    }
+
+    /// <summary>
+    /// Reads the shared bank of a loaded account again from the database, so the lists the session holds match
+    /// what another session of the same account has moved since. It takes the account lane, so no move runs
+    /// while the ids and the documents are read.
+    /// </summary>
+    /// <param name="account">The account whose shared bank is replaced.</param>
+    /// <returns><c>false</c> when the account is not stored or the read failed; the shared bank is left as it was.</returns>
+    internal static bool ReloadSharedBank(Account account) {
+        try {
+            return WithWriteLane(account.AccountId, () => {
+                using var session = s_store.OpenSession();
+                var storedAccount = session.Query<Account>(collectionName: CollectionName)
+                    .FirstOrDefault(stored => stored.AccountId == account.AccountId);
+                if (storedAccount is null) {
+                    return false;
+                }
+
+                var reloaded = storedAccount.SharedBank ?? new AccountSharedBank();
+                LoadSharedBank(session, account.AccountId, reloaded);
+                account.SharedBank = reloaded;
+
+                return true;
+            });
+        } catch (Exception ex) {
+            Logger.Error("Failed to reload the shared bank of account {AccountId}: {Reason}",
+                Logger.Args(account.AccountId, ex.Message));
+
+            return false;
+        }
+    }
+
+    internal static List<WizClientObjectItem> LoadSharedItems(IDocumentSession session, ulong accountId, List<ulong> ids) {
+        var items = LoadSharedDocuments<WizClientObjectItem>(session, WizardItemCollection.CollectionName, accountId, ids);
+
+        // Pets stored before their behaviors followed the template order would break the client's read of the bank.
+        foreach (var pet in items.Where(item => PetFactory.IsPetTemplate(ItemHelper.GetTemplateId(item)))) {
+            CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        }
+
+        return items;
+    }
+
+    internal static List<T> LoadSharedDocuments<T>(IDocumentSession session, string collectionName, ulong accountId, List<ulong> ids)
+        where T : WizClientObjectItem {
+        if (ids.Count == 0) {
+            return [];
+        }
+
+        // Waits for the index, because a document that just changed owner has to be found too.
+        return [.. session.Query<T>(collectionName: collectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .Where(x => x.m_characterId == accountId)
+            .ToList()
+            .Where(item => ids.Contains(item.m_globalID))];
     }
 
     /// <summary>
@@ -185,6 +257,11 @@ public static class AccountCollection {
             foreach (var characterId in account.CharacterIds) {
                 WizardCollection.DeleteCharacter(characterId);
             }
+
+            // Delete the items of the shared bank.
+            WizardItemCollection.DeleteInventory(accountId);
+            WizardReagentCollection.DeleteReagentBag(accountId);
+            WizardPetSnackCollection.DeleteSnackBag(accountId);
 
             // Delete the account.
             session.Delete(account);
@@ -453,26 +530,18 @@ public static class AccountCollection {
         });
     }
 
-    /// <summary>
-    /// Adds a signed amount to the crowns balance of an account that is not online.
-    /// </summary>
-    /// <param name="accountId">The unique identifier of the account to update.</param>
-    /// <param name="adjust">Given the stored balance, returns the new one, or null to leave it unchanged.</param>
-    /// <param name="before">The stored balance before the change.</param>
-    /// <returns>true if the balance changed; otherwise, false.</returns>
-    public static bool AdjustCrowns(ulong accountId, Func<int, int?> adjust, out int before) {
+    public static bool TryAdjustCrowns(ulong accountId, int delta, out int balance) {
+        // Applied to the stored balance under the account's write lane, never to a session's cached copy,
+        // so two sessions of one account cannot overwrite each other's spend or refund.
+        var applied = false;
         var stored = 0;
-        var changed = false;
-        UpdateAccount(accountId, acc => {
-            stored = acc.Crowns;
-            if (adjust(stored) is int after) {
-                acc.Crowns = after;
-                changed = true;
-            }
+        var found = UpdateAccount(accountId, acc => {
+            applied = Account.TryApplyCrownsDelta(acc.Crowns, delta, out stored);
+            acc.Crowns = stored;
         });
-        before = stored;
 
-        return changed;
+        balance = stored;
+        return found && applied;
     }
 
     public static bool AddGiftMail(ulong accountId, Mail mail) {
@@ -490,5 +559,76 @@ public static class AccountCollection {
                 acc.GiftMailbox.Remove(toRemove);
             }
         });
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> against an account and one of its characters in a single session, so every
+    /// document the callback stores or deletes commits together with them. The account lane is taken first and the
+    /// character lane second, the only order the lanes allow.
+    /// </summary>
+    /// <param name="accountId">The account to load.</param>
+    /// <param name="charId">The character to load.</param>
+    /// <param name="work">
+    /// Receives the open session, the stored account and the stored character; returns <c>true</c> to save the session.
+    /// </param>
+    /// <returns><c>false</c> when the account or the character is missing or <paramref name="work"/> returned <c>false</c>.</returns>
+    internal static bool UpdateAccountAndCharacterWithSession(ulong accountId, ulong charId,
+                                                              Func<IDocumentSession, Account, Wizard, bool> work) {
+        return WithWriteLane(accountId, () => WizardCollection.UpdateCharacterWithSession(charId, (session, storedCharacter) => {
+            var storedAccount = session.Query<Account>(collectionName: CollectionName)
+                .FirstOrDefault(account => account.AccountId == accountId);
+
+            return storedAccount is not null && work(session, storedAccount, storedCharacter);
+        }));
+    }
+
+    /// <summary>
+    /// Charges Crowns to an account's stored balance together with a character's backpack in one transaction: the
+    /// Crowns, the ids of the backpack, the documents of the items that entered it and the documents of the items that left it. Either all
+    /// of it is stored or none of it, so a crash cannot leave the player with both the paid-for item and its inputs.
+    /// </summary>
+    /// <param name="account">The account, whose in-memory Crowns are set to the stored balance once it is stored.</param>
+    /// <param name="crownsCost">The Crowns to take off the stored balance.</param>
+    /// <param name="owner">The character, whose backpack is written as it is in memory.</param>
+    /// <param name="addedItems">Items that entered the backpack and are not stored yet.</param>
+    /// <param name="removedItemIds">Items that left the backpack, whose stored documents are deleted.</param>
+    /// <returns><c>true</c> when everything is stored; <c>false</c> when nothing changed, as when the stored balance is short.</returns>
+    internal static bool SaveCrownsWithBackpack(Account account, int crownsCost, Wizard owner,
+                                                IReadOnlyCollection<WizClientObjectItem> addedItems,
+                                                IReadOnlyCollection<ulong> removedItemIds) {
+        try {
+            var balance = 0;
+            var stored = UpdateAccountAndCharacterWithSession(account.AccountId, owner.CharId, (session, storedAccount, storedOwner) => {
+                if (!Account.TryApplyCrownsDelta(storedAccount.Crowns, -crownsCost, out balance)) {
+                    return false;
+                }
+
+                storedAccount.Crowns = balance;
+                storedOwner.InventoryBehavior = owner.InventoryBehavior;
+                foreach (var item in addedItems) {
+                    WizardItemCollection.StoreInSession(session, item);
+                }
+
+                foreach (var itemId in removedItemIds) {
+                    // The backpack no longer lists the item, so a missing document is only an unused leftover.
+                    if (!WizardItemCollection.DeleteInSession(session, owner.CharId, itemId)) {
+                        Logger.Warning("Removed item {ItemId} of character {CharId} has no stored item to delete.",
+                            Logger.Args(itemId, owner.CharId));
+                    }
+                }
+
+                return true;
+            });
+            if (stored) {
+                account.Crowns = balance;
+            }
+
+            return stored;
+        } catch (Exception ex) {
+            Logger.Error("Failed to save the Crowns of account {AccountId} with the backpack of character {CharId}: {Reason}",
+                Logger.Args(account.AccountId, owner.CharId, ex.Message));
+
+            return false;
+        }
     }
 }

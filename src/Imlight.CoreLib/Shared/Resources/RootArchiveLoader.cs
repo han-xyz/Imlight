@@ -46,12 +46,25 @@ internal static class RootArchiveLoader {
     public static void ReloadRootWad() {
         Logger.Information("Loading Root.wad into memory..");
 
+        // todo: dispose the old archive here once Imcodec's Archive is disposable; it holds the wad stream.
         s_rootWad = ResourceWad();
         if (s_rootWad is not null) {
             IsLoaded = true;
         }
 
         Logger.Information("Root.wad successfully loaded into memory.");
+    }
+
+    /// <summary>
+    /// Replaces Root.wad with <paramref name="archive"/>. Only tests call this, to read game data without
+    /// the patch server or the local wad cache.
+    /// </summary>
+    /// <param name="archive">The archive to read root files from.</param>
+    internal static void UseRootWad(Archive archive) {
+        lock (s_lock) {
+            s_rootWad = archive;
+            IsLoaded = true;
+        }
     }
 
     /// <summary>

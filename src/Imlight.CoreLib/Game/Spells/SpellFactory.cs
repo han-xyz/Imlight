@@ -53,8 +53,14 @@ internal class SpellFactory : RootDirectoryResourceSingleton<SpellFactory>, IMem
 
     protected override string DirectoryName => "Spells/";
 
-    private static readonly Dictionary<uint, SpellTemplate> s_spellTemplates = [];
+    internal static readonly Dictionary<uint, SpellTemplate> s_spellTemplates = [];
     private static readonly Dictionary<uint, string> s_spellTemplatePaths = [];
+
+    private static readonly Dictionary<string, string> s_spellNameAliases = new() {
+        ["Natural Fire Ellf"] = "NA Fire Elf-01",
+    };
+
+    private static readonly HashSet<string> s_missingSpellNames = [];
 
     protected override void AfterLoad() {
         var serializer = new BindSerializer();
@@ -97,11 +103,17 @@ internal class SpellFactory : RootDirectoryResourceSingleton<SpellFactory>, IMem
     /// <param name="spellName">The name of the spell.</param>
     /// <returns>The spell with the specified name, or null if the spell template is not found.</returns>
     internal static Spell GetSpell(string spellName) {
-        var stringHash = StringHash.Compute(spellName);
-        if (!s_spellTemplates.TryGetValue(stringHash, out var spellTemplate)) {
-            Logger.Warning("Could not find spell template with name {0}.", Logger.Args(spellName));
+        if (!TryGetTemplateHash(spellName, out var stringHash)) {
+            lock (s_missingSpellNames) {
+                if (s_missingSpellNames.Add(spellName)) {
+                    Logger.Debug("Could not find spell template with name {0}.", Logger.Args(spellName));
+                }
+            }
+
             return null;
         }
+
+        var spellTemplate = s_spellTemplates[stringHash];
 
         var spellTemplateActualPath = s_spellTemplatePaths[stringHash];
         if (!CoreObjectFactory.TryGetCoreTemplateID(x => x.m_filename == spellTemplateActualPath, out uint templateId)) {
@@ -110,6 +122,20 @@ internal class SpellFactory : RootDirectoryResourceSingleton<SpellFactory>, IMem
         }
 
         return GetSpell(spellTemplate, templateId);
+    }
+
+    internal static bool TryGetTemplateHash(string spellName, out uint stringHash) {
+        stringHash = StringHash.Compute(spellName);
+        if (s_spellTemplates.ContainsKey(stringHash)) {
+            return true;
+        }
+
+        if (!s_spellNameAliases.TryGetValue(spellName, out var aliasedName)) {
+            return false;
+        }
+
+        stringHash = StringHash.Compute(aliasedName);
+        return s_spellTemplates.ContainsKey(stringHash);
     }
 
     /// <summary>

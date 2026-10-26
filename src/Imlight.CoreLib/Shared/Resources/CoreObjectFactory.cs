@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -134,6 +134,44 @@ public class CoreObjectFactory : RootSingleResourceSingleton<CoreObjectFactory>,
             // If we did find the instance, set it's name to be proper and add it to the CoreObject behaviors.
             behaviorInstance.m_behaviorTemplateNameID = behaviorHash;
             coreObject.m_inactiveBehaviors.Add(behaviorInstance);
+        }
+
+        return coreObject;
+    }
+
+    /// <summary>
+    /// Moves each behavior of a core object into the slot its template gives that behavior, because the client pairs
+    /// behaviors with template slots by index. A slot no behavior fills gets a new one; a behavior no slot takes goes
+    /// after the template's slots.
+    /// </summary>
+    /// <typeparam name="T">The type of the core object.</typeparam>
+    /// <param name="coreObject">The core object whose behaviors are moved.</param>
+    /// <returns>The core object.</returns>
+    public static T ArrangeBehaviorsByTemplate<T>(T coreObject) where T : CoreObject, new() {
+        var template = GetCoreTemplate(coreObject.m_templateID);
+        if (template is null) {
+            return coreObject;
+        }
+
+        var carriedBehaviors = coreObject.m_inactiveBehaviors ?? [];
+        InitializeCoreObjectBehaviors(coreObject, template);
+        var slots = coreObject.m_inactiveBehaviors;
+        var templateSlotCount = slots.Count;
+        var filledSlots = new HashSet<int>();
+        foreach (var behavior in carriedBehaviors.Where(behavior => behavior is not null)) {
+            var slot = Enumerable.Range(0, templateSlotCount)
+                .FirstOrDefault(index => !filledSlots.Contains(index) && slots[index]?.GetType() == behavior.GetType(), -1);
+            if (slot < 0) {
+                Logger.Debug("Template {Tid} has no free slot for behavior {Behavior}, so it goes after the template's slots.",
+                    Logger.Args(coreObject.m_templateID, behavior.GetType().Name));
+                slots.Add(behavior);
+
+                continue;
+            }
+
+            behavior.m_behaviorTemplateNameID = slots[slot].m_behaviorTemplateNameID;
+            slots[slot] = behavior;
+            filledSlots.Add(slot);
         }
 
         return coreObject;

@@ -28,13 +28,17 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
+using Imlight.CoreLib.Game.Housing.Items;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.Shared.Utilities;
 using Imlight.CoreLib.WizardData.Collections;
+using Raven.Client.Exceptions;
 
 namespace Imlight.CoreLib.WizardData.Models.Player;
 
@@ -72,7 +76,14 @@ public class Wizard {
     public string MarkedZoneDisplayName { get; set; }
     public uint LastLoginTime { get; set; }
     public long TimeHomeLastClicked { get; set; }
+
+    /// <summary>
+    /// The lot of every house the character was issued, by the template of the deed or structure item.
+    /// </summary>
+    public Dictionary<uint, ulong> HouseLots { get; set; } = [];
+
     public byte World { get; set; }
+    public PrivacyOptions PrivacyOptions { get; set; } = new();
     public Imcodec.Math.Vector3 Location {
         get => GameObject.m_location;
         set {
@@ -94,6 +105,7 @@ public class Wizard {
     public WizardCharacterBehavior WizardAvatar { get; set; }
     public ServerWizPlayerNameBehavior PlayerNameBehavior { get; set; }
     public ServerWizInventoryBehavior InventoryBehavior { get; set; }
+    public ServerWizStorageBehavior StorageBehavior { get; set; }
     public ServerWizEquipmentBehavior EquipmentBehavior { get; set; }
     public ServerMagicSchoolBehavior MagicSchoolBehavior { get; set; }
     public ServerWizSpellbookBehavior SpellbookBehavior { get; set; }
@@ -105,6 +117,8 @@ public class Wizard {
     public ServerWizGameStats GameStats { get; set; }
     public ServerPetOwnerBehavior PetOwnerBehavior { get; set; }
     public ServerQuestBehavior QuestBehavior { get; set; }
+    public ServerBadgeBehavior BadgeBehavior { get; set; } = new();
+    public ServerPvPEloBehavior PvPEloBehavior { get; set; } = new();
 
     [JsonIgnore] public Account Account;
     // Holds character data before attachment and is replaced by the initialized player object.
@@ -132,6 +146,10 @@ public class Wizard {
     [JsonIgnore] public ushort GameServerPort;
     [JsonIgnore] public string QueuedZoneName;
     [JsonIgnore] public string QueuedZoneLocation;
+    [JsonIgnore] public ulong AttachedLotGid;
+    [JsonIgnore] public ulong AtticContainerGid;
+    [JsonIgnore] public int AtticItemCount;
+    [JsonIgnore] public ulong QueuedLotGid;
     [JsonIgnore] internal DynamodSet DynamodSet { get; set; }
     [JsonIgnore] internal bool IsInCombatGrace { get; set; }
     [JsonIgnore] internal bool IsInDuel { get; set; }
@@ -148,6 +166,8 @@ public class Wizard {
     public ByteString RadialMenu3Data { get; set; } = new ByteString();
 
     public ByteString CrownShopWishlist { get; set; }
+    public ByteString HiddenQuestsData { get; set; }
+    public List<TieredSpellProgress> TieredSpells { get; set; } = [];
     /// <summary>
     /// Tracks hatched pets for MSG_PETTOMEPETADDED. Key: pet global ID, Value: pet template ID.
     /// Runtime-only; not persisted (the pet tome behavior blob handles persistence).
@@ -156,7 +176,6 @@ public class Wizard {
 
     [JsonIgnore] private bool _hasLocation;
     [JsonIgnore] private bool _hasOrientation;
-    [JsonIgnore] private readonly uint _defaultPetTemplateId = 126412; // Black Cat Pet;
     private const string TutorialStartingZone = "WizardCity/Tutorial_Exterior";
 
     // Constructor: Used for deserialization. If this is not present, the default constructor will be used.
@@ -183,6 +202,7 @@ public class Wizard {
         InitializeDefaultPetSnackBehavior();
         InitializePetOwnerBehavior();
         InitializeDefaultInventory();
+        InitializeDefaultStorage();
         InitializeAlchemyBehavior();
 
         ObjectStateBehavior = new ServerObjectStateBehavior("PlayerMobileStates");
@@ -236,18 +256,20 @@ public class Wizard {
         var powerPipDifference = newBaseStats.m_pipChance - oldBaseStats.m_pipChance;
         var energyDifference = newBaseStats.m_petEnergy - oldBaseStats.m_petEnergy;
 
-        GameStats.m_baseHitpoints += healthDifference;
-        GameStats.m_baseMana += manaDifference;
-        GameStats.m_powerPipBase += powerPipDifference;
+        GameStats.m_baseHitpoints = Math.Max(0, GameStats.m_baseHitpoints + healthDifference);
+        GameStats.m_baseMana = Math.Max(0, GameStats.m_baseMana + manaDifference);
+        GameStats.m_powerPipBase = Math.Max(0, GameStats.m_powerPipBase + powerPipDifference);
         GameStats.m_energyMax += energyDifference;
-
-        // Don't reset XP - preserve overflow XP when leveling up.
-        // XP is managed by AddExperiencePoints/RemoveExperiencePoints.
 
         // Persistent save.
         WizardCollection.UpdateCharacterLevel(this);
 
         return true;
+    }
+
+    public void ResetExperiencePointsToLevel() {
+        MagicSchoolBehavior.ExperiencePoints = MagicLevelsConfig.GetExperiencePointsAtLevel(MagicSchoolBehavior.Level);
+        WizardCollection.UpdateCharacterLevel(this);
     }
 
     public void AddExperiencePoints(int xp) {
@@ -308,6 +330,13 @@ public class Wizard {
         TimeHomeLastClicked = time;
 
         WizardCollection.UpdateCharacterTimeWentHome(this, time);
+    }
+
+    public void SetInvisibleToFriends(bool invisible) {
+        GameStats.m_invisibleToFriends = invisible;
+
+        // Persistent save.
+        WizardCollection.UpdateCharacterGameStats(this);
     }
 
     public void SetMaxGold(int maxGold) {
@@ -407,19 +436,35 @@ public class Wizard {
         WizardCollection.UpdateCharacterTrainingPoints(this);
     }
 
-    public bool AddItemToInventory(ulong itemId, out WizClientObjectItem item) {
+    public bool AddItemToInventory(ulong itemId, out WizClientObjectItem item)
+        => TryCreateItem(itemId, out item) && AddInitializedItemToInventory(item);
+
+    /// <summary>
+    /// Builds a new item of a template for this character, with its behaviors initialized. A pet template builds a
+    /// hatched pet. The item is stored nowhere yet.
+    /// </summary>
+    /// <param name="templateId">The template of the item.</param>
+    /// <param name="item">The new item, or null.</param>
+    /// <returns>False when the template is not an item or a pet that can be made.</returns>
+    public bool TryCreateItem(ulong templateId, out WizClientObjectItem item) {
+        if (templateId <= uint.MaxValue && PetFactory.IsPetTemplate((uint) templateId)) {
+            item = PetFactory.CreateHatchedPet(CharId, (uint) templateId);
+
+            return item is not null;
+        }
+
         // The template may be a spell, a missing template or anything else that is not an item.
-        item = CoreObjectFactory.FinalizeCoreObject(itemId) as WizClientObjectItem;
+        item = CoreObjectFactory.FinalizeCoreObject(templateId) as WizClientObjectItem;
         if (item is null) {
-            Logger.Warning("Cannot add template {0} to inventory because it is not an item.",
-                Logger.Args(itemId));
+            Logger.Warning("Cannot create item from template {0} because it is not an item.", Logger.Args(templateId));
 
             return false;
         }
 
         item.m_characterId = (GID) CharId;
+        CoreObjectFactory.InitializeCoreObjectBehaviors(item, item.m_templateID);
 
-        return AddItemToInventory(item);
+        return true;
     }
 
     public bool AddItemToInventory(ulong itemId, int primaryColor, int secondaryColor, out WizClientObjectItem item) {
@@ -441,6 +486,16 @@ public class Wizard {
 
         CoreObjectFactory.InitializeCoreObjectBehaviors(item, item.m_templateID);
 
+        return AddInitializedItemToInventory(item);
+    }
+
+    public bool AddInitializedItemToInventory(WizClientObjectItem item) {
+        if (item is null) {
+            Logger.Warning("Cannot add item to inventory because that item does not exist.");
+
+            return false;
+        }
+
         // Ensure that the item is associated with this Wizard.
         item.m_characterId = (GID) CharId;
 
@@ -453,10 +508,7 @@ public class Wizard {
         }
 
         // Persistent save.
-        WizardItemCollection.AddItem(item);
-        WizardCollection.UpdateCharacterItems(this);
-
-        return true;
+        return SaveItemsOrRollBack(() => InventoryBehavior.RemoveItem(item), item);
     }
 
     public bool AddHatchedPetToInventory(uint templateId, out WizClientObjectItem pet) {
@@ -467,6 +519,10 @@ public class Wizard {
             return false;
         }
 
+        return AddPetToInventory(pet);
+    }
+
+    public bool AddPetToInventory(WizClientObjectItem pet) {
         if (!InventoryBehavior.AddItem(pet)) {
             Logger.Warning("Could not add pet {0} to player {1}'s inventory.",
                 Logger.Args(pet.m_globalID, PlayerNameBehavior.GetWizardName()));
@@ -474,10 +530,8 @@ public class Wizard {
             return false;
         }
 
-        WizardItemCollection.AddItem(pet);
-        WizardCollection.UpdateCharacterItems(this);
-
-        return true;
+        // Persistent save.
+        return SaveItemsOrRollBack(() => InventoryBehavior.RemoveItem(pet), pet);
     }
 
     public bool RemoveItemFromInventory(ulong itemId) {
@@ -600,19 +654,7 @@ public class Wizard {
             return false;
         }
 
-        // If this object is a mount, we'll also want to update the mount owner behavior.
-        if (slot.SlotType == EquipmentSlotType.Mount) {
-            UnequipMount();
-        }
-        if (slot.SlotType == EquipmentSlotType.Pet) {
-            UnequipPet();
-        }
-        if (slot.SlotType == EquipmentSlotType.PIITeleportEffect) {
-            UnequipTeleportEffect();
-        }
-        if (slot.SlotType == EquipmentSlotType.PIIVictoryDance) {
-            UnequipVictoryDance();
-        }
+        unequipEffects = ResetUnequippedSlot(template, slot.SlotType);
 
         // Persistent save.
         WizardCollection.UpdateCharacterItems(this);
@@ -621,9 +663,196 @@ public class Wizard {
         Logger.Debug("{0} unequips item {1}",
             Logger.Args(PlayerNameBehavior.GetWizardName(), itemId));
 
-        unequipEffects = CharacterEffectHelper.RemoveEffectsFromWizard(this, template);
+        return true;
+    }
+
+    /// <summary>
+    /// Takes a rental item away, worn or in the backpack. A worn item does not pass through the backpack, so a full backpack cannot block it.
+    /// </summary>
+    /// <param name="itemId">The global id of the rental item.</param>
+    /// <param name="removal">What the caller needs to tell the client; null if the wizard does not have the item.</param>
+    /// <returns>False if the wizard has no such item.</returns>
+    internal bool RemoveRentalItem(ulong itemId, out RentalRemoval removal) {
+        removal = null;
+
+        lock (HousingItems.BackpackLock(this)) {
+            var worn = EquipmentBehavior.GetItem(itemId);
+            var item = worn ?? InventoryBehavior.GetItem(itemId);
+            if (item is null) {
+                return false;
+            }
+
+            removal = worn is null ? RentalRemoval.FromBackpack(item) : UnequipWornRental(item);
+
+            if (InventoryBehavior.HasItem(itemId)) {
+                InventoryBehavior.RemoveItem(itemId, out _);
+            }
+
+            if (InteriorStowedMountId == itemId) {
+                InteriorStowedMountId = 0;
+                WizardCollection.UpdateCharacterInteriorStowedMount(this);
+            }
+
+            WizardCollection.UpdateCharacterItems(this);
+        }
+
+        // A document that outlives a failed delete is not in the id lists, so the rental cannot come back.
+        try {
+            WizardItemCollection.RemoveItem(CharId, itemId);
+        } catch (Exception ex) when (ex is TimeoutException or RavenException) {
+            Logger.Error("Failed to delete the document of expired rental {0}: {1}", Logger.Args(itemId, ex.Message));
+        }
 
         return true;
+    }
+
+    /// <summary>
+    /// Adds an item whose behaviors are initialized to the character's bank and stores it.
+    /// </summary>
+    /// <param name="item">The item to bank.</param>
+    /// <returns>False if the bank is full, already holds the item or the character could not be saved.</returns>
+    public bool AddItemToBank(WizClientObjectItem item) {
+        if (item is null) {
+            Logger.Warning("Cannot add item to the bank because that item does not exist.");
+
+            return false;
+        }
+
+        // Ensure that the item is associated with this Wizard.
+        item.m_characterId = (GID) CharId;
+
+        if (!StorageBehavior.AddItem(item)) {
+            Logger.Warning("Could not add item {ItemId} to the bank of character {CharId}.",
+                Logger.Args(item.m_globalID.Full, CharId));
+
+            return false;
+        }
+
+        // Persistent save.
+        return SaveItemsOrRollBack(() => StorageBehavior.RemoveItem(item), item);
+    }
+
+    /// <summary>
+    /// Moves a backpack item into the bank. Both lists change in the one write of the wizard document, so the
+    /// item is never in two lists or in none. An equipped item has to be unequipped first.
+    /// </summary>
+    /// <param name="itemId">The global id of the backpack item.</param>
+    /// <returns>False, with nothing changed, if the item is not in the backpack, the bank has no room or the save failed.</returns>
+    public bool InventoryToBankTransfer(ulong itemId) {
+        var item = InventoryBehavior.GetItem(itemId);
+        if (item is null) {
+            Logger.Warning("Tried to bank item with global id {ItemId} that does not exist in the inventory of character {CharId}.",
+                Logger.Args(itemId, CharId));
+
+            return false;
+        }
+
+        if (!StorageBehavior.HasRoomFor(item)) {
+            Logger.Debug("The bank of character {CharId} is full. Cannot bank item {ItemId}.", Logger.Args(CharId, itemId));
+
+            return false;
+        }
+
+        lock (HousingItems.BackpackLock(this)) {
+            if (!InventoryBehavior.RemoveItem(item)) {
+                return false;
+            }
+
+            if (!StorageBehavior.AddItem(item)) {
+                InventoryBehavior.AddItem(item);
+
+                return false;
+            }
+
+            // Persistent save.
+            return SaveItemsOrRollBack(() => {
+                StorageBehavior.RemoveItem(item);
+                InventoryBehavior.AddItem(item);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Moves a bank item into the backpack. Both lists change in the one write of the wizard document.
+    /// </summary>
+    /// <param name="itemId">The global id of the bank item.</param>
+    /// <returns>False, with nothing changed, if the item is not in the bank, the backpack is full or the save failed.</returns>
+    public bool BankToInventoryTransfer(ulong itemId) {
+        var item = StorageBehavior.GetItem(itemId);
+        if (item is null) {
+            Logger.Warning("Tried to take item with global id {ItemId} from the bank of character {CharId}, but it is not there.",
+                Logger.Args(itemId, CharId));
+
+            return false;
+        }
+
+        if (InventoryBehavior.FreeSlots < 1) {
+            Logger.Debug("The inventory of character {CharId} is full. Cannot take item {ItemId} from the bank.", Logger.Args(CharId, itemId));
+
+            return false;
+        }
+
+        lock (HousingItems.BackpackLock(this)) {
+            if (!StorageBehavior.RemoveItem(item)) {
+                return false;
+            }
+
+            if (!InventoryBehavior.AddItem(item)) {
+                StorageBehavior.AddItem(item);
+
+                return false;
+            }
+
+            // Persistent save.
+            return SaveItemsOrRollBack(() => {
+                InventoryBehavior.RemoveItem(item);
+                StorageBehavior.AddItem(item);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Raises the capacity of the bank, see <see cref="ServerWizStorageBehavior.Expand"/>, and saves it. The caller
+    /// tells the client with MSG_UPDATEBANKLIMIT.
+    /// </summary>
+    /// <param name="amount">How much capacity to add.</param>
+    /// <returns>False, with the capacity as it was, if the character could not be saved.</returns>
+    public bool ExpandBank(int amount) {
+        var previous = StorageBehavior.BankLimit;
+        StorageBehavior.Expand(amount);
+
+        return SaveItemsOrRollBack(() => StorageBehavior.BankLimit = previous);
+    }
+
+    /// <summary>
+    /// Sets the capacity of the bank to a value, whatever the expansion ceiling says, and saves it. The caller tells
+    /// the client with MSG_UPDATEBANKLIMIT.
+    /// </summary>
+    /// <param name="limit">The new capacity, 1 or more.</param>
+    /// <returns>False, with the capacity as it was, if the limit is below 1 or the character could not be saved.</returns>
+    public bool SetBankLimit(int limit) {
+        if (limit < 1) {
+            return false;
+        }
+
+        var previous = StorageBehavior.BankLimit;
+        StorageBehavior.BankLimit = limit;
+
+        return SaveItemsOrRollBack(() => StorageBehavior.BankLimit = previous);
+    }
+
+    private bool SaveItemsOrRollBack(System.Action rollBack, params WizClientObjectItem[] addedItems) {
+        try {
+            if (WizardCollection.UpdateCharacterItems(this, addedItems)) {
+                return true;
+            }
+        } catch (Exception ex) {
+            Logger.Error("Could not save the items of character {CharId}: {Reason}", Logger.Args(CharId, ex.Message));
+        }
+
+        rollBack();
+
+        return false;
     }
 
     public bool AddSnack(ulong snackTemplateId, out ClientPetSnackItem snackObj) {
@@ -756,6 +985,49 @@ public class Wizard {
 
         return true;
     }
+
+    public bool AddReagents(ulong templateId, int count, out ClientReagentItem stack) {
+        if (!AlchemyBehavior.AddReagents(templateId, count, () => NewReagentStack(templateId), out stack)) {
+            return false;
+        }
+
+        // Persistent save. The stored stack takes the bag's quantity, whether the stack is new or grown.
+        WizardReagentCollection.AddReagent(stack);
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    private ClientReagentItem NewReagentStack(ulong templateId) {
+        if (CoreObjectFactory.FinalizeCoreObject(templateId) is not ClientReagentItem stack) {
+            return null;
+        }
+
+        stack.m_characterId = (GID) CharId;
+
+        return stack;
+    }
+
+    public bool RemoveReagents(ulong templateId, int count, out ClientReagentItem reagent) {
+        if (!AlchemyBehavior.RemoveReagents(templateId, count, out reagent)) {
+            return false;
+        }
+
+        // Persistent save.
+        if (reagent.m_quantity <= 0) {
+            WizardReagentCollection.RemoveReagent(reagent);
+        }
+        else {
+            WizardReagentCollection.UpdateReagent(reagent);
+        }
+
+        WizardCollection.UpdateCharacterItems(this);
+
+        return true;
+    }
+
+    public void SaveTieredSpells()
+        => WizardCollection.UpdateCharacterTieredSpells(this);
 
     public void SetNameOverride(string newName) {
         PlayerNameBehavior.NameOverride = newName;
@@ -1201,7 +1473,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.StartQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.StartQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save the start of quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
@@ -1226,7 +1501,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.IncrementQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.IncrementQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save progress on quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
@@ -1251,7 +1529,10 @@ public class Wizard {
 
         // Persistent save.
         WizardCollection.UpdateCharacterQuestBehavior(this);
-        QuestInstanceCollection.CompleteQuestGoal(questId, goalName);
+        if (!QuestInstanceCollection.CompleteQuestGoal(questId, goalName)) {
+            Logger.Warning("Could not save the completion of quest goal {0} for quest {1} for player {2}.",
+                Logger.Args(goalName, questName, PlayerNameBehavior.GetWizardName()));
+        }
 
         return true;
     }
@@ -1339,12 +1620,14 @@ public class Wizard {
     internal void AfterDatabaseLoad() {
         AfterDatabaseLoadTeleportEffect();
         AfterDatabaseLoadVictoryDance();
+        AfterDatabaseLoadStorageBehavior();
         AfterDatabaseLoadWizardGameStats();
         AfterDatabaseLoadSpellbookBehavior();
         AfterDatabaseloadMountOwnerBehavior();
         AfterDatabaseLoadPetOwnerBehavior();
         AfterDatabaseLoadAlchemyBehavior();
         AfterDatabaseLoadQuestBehavior();
+        AfterDatabaseLoadRentals();
 
         ObjectStateBehavior ??= new ServerObjectStateBehavior("PlayerMobileStates");
         FriendsBehavior ??= new ServerFriendBehavior();
@@ -1443,6 +1726,34 @@ public class Wizard {
         WizardCollection.UpdateCharacterMount(this);
     }
 
+    private RentalRemoval UnequipWornRental(WizClientObjectItem item) {
+        var template = ItemHelper.GetItemTemplate(item);
+        var slotType = ItemHelper.GetItemSlot(template).SlotType;
+        var slotIndex = EquipmentBehavior.GetSlotOfItem(item.m_globalID);
+        EquipmentBehavior.UnequipItem(item.m_globalID);
+        var removedEffects = ResetUnequippedSlot(template, slotType);
+
+        return new RentalRemoval(true, slotType, slotIndex, removedEffects, item.m_templateID.Full);
+    }
+
+    private List<GameEffectBase> ResetUnequippedSlot(WizItemTemplate template, EquipmentSlotType slotType) {
+        // If this object is a mount, we'll also want to update the mount owner behavior.
+        if (slotType == EquipmentSlotType.Mount) {
+            UnequipMount();
+        }
+        if (slotType == EquipmentSlotType.Pet) {
+            UnequipPet();
+        }
+        if (slotType == EquipmentSlotType.PIITeleportEffect) {
+            UnequipTeleportEffect();
+        }
+        if (slotType == EquipmentSlotType.PIIVictoryDance) {
+            UnequipVictoryDance();
+        }
+
+        return CharacterEffectHelper.RemoveEffectsFromWizard(this, template);
+    }
+
     private void UnequipMount() {
         MountOwnerBehavior.UnequipMount();
 
@@ -1500,13 +1811,21 @@ public class Wizard {
             InventoryItemIds = []
         };
 
+    private void InitializeDefaultStorage()
+        => StorageBehavior = new ServerWizStorageBehavior();
+
+    private void AfterDatabaseLoadStorageBehavior() {
+        // Characters stored before the bank existed have no storage behavior yet.
+        StorageBehavior ??= new ServerWizStorageBehavior();
+    }
+
     /// <summary>
     /// Adds the starter kit items (config-driven) to the inventory and database.
     /// Called on first attach: in the tutorial, or on first login when the tutorial is disabled.
     /// </summary>
-    public List<WizClientObjectItem> GrantStarterItems(IEnumerable<ulong> templateIds) {
+    internal List<WizClientObjectItem> GrantStarterItems(StarterKit kit) {
         var itemsToAdd = new List<WizClientObjectItem>();
-        foreach (var templateId in templateIds) {
+        foreach (var templateId in kit.ItemTemplateIds) {
             var cObj = (WizClientObjectItem) CoreObjectFactory.FinalizeCoreObject(templateId);
             CoreObjectFactory.InitializeCoreObjectBehaviors(cObj, templateId);
             cObj.m_characterId = (GID) CharId;
@@ -1517,16 +1836,18 @@ public class Wizard {
         }
 
         // The default pet must be created through the pet factory. 
-        var defaultPet = PetFactory.CreateHatchedPet(CharId, _defaultPetTemplateId);
-        if (defaultPet is null) {
-            Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
-                Logger.Args(_defaultPetTemplateId, CharId));
-        }
-        else {
-            // Add pet to inventory.
-            itemsToAdd.Add(defaultPet);
-            InventoryBehavior.InventoryItemIds.Add(defaultPet.m_globalID);
-            InventoryBehavior.Items.Add(defaultPet);
+        if (kit.PetTemplateId != 0) {
+            var defaultPet = PetFactory.CreateHatchedPet(CharId, kit.PetTemplateId);
+            if (defaultPet is null) {
+                Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
+                    Logger.Args(kit.PetTemplateId, CharId));
+            }
+            else {
+                // Add pet to inventory.
+                itemsToAdd.Add(defaultPet);
+                InventoryBehavior.InventoryItemIds.Add(defaultPet.m_globalID);
+                InventoryBehavior.Items.Add(defaultPet);
+            }
         }
 
         // This is a different method that bulk uploads items to the database.
@@ -1577,6 +1898,15 @@ public class Wizard {
 
     private void InitializeSpellbookBehavior() {
         SpellbookBehavior = new ServerWizSpellbookBehavior();
+    }
+
+    private void AfterDatabaseLoadRentals() {
+        // A stored 0 predates the not-started default, and the client would show it as a started timer.
+        foreach (var (_, behavior) in RentalItems.Enumerate(this)) {
+            if (behavior.m_expireTime == 0) {
+                behavior.m_expireTime = RentalItems.UNSET;
+            }
+        }
     }
 
     private void InitializeDefaultPetSnackBehavior() {

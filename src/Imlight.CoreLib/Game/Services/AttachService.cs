@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -51,6 +51,10 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Housing.Access;
+using Imlight.CoreLib.Game.Housing.Attics;
+using Imlight.CoreLib.Game.Housing.Houses;
+using Imlight.CoreLib.Game.World;
 using Imlight.CoreLib.Shared.Character;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -195,9 +199,31 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
             CloseStaleSession();
         }
 
+        // The client chooses the zone, so a normal account asking for a QA zone is sent to its saved or starting zone.
+        var admittedZone = ZoneAccess.AttachZone(_wizard.Account, zoneName, _wizard.Zone,
+            ConfigurationManager.Settings["Character.StartingZone"]);
+        if (admittedZone != zoneName) {
+            location = admittedZone == _wizard.Zone
+                ? Util.GetCompactStringFromVector(_wizard.Location, _wizard.Orientation)
+                : "";
+            zoneName = admittedZone;
+        }
+
+        // The client chooses the zone and the lot, so a house zone has to be one the character may enter before it is loaded.
+        if (!HouseAttach.TryAuthorize(_wizard, zoneName, message.ZoneID, out var house, out _)) {
+            Logger.Information("Session {SessionId} MSG_ATTACH refused: house zone {Zone} is not available to character {CharId}",
+                Logger.Args(SessionActor.SessionID, zoneName, _wizard.CharId));
+
+            SendToSocket(new GAME_5_PROTOCOL.MSG_ATTACHFAILED {
+                Error = 1
+            });
+
+            return;
+        }
+
         // Tell the game server that the user has attached, and now we need to find a zone process for their
         // zone, or create a new one. This is an internal zone transfer that does not involve the client.
-        var zoneDetails = InternalZoneTransfer(zoneName, location);
+        var zoneDetails = InternalZoneTransfer(zoneName, location, house?.OwnerCharId ?? 0);
         if (zoneDetails is null || zoneDetails.ErrorCode != 0) {
             Logger.Information("Session {SessionId} MSG_ATTACH failed: zone {Zone} transfer error {ErrorCode}",
                 Logger.Args(SessionActor.SessionID, zoneName, zoneDetails?.ErrorCode ?? 1));
@@ -213,6 +239,11 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
         _wizard.SetZone(zoneName, zoneDetails.ZoneDisplayName);
         _wizard.SetPersistentLocation(zoneDetails.Location);
         _wizard.SetPersistentOrientation(zoneDetails.Orientation);
+
+        // The services that answer MSG_PRELOGIN read the lot, and the client's owner check reads it from the deed.
+        _wizard.AttachedLotGid = house?.LotGid ?? 0;
+        HouseDeeds.ApplyLots(_wizard);
+        AtticRegistry.Describe(_wizard);
 
         // Tiny anti-cheat measure. When the character object is created, we recalculate the game stats.
         CharacterHelper.RecalculateGameStats(_wizard);
@@ -269,7 +300,7 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
 
             // Set zone data.
             ZoneName = zoneName,
-            ZoneID = message.ZoneID,
+            ZoneID = house is null ? message.ZoneID : house.LotGid,
             DynamicZoneID = zoneDetails.DynamicZoneId,
             DynamicServerProcID = zoneDetails.DynamicZoneId,
             CriticalObjects = criticalObjectData,
@@ -277,7 +308,10 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
 
             // Misc
             ShowSubscriberIcon = 0,
-            TestServer = 0 // TODO: This must be disabled in order for gifts to work!
+            TestServer = 0, // TODO: This must be disabled in order for gifts to work!
+
+            // Every captured login sends 1, in every zone; the client hides its Pick Up All button while it is 0.
+            PickUpAllEnabled = 1
         };
 
         // Send MSG_PRELOGIN so other services may do their work before we send the final login complete message.
@@ -377,7 +411,7 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
     }
 
     private void ValidateAttach(GAME_5_PROTOCOL.MSG_ATTACH message) {
-        if (!ValidateLoginKey(message.LoginKey, message.UserID, out var account)) {
+        if (!ValidateLoginKey(message.LoginKey, message.UserID, message.ZoneName, out var account)) {
             SendToSocket(new GAME_5_PROTOCOL.MSG_ATTACHFAILED() {
                 Error = 1,
                 Rejected = 1,
@@ -403,12 +437,13 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
         SetCharacterInternally(wizard);
     }
 
-    private bool ValidateLoginKey(ByteString key, ulong userId, out Account account) {
+    private bool ValidateLoginKey(ByteString key, ulong userId, string zoneName, out Account account) {
         account = null;
 
         var msg = new SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEY() {
             Key = key,
             UserID = userId,
+            ZoneName = zoneName,
             SessionActor = SessionActor
         };
         var rsp = AskServer<SERVER_100_PROTOCOL.MSG_VALIDATESESSIONKEYRSP>(msg);
@@ -441,12 +476,14 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
         this._wizard = character;
     }
 
-    private ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP InternalZoneTransfer(string zoneName, string location) {
+    private ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP InternalZoneTransfer(string zoneName, string location, ulong houseOwnerCharId = 0) {
+        var (ownerCharId, isPrivate) = ZoneInstanceOwners.Resolve(_wizard.CharId, zoneName, houseOwnerCharId);
         var zoneMsg = new ZONE_102_PROTOCOL.MSG_ZONETRANSFER {
             DestinationZone = zoneName,
             DestinationLocation = location,
             SendToClient = false,
-            OwnerCharId = _wizard.CharId,
+            OwnerCharId = ownerCharId,
+            IsPrivate = isPrivate,
         };
 
         return AskOtherService<ZONE_102_PROTOCOL.MSG_ZONETRANSFERRSP>(zoneMsg);

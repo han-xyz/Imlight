@@ -98,6 +98,7 @@ public class Account {
     public int PurchasedCharacterSlots { get; set; }
     public int Crowns { get; set; }
     public List<Mail> GiftMailbox { get; set; } = new();
+    public AccountSharedBank SharedBank { get; set; } = new();
 
     [JsonIgnore] public List<Wizard> Characters = new();
     [JsonIgnore] public InfractionHistory InfractionHistory { get; set; }
@@ -338,6 +339,26 @@ public class Account {
     public bool SetCrowns(int crownsAmount) {
         this.Crowns = crownsAmount;
         return AccountCollection.UpdateCrowns(this.AccountId, crownsAmount);
+    }
+
+    public bool TryAdjustCrowns(int delta) {
+        if (!AccountCollection.TryAdjustCrowns(this.AccountId, delta, out var balance)) {
+            return false;
+        }
+
+        this.Crowns = balance;
+        return true;
+    }
+
+    internal static bool TryApplyCrownsDelta(int balance, int delta, out int result) {
+        result = balance;
+        var adjusted = (long) balance + delta;
+        if (adjusted is < 0 or > int.MaxValue) {
+            return false;
+        }
+
+        result = (int) adjusted;
+        return true;
     }
 
     public bool AddMail(Mail mail) {

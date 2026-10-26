@@ -42,6 +42,7 @@ internal sealed class WizardReagentCollection {
 
         // The in-bag stack already counts the added unit, so its quantity replaces the stored one.
         var existingReagent = session.Query<ClientReagentItem>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .FirstOrDefault(x => x.m_characterId == reagentItem.m_characterId
                               && x.m_templateID == reagentItem.m_templateID);
         if (existingReagent != null) {
