@@ -32,9 +32,10 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
@@ -94,6 +95,36 @@ public sealed class NpcInteractionTests {
         table.Remove(FirstPlayer);
 
         Assert.False(table.TryRoute(FirstPlayer, 0, out _, out _));
+    }
+
+    [Fact]
+    public void OptionTable_FindServiceIndex_ReturnsOwnersFirstFlatIndex() {
+        var vendor = new FakeService();
+        var offer = new FakeService();
+        var table = new ServiceOptionTable();
+        table.Build(FirstPlayer, [(vendor, [new EquipmentShopOption()]), (offer, [new EquipmentShopOption(), new EquipmentShopOption()])]);
+
+        Assert.True(table.TryFindServiceIndex(FirstPlayer, offer, out var index));
+        Assert.Equal(1u, index);
+        Assert.False(table.TryFindServiceIndex(FirstPlayer, new FakeService(), out _));
+    }
+
+    [Fact]
+    public void Refresh_VendorOnlyNpc_IsSkipped() {
+        var vendor = new InteractVendorComponent(null!);
+
+        Assert.False(InteractServiceMementoComponent.RefreshesOnQuestChange([vendor]));
+        Assert.True(InteractServiceMementoComponent.RefreshesOnQuestChange([vendor, new InteractQuestOfferComponent(null!)]));
+    }
+
+    [Fact]
+    public void Refresh_SuffixedPersonaName_MatchesNpc() {
+        Assert.True(InteractServiceMementoComponent.IsPersona("WC-ST01-NPC03", "WC-ST01-NPC03_Persona"));
+    }
+
+    [Fact]
+    public void Refresh_OtherPersonaName_DoesNotMatchNpc() {
+        Assert.False(InteractServiceMementoComponent.IsPersona("WC-ST01-NPC03", "WC-ST01-NPC04_Persona"));
     }
 
     [Fact]
@@ -197,6 +228,26 @@ public sealed class NpcInteractionTests {
         Assert.Null(ClickUnderway(table, underway, 0, [alpha, beta], wizard));
     }
 
+    [Fact]
+    public void Refresh_AcceptingOnlyOfferedQuest_OfferReplacedByPersonaGoal() {
+        var alpha = new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" };
+        var offerComponent = new InteractQuestOfferComponent(null!);
+        var offer = new CachingService(wizard
+            => [.. InteractQuestOfferComponent.FindAvailableQuests([alpha], wizard).Select(offerComponent.ToOfferOption)]);
+        var persona = new CachingService(wizard
+            => wizard.HasQuest("Alpha") ? [new GoalEntry { m_displayKey = "Title_Alpha" }] : []);
+        var table = new ServiceOptionTable();
+        var wizard = NewWizard();
+        table.Build(FirstPlayer, InteractServiceMementoComponent.CollectFreshOptions([offer, persona], wizard));
+
+        wizard.QuestBehavior.CurrentQuestInstances.Add(new QuestInstance { QuestName = "Alpha" });
+        var options = table.Build(FirstPlayer, InteractServiceMementoComponent.CollectFreshOptions([offer, persona], wizard));
+
+        Assert.IsType<GoalEntry>(Assert.Single(options));
+        Assert.True(table.TryRoute(FirstPlayer, 0, out var owner, out _));
+        Assert.Same(persona, owner);
+    }
+
     private static QuestTemplate ClickOffer(ServiceOptionTable table, InteractQuestOfferComponent offer, uint index,
                                             QuestTemplate[] npcQuests, Wizard wizard) {
         Assert.True(table.TryRoute(FirstPlayer, index, out var owner, out var localIndex));
@@ -222,6 +273,35 @@ public sealed class NpcInteractionTests {
         }
 
         return new Wizard { QuestBehavior = questBehavior };
+    }
+
+    private sealed class CachingService(Func<Wizard, List<ServiceOptionBase>> optionsFor) : IServiceComponent {
+
+        private readonly Dictionary<ulong, List<ServiceOptionBase>> _cachedOptions = [];
+
+        public string ServiceName => "";
+        public string NpcIcon => "";
+        public string NpcNameKey => "";
+        public string NpcTextKey => "";
+        public WizBangs WizBang => default;
+        public string StateName => "";
+        public string InteractWizBang => "";
+        public string DisplayKey => "";
+
+        public IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard playerCharacter) {
+            if (!_cachedOptions.TryGetValue(playerCharacter.CharId, out var options)) {
+                options = optionsFor(playerCharacter);
+                _cachedOptions[playerCharacter.CharId] = options;
+            }
+
+            return options;
+        }
+
+        public void ForgetPlayerState(Wizard playerCharacter)
+            => _cachedOptions.Remove(playerCharacter.CharId);
+
+        public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) { }
+
     }
 
     private sealed class FakeService : IServiceComponent {

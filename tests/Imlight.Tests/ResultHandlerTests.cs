@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -225,6 +225,24 @@ public sealed class ResultHandlerTests : IDisposable {
 
         Assert.True(Execute<ResSetGardeningLevelHandler>(result, new PlayerContext(StubPlayer(wizard), result)));
         Assert.Equal(5, wizard.GameStats.m_gardeningLevel);
+    }
+
+    [Fact]
+    public void ResReInteract_AsksSessionToRefreshThePersona() {
+        var result = new ResReInteract { m_personaName = "GH2-HFJORD-NPC15_Persona" };
+
+        Assert.True(Execute<ResReInteractHandler>(result));
+
+        var request = Assert.IsType<CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH>(_player.Receive(s_timeout));
+        Assert.Equal("GH2-HFJORD-NPC15_Persona", request.PersonaName);
+    }
+
+    [Fact]
+    public void ResActorDialog_ReportsTheDialogToTheSession() {
+        Assert.True(Execute<ResActorDialogHandler>(new ResActorDialog()));
+
+        Assert.IsType<WIZARD_12_PROTOCOL.MSG_ACTORDIALOG>(_player.Receive(s_timeout));
+        Assert.IsType<CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN>(_player.Receive(s_timeout));
     }
 
     private bool Execute<THandler>(Result result) where THandler : ActorBase

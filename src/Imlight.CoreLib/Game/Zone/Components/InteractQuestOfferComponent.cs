@@ -70,6 +70,7 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
 
     public string ServiceName => "QuestOfferService";
+    public bool FollowsQuestState => true;
     public string NpcIcon => "";
     public string NpcNameKey => null;
     public string NpcTextKey => null;
@@ -203,6 +204,9 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         WizBang = state.AvailableQuests.Count > 0 ? WizBangs.StartQuest : WizBangs.None;
     }
 
+    public void ForgetPlayerState(Wizard playerCharacter)
+        => _cachedPlayerStates.Remove(playerCharacter.CharId);
+
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var memento = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         var playerId = playerObject.m_globalID.Full;
@@ -288,6 +292,7 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
         };
 
         playerActor.Tell(dialogMsg);
+        playerActor.Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
     private void SendQuestOfferDialog(IActorRef playerActor, QuestTemplate quest, Wizard playerCharacter) {

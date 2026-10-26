@@ -51,6 +51,63 @@ namespace Imlight.Tests;
 public sealed class QuestServiceTests {
 
     [Fact]
+    public void NpcRefresh_QuestCompletion_SendsOneRefresh() {
+        var gate = new NpcRefreshGate();
+
+        Assert.True(gate.Request());
+        Assert.False(gate.Request());
+        Assert.False(gate.Request("WC-ST01-NPC03_Persona"));
+
+        Assert.True(gate.TryTake(out var personaNames));
+        Assert.Equal([null], personaNames);
+        Assert.False(gate.TryTake(out _));
+    }
+
+    [Fact]
+    public void NpcRefresh_RequestedWhileDialogOpen_SentAfterClose() {
+        var gate = new NpcRefreshGate();
+        gate.DialogShown();
+
+        Assert.True(gate.Request());
+        Assert.False(gate.TryTake(out _));
+
+        Assert.True(gate.DialogClosed(out var personaNames));
+        Assert.Equal([null], personaNames);
+    }
+
+    [Fact]
+    public void NpcRefresh_CloseOfAnotherDialog_DoesNotRelease() {
+        var gate = new NpcRefreshGate();
+        gate.DialogShown();
+        gate.DialogShown();
+        gate.Request();
+
+        Assert.False(gate.DialogClosed(out _));
+        Assert.True(gate.DialogClosed(out _));
+    }
+
+    [Fact]
+    public void NpcRefresh_StrayClose_DoesNotConsumeALaterDialog() {
+        var gate = new NpcRefreshGate();
+        Assert.False(gate.DialogClosed(out _));
+        gate.DialogShown();
+
+        gate.Request();
+
+        Assert.False(gate.TryTake(out _));
+    }
+
+    [Fact]
+    public void NpcRefresh_PersonaOnly_TargetsThatPersona() {
+        var gate = new NpcRefreshGate();
+
+        Assert.True(gate.Request("WC-ST01-NPC03_Persona"));
+
+        Assert.True(gate.TryTake(out var personaNames));
+        Assert.Equal(["WC-ST01-NPC03_Persona"], personaNames);
+    }
+
+    [Fact]
     public void QuestResume_MissingTemplate_SkipsAndSendsRest() {
         var templates = new Dictionary<string, QuestTemplate> {
             ["First"] = new() { m_questName = "First" },

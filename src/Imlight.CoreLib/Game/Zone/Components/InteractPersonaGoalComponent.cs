@@ -82,6 +82,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
     private const float QUEST_COMPLETION_TRANSITION_DELAY_MS = 1500f;
 
     public string ServiceName => "QuestPersonaGoalService";
+    public bool FollowsQuestState => true;
     public string NpcIcon => "";
     public string NpcNameKey => null;
     public string NpcTextKey => null;
@@ -227,6 +228,9 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
         var state = GetOrUpdatePlayerState(playerWizard, forceUpdate: true);
         WizBang = state.HasActiveGoal ? WizBangs.CompleteQuestGoal : WizBangs.None;
     }
+
+    public void ForgetPlayerState(Wizard playerCharacter)
+        => _cachedPlayerStates.Remove(playerCharacter.CharId);
 
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var state = GetOrUpdatePlayerState(playerCharacter);
@@ -428,10 +432,19 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
             return;
         }
 
+        var questOffer = Entity.GetComponentOfType<InteractQuestOfferComponent>();
+        if (questOffer is null
+            || !serviceMementoComponent.TryFindServiceIndex(message.PlayerObject.m_globalID.Full, questOffer, out var serviceIndex)) {
+            Logger.Debug("Dropping delayed quest offer of NPC {Npc}: no quest offer listed for the player",
+                Logger.Args(Entity.ActiveGameObject.m_debugName));
+
+            return;
+        }
+
         var questOfferMsg = new ZONE_102_PROTOCOL.MSG_ZONEINTERACTION {
             GlobalID = Entity.ActiveGameObject.m_nMobileID,
-            ServiceName = "QuestOfferService",
-            ServiceIndex = 0,
+            ServiceName = questOffer.ServiceName,
+            ServiceIndex = serviceIndex,
             PlayerActor = message.PlayerActor,
             PlayerCharacter = message.PlayerCharacter,
             PlayerObject = message.PlayerObject,

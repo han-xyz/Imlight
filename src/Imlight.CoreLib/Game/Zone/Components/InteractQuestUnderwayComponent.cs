@@ -48,6 +48,7 @@ using Imlight.Common;
 using Imlight.CoreLib.Game.Madlibs;
 using Imlight.CoreLib.Game.WizBang;
 using Imlight.CoreLib.Game.Zone.Core;
+using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -67,6 +68,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
 
     public string ServiceName => "QuestUnderwayService";
+    public bool FollowsQuestState => true;
     public string NpcIcon => "";
     public string NpcNameKey => null;
     public string NpcTextKey => null;
@@ -187,6 +189,9 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         WizBang = state.UnderwayQuests.Count > 0 ? WizBangs.UnfinishedQuest : WizBangs.None;
     }
 
+    public void ForgetPlayerState(Wizard playerCharacter)
+        => _cachedPlayerStates.Remove(playerCharacter.CharId);
+
     public void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex) {
         var memento = Entity.GetComponentOfType<InteractServiceMementoComponent>();
         var playerId = playerObject.m_globalID.Full;
@@ -265,6 +270,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         };
 
         playerActor.Tell(dialogMsg);
+        playerActor.Tell(new CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN());
     }
 
 }

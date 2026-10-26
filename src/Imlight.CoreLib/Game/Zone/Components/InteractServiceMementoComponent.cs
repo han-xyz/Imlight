@@ -61,6 +61,8 @@ public interface IServiceComponent {
 
     IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard playerCharacter);
     void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex);
+    void ForgetPlayerState(Wizard playerCharacter) { }
+    bool FollowsQuestState => false;
 
     string ServiceName { get; }
     string NpcIcon { get; }
@@ -172,6 +174,9 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     internal ServiceOptionBase FindSentOption(ulong playerId, IServiceComponent owner, uint localIndex)
         => _optionTable.TryGetSentOption(playerId, owner, localIndex, out var option) ? option : null;
 
+    internal bool TryFindServiceIndex(ulong playerId, IServiceComponent owner, out uint serviceIndex)
+        => _optionTable.TryFindServiceIndex(playerId, owner, out serviceIndex);
+
     internal void ResendServiceOptions(IActorRef playerActor, Wizard wizard, ulong playerId) {
         SendLeaveServiceRange(playerActor);
         SendServiceOptions(playerActor, wizard, playerId, reinteract: 2);
@@ -231,6 +236,31 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         serviceComponent.OnServiceInteraction(playerActor, playerCharacter, playerObject, localIndex);
     }
+
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED))]
+    private void ReceiveQuestStateChanged(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED message) {
+        if (!RefreshesOnQuestChange(_serviceComponents)) {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(message.PersonaName)
+            && !(Entity.Template is GameObjectTemplate template && IsPersona(template.m_objectName, message.PersonaName))) {
+            return;
+        }
+
+        if (!_playersInInteractionRange.TryGetValue(message.PlayerGlobalId, out var playerActor)) {
+            return;
+        }
+
+        SendLeaveServiceRange(playerActor);
+        SendActorServiceOptions(playerActor, message.PlayerGlobalId);
+    }
+
+    internal static bool RefreshesOnQuestChange(IEnumerable<IServiceComponent> components)
+        => components.Any(component => component.FollowsQuestState);
+
+    internal static bool IsPersona(string objectName, string personaName)
+        => PersonaName.Normalize(objectName) == PersonaName.Normalize(personaName);
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL))]
     private void HandleWizBangUpdateInterval(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL message) {
@@ -363,9 +393,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
         var gameObjTemplate = Entity.Template as GameObjectTemplate;
 
-        var componentOptions = _serviceComponents
-            .Select(component => (Component: component, Options: component.GetServiceOptions(playerCharacter).ToList()))
-            .ToList();
+        var componentOptions = CollectFreshOptions(_serviceComponents, playerCharacter);
         var allOptions = _optionTable.Build(playerId, componentOptions);
         var componentsWithOptions = componentOptions
             .Where(x => x.Options.Count > 0)
@@ -397,6 +425,16 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
             m_serviceOptions = allOptions,
             m_personaMadlibs = _madlibBlock
         };
+    }
+
+    internal static List<(IServiceComponent Component, List<ServiceOptionBase> Options)> CollectFreshOptions(
+        IReadOnlyList<IServiceComponent> components, Wizard playerCharacter) {
+        // Every component first, since one component's options can read another's state (a pending persona goal hides offers).
+        foreach (var component in components) {
+            component.ForgetPlayerState(playerCharacter);
+        }
+
+        return [.. components.Select(component => (component, component.GetServiceOptions(playerCharacter).ToList()))];
     }
 
     private void SetMadLibBlock() {

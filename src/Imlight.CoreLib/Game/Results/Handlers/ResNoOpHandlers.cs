@@ -131,14 +131,3 @@ internal sealed class ResAddEncounterXPHandler : BaseResultHandler<ResAddEncount
     }
 
 }
-
-internal sealed class ResReInteractHandler : BaseResultHandler<ResReInteract> {
-
-    public override bool Execute(IResultContext context) {
-        // Re-interacting needs the persona's NPC, and the zone has no lookup by persona name yet; L19 adds one.
-        Logger.Debug("Re-interaction with {PersonaName} not sent.", Logger.Args(Result.m_personaName));
-
-        return true;
-    }
-
-}

@@ -87,6 +87,19 @@ internal sealed class ServiceOptionTable {
         return option is not null;
     }
 
+    public bool TryFindServiceIndex(ulong playerId, IServiceComponent owner, out uint serviceIndex) {
+        serviceIndex = 0;
+        var index = _routesByPlayer.TryGetValue(playerId, out var routes)
+            ? routes.FindIndex(r => ReferenceEquals(r.Owner, owner))
+            : -1;
+        if (index < 0) {
+            return false;
+        }
+
+        serviceIndex = (uint) index;
+        return true;
+    }
+
     public void Remove(ulong playerId)
         => _routesByPlayer.Remove(playerId);
 

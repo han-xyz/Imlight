@@ -86,6 +86,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private static readonly TimeSpan PENDING_GOAL_DIALOG_TIMEOUT = TimeSpan.FromMinutes(2);
+    private const string NpcRefreshDialogTimerKey = "npc-refresh-dialog";
+    private const string NpcRefreshFlushTimerKey = "npc-refresh-flush";
+    private static readonly TimeSpan NPC_REFRESH_SETTLE_DELAY = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan PERSONA_TRANSITION_DELAY = TimeSpan.FromMilliseconds(1500);
 
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
@@ -104,6 +107,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     private readonly List<PendingGoalCompletion> _pendingGoalCompletions = [];
     private bool _clientReportsPersonaCompletion;
+    private readonly NpcRefreshGate _npcRefresh = new();
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new QuestService(parentActor));
@@ -327,6 +331,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private void ReceiveCompletePersona(QUEST_MESSAGES_52_PROTOCOL.MSG_COMPLETEPERSONA message) {
         // Live's client sends this when a persona goal's completion dialog ends, naming the quest and goal.
         _clientReportsPersonaCompletion = true;
+        NoteDialogClosed("MSG_COMPLETEPERSONA");
 
         var pending = _pendingGoalCompletions
             .FirstOrDefault(p => p.QuestId == message.QuestID && p.GoalId == message.GoalID);
@@ -346,6 +351,8 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         if (string.Equals(completionType, DIALOG_ENTRY_EVENT_COMPLETION, StringComparison.OrdinalIgnoreCase)) {
             return;
         }
+
+        NoteDialogClosed("MSG_COMPLETEDIALOG");
 
         if (_clientReportsPersonaCompletion || _pendingGoalCompletions.Count == 0) {
             return;
@@ -896,6 +903,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         SendQuestStartingMessage(quest, questInstance);
+        RefreshNpcOptions();
 
         return true;
     }
@@ -1313,11 +1321,92 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                 CompleteQuest(questInstance);
             }
 
+            RefreshNpcOptions();
             return;
         }
 
         foreach (var g in gTemplates) {
             StartGoal(questInstance, g);
+        }
+
+        RefreshNpcOptions();
+    }
+
+    private void RefreshNpcOptions(string personaName = null) {
+        // The settle delay lets dialogs that results and zone triggers show for the same change be reported first.
+        if (_npcRefresh.Request(personaName)) {
+            Timers.StartSingleTimer(NpcRefreshFlushTimerKey, new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH(), NPC_REFRESH_SETTLE_DELAY);
+        }
+    }
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN))]
+    private void ReceiveDialogShown(CHARACTER_103_PROTOCOL.MSG_DIALOGSHOWN message)
+        => NoteDialogShown("MSG_DIALOGSHOWN");
+
+    private void NoteDialogShown(string source) {
+        _npcRefresh.DialogShown();
+        Logger.Debug("NPC refresh gate of {Session}: dialog shown ({Source}), {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, source, _npcRefresh.OpenDialogs));
+    }
+
+    private void NoteDialogClosed(string signal) {
+        var released = _npcRefresh.DialogClosed(out var personaNames);
+        Logger.Debug("NPC refresh gate of {Session}: dialog closed ({Signal}), {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, signal, _npcRefresh.OpenDialogs));
+
+        if (released) {
+            SendNpcRefresh(personaNames);
+        }
+    }
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH))]
+    private void ReceiveRequestNpcRefresh(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH message)
+        => RefreshNpcOptions(message.PersonaName);
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH))]
+    private void ReceiveFlushNpcRefresh(CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH message) {
+        IReadOnlyList<string> personaNames;
+        var taken = message.DialogTimedOut
+            ? _npcRefresh.TakeAfterDialogTimeout(out personaNames)
+            : _npcRefresh.TryTake(out personaNames);
+        if (taken) {
+            SendNpcRefresh(personaNames);
+            return;
+        }
+
+        // Safety net only: a dialog whose close never arrives must not hold the NPC options back for good.
+        if (_npcRefresh.IsWaitingForDialog) {
+            Logger.Debug("NPC refresh gate of {Session}: refresh held, {OpenDialogs} open",
+                Logger.Args(SessionActor.ActorRef.Path.Name, _npcRefresh.OpenDialogs));
+        }
+
+        if (_npcRefresh.IsWaitingForDialog && !Timers.IsTimerActive(NpcRefreshDialogTimerKey)) {
+            Timers.StartSingleTimer(NpcRefreshDialogTimerKey,
+                new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH { DialogTimedOut = true },
+                PENDING_GOAL_DIALOG_TIMEOUT);
+        }
+    }
+
+    private void SendNpcRefresh(IReadOnlyList<string> personaNames) {
+        Timers.Cancel(NpcRefreshDialogTimerKey);
+        Logger.Debug("NPC refresh gate of {Session}: refresh flushed for {Targets}, {OpenDialogs} open",
+            Logger.Args(SessionActor.ActorRef.Path.Name, string.Join(", ", personaNames.Select(name => name ?? "every NPC")),
+                _npcRefresh.OpenDialogs));
+
+        var zoneActor = SessionActor.GetZoneActor();
+        var playerObject = GetActiveGameObject();
+        if (zoneActor is null || playerObject is null) {
+            return;
+        }
+
+        foreach (var personaName in personaNames) {
+            zoneActor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
+                Messages = [new ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED {
+                    PlayerGlobalId = playerObject.m_globalID.Full,
+                    PersonaName = personaName,
+                }],
+                Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Paths,
+            });
         }
     }
 
@@ -1402,6 +1491,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         // Chain advance: completion stamps the "Complete" registry entry, which is the ReqHasEntry
         // prerequisite of the next quest in the dungeon's chain.
         TryGrantDungeonQuests(wizard);
+        RefreshNpcOptions();
     }
 
     private void SendGoalMessage(GoalTemplate gTemplate, QuestInstance qInstance, byte sendType = 0, bool forceSendDestZone = true) {
@@ -1875,6 +1965,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         };
 
         SendToSocket(dialogMsg);
+        NoteDialogShown(completionType);
     }
 
     private void RemoveDungeonQuestsOutsideZone(Wizard wizard) {
