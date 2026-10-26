@@ -142,10 +142,25 @@ public sealed class CrownShopTests : IDisposable {
     }
 
     [Fact]
-    public void BoosterPack_NeedsASlotPerLootTableAndPack() {
-        var pack = new BoosterPackTemplate { m_lootTables = ["Common", "Rare", "Epic"] };
+    public void BoosterPack_NeedsNoSlotBeforeItsLootIsRolled() {
+        var pack = new BoosterPackTemplate { m_lootTables = [.. Enumerable.Repeat("Table", 60)] };
 
-        Assert.Equal(6, GiftingService.CalculateRequiredInventorySlots(pack, 2));
+        Assert.Equal(0, GiftingService.CalculateRequiredInventorySlots(pack, 2));
+    }
+
+    [Fact]
+    public void PackLoot_TreasureCardsAndJewelsAreNotBackpackSlots_ButItemsAre() {
+        var inventory = new ServerWizInventoryBehavior { Items = [] };
+        for (var i = 0; i < inventory.NumItemsAllowed - 1; i++) {
+            inventory.Items.Add(new WizClientObjectItem());
+        }
+
+        var wizard = new Wizard { InventoryBehavior = inventory };
+        (uint, CoreTemplate) card = (1, new SpellTemplate());
+        (uint, CoreTemplate) item = (2, new WizItemTemplate());
+
+        Assert.True(PackManager.HasRoomFor(wizard, [card, card, item]));
+        Assert.False(PackManager.HasRoomFor(wizard, [item, item]));
     }
 
     [Fact]
