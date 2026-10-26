@@ -94,13 +94,12 @@ internal sealed class CrownShopCatalogue {
             }
 
             var isHenchman = IsInHenchmenCategory(item);
+            // Any listing in the henchmen category makes it a henchman, whatever tab lists it last.
             if (isHenchman) {
                 henchmen.Add(item.TemplateId);
-            } else {
-                henchmen.Remove(item.TemplateId);
             }
 
-            items[item.TemplateId] = ToCrownShopItem(item, isHenchman);
+            items[item.TemplateId] = ToCrownShopItem(item, henchmen.Contains(item.TemplateId));
         }
 
         return new CrownShopCatalogue(tabs, items, henchmen);

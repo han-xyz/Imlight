@@ -41,7 +41,6 @@
 
 using System;
 using System.Linq;
-using Imcodec.Cryptography;
 using Imcodec.ObjectProperty.TypeCache;
 
 namespace Imlight.CoreLib.Game.CrownShop;
@@ -64,11 +63,9 @@ public enum HenchmanSummonResult {
 
 internal static class HenchmanPurchase {
 
-    private static readonly int s_errorSigilFull = (int) StringHash.Compute("Error_HenchmenSigilFull");
-    private static readonly int s_errorNotInCombat = (int) StringHash.Compute("Error_NotInCombat");
-    private static readonly int s_errorPurchase = (int) StringHash.Compute("Error_PriceLockMismatch");
-    private static readonly int s_errorInPvP = (int) StringHash.Compute("Error_HenchmenInPVP");
-    private static readonly int s_errorPlanningPhase = (int) StringHash.Compute("Error_HenchmenPlanningPhase");
+    private static readonly int s_errorSigilFull = CrownShopErrors.Register("Error_HenchmenSigilFull");
+    private static readonly int s_errorInPvP = CrownShopErrors.Register("Error_HenchmenInPVP");
+    private static readonly int s_errorPlanningPhase = CrownShopErrors.Register("Error_HenchmenPlanningPhase");
 
     public static CrownShopPurchaseRoute Route(bool isInDuel, bool isCombatOnly, bool isHenchman) {
         if (!isInDuel) {
@@ -96,10 +93,8 @@ internal static class HenchmanPurchase {
     public static bool IsPvPEnabled(CoreTemplate itemTemplate)
         => itemTemplate?.m_behaviors.OfType<ElixirBehaviorTemplate>().Any(elixir => elixir.m_PvPEnabled) == true;
 
-    /// <summary>
-    /// Why the duel refuses a henchman before any slot is looked at, or null when it may summon.
-    /// </summary>
     public static HenchmanSummonResult? Refusal(bool isPvPDuel, bool isPvPEnabled, bool isPlanningPhase) {
+        // Checked before any slot is looked at; null means the duel may summon.
         if (isPvPDuel && !isPvPEnabled) {
             return HenchmanSummonResult.InPvP;
         }
@@ -107,15 +102,15 @@ internal static class HenchmanPurchase {
         return isPlanningPhase ? null : HenchmanSummonResult.NotPlanningPhase;
     }
 
-    internal static int PurchaseError => s_errorPurchase;
+    internal static int PurchaseError => CrownShopErrors.PriceLockMismatch;
 
     internal static int ErrorFor(HenchmanSummonResult result) => result switch {
         HenchmanSummonResult.Summoned => 0,
         HenchmanSummonResult.NoFreeSlot => s_errorSigilFull,
-        HenchmanSummonResult.NotInDuel => s_errorNotInCombat,
+        HenchmanSummonResult.NotInDuel => CrownShopErrors.NotInCombat,
         HenchmanSummonResult.InPvP => s_errorInPvP,
         HenchmanSummonResult.NotPlanningPhase => s_errorPlanningPhase,
-        _ => s_errorPurchase,
+        _ => CrownShopErrors.PriceLockMismatch,
     };
 
 }

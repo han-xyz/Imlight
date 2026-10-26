@@ -817,7 +817,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void ReceiveDismissMinion(COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
         var minion = SubCircles?.FirstOrDefault(x => x.SlotIndex == message.SubCircle);
         if (!_isActive || minion?.CombatParticipant is null || !IsDismissible(minion, message)) {
-            Logger.Warning("Duel {0} | dismiss of slot {1} refused: not the requester's minion or purchase.",
+            Logger.Warning("Duel {DuelId} | dismiss of slot {Slot} refused: not the requester's minion or purchase.",
                 Logger.Args(Duel?.m_duelID.Full, message.SubCircle));
 
             return;
@@ -1080,8 +1080,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     internal static bool MayDismiss(bool isSummonedMinion, int minionOwnerSlot, int requesterSlot)
         => isSummonedMinion && minionOwnerSlot == requesterSlot;
 
-    // A purchase's dismiss needs no live requester: the buyer may have left the duel before its refund was settled.
     private bool IsDismissible(CombatDuelSubCircle minion, COMBAT_106_PROTOCOL.MSG_DISMISSMINION message) {
+        // A purchase's dismiss needs no live requester: the buyer may have left the duel before its refund was settled.
         if (message.PurchaseId != 0) {
             return minion.IsSummonedMinion
                 && _henchmanPurchases.TryGetValue(minion.SlotIndex, out var purchaseId)
@@ -1093,10 +1093,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             && MayDismiss(minion.IsSummonedMinion, minion.CombatParticipant.m_minionSubCircle, requester.SlotIndex);
     }
 
-    /// <summary>
-    /// Summons a bought henchman at once into a free slot on the side of <paramref name="owner"/>.
-    /// </summary>
-    /// <param name="slotIndex">The henchman's sub-circle when summoned, otherwise -1.</param>
     internal HenchmanSummonResult SummonHenchman(uint creatureTid, bool isPvPEnabled, IActorRef owner, out int slotIndex) {
         slotIndex = -1;
         var ownerCircle = SubCircles?.FirstOrDefault(x => x.ParticipantActor == owner);
@@ -1127,9 +1123,10 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         return HenchmanSummonResult.Summoned;
     }
 
-    // A PvE minion fights for the wizards whoever summoned it; in PvP it fights for its summoner.
-    private CombatDuelSubCircle FreeMinionSlot(CombatDuelSubCircle caster)
-        => Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : _groupReservations.FreeUnreservedPlayerCircle(SubCircles);
+    private CombatDuelSubCircle FreeMinionSlot(CombatDuelSubCircle caster) {
+        // A PvE minion fights for the wizards whoever summoned it; in PvP it fights for its summoner.
+        return Duel.m_bPVP ? GetAvailableSubCircle(caster.OccupiedTeam) : _groupReservations.FreeUnreservedPlayerCircle(SubCircles);
+    }
 
     private CombatDuelSubCircle SpawnAndAssignMinion(uint creatureTid, CombatDuelSubCircle caster) {
         var slot = FreeMinionSlot(caster);

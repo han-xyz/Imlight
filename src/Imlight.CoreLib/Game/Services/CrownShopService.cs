@@ -40,7 +40,6 @@
 
 using Akka.Actor;
 using Imcodec.CoreObject;
-using Imcodec.Cryptography;
 using Imcodec.IO;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
@@ -83,31 +82,24 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     private static readonly ObjectSerializer s_nonVersionableSerializer = new(Versionable: false, Behaviors: SerializerFlags.None);
     private static readonly ObjectSerializer s_versionableSerializer = new(Versionable: true, Behaviors: SerializerFlags.None);
 
-    private static readonly Dictionary<int, string> s_errorNames = [];
-    private static readonly int s_errorNotEnoughCrowns = PurchaseError("Error_NotEnoughCrowns");
-    private static readonly int s_errorCantAfford = PurchaseError("Error_BuyerCantAffordItem");
-    private static readonly int s_errorInvFull = PurchaseError("Error_CantHoldItemInventoryFull");
-    private static readonly int s_errorInvBankFull = PurchaseError("Error_CantHoldItemInventoryFullAndReachedBankCap");
-    private static readonly int s_errorMaxGold = PurchaseError("Error_CantHoldItemMaxGold");
-    private static readonly int s_errorMaxLunari = PurchaseError("CantHoldItemMaxLunari");
-    private static readonly int s_errorMaxEmotes = PurchaseError("CantHoldItemMaxEmotes");
-    private static readonly int s_errorMaxTeleportEffects = PurchaseError("CantHoldItemMaxTeleportEffects");
-    private static readonly int s_errorInCombat = PurchaseError("Error_InCombat");
-    private static readonly int s_errorNotInCombat = PurchaseError("Error_NotInCombat");
-    private static readonly int s_errorLevelTooLow = PurchaseError("Error_LevelTooLow");
-    private static readonly int s_errorOneCastle = PurchaseError("Error_OnlyOneOfEachIsland");
-    private static readonly int s_errorMaxElixirs = PurchaseError("Error_MaxElixirs");
-    private static readonly int s_errorCSDisabled = PurchaseError("Error_CrownShopDisabled");
-    private static readonly int s_errorPurchase = PurchaseError("Error_PriceLockMismatch");
-    private static readonly int s_errorNoGiftThisItem = PurchaseError("Error_NoGiftThisItem");
-    private static readonly int s_errorFailedToSendGift = PurchaseError("Error_FailedToSendGift");
-    private static readonly int s_errorNoPriceForType = PurchaseError("Error_PriceLockNoPriceForType");
-
-    private static int PurchaseError(string name) {
-        var code = (int) StringHash.Compute(name);
-        s_errorNames[code] = name;
-        return code;
-    }
+    private static readonly int s_errorNotEnoughCrowns = CrownShopErrors.Register("Error_NotEnoughCrowns");
+    private static readonly int s_errorCantAfford = CrownShopErrors.Register("Error_BuyerCantAffordItem");
+    private static readonly int s_errorInvFull = CrownShopErrors.Register("Error_CantHoldItemInventoryFull");
+    private static readonly int s_errorInvBankFull = CrownShopErrors.Register("Error_CantHoldItemInventoryFullAndReachedBankCap");
+    private static readonly int s_errorMaxGold = CrownShopErrors.Register("Error_CantHoldItemMaxGold");
+    private static readonly int s_errorMaxLunari = CrownShopErrors.Register("CantHoldItemMaxLunari");
+    private static readonly int s_errorMaxEmotes = CrownShopErrors.Register("CantHoldItemMaxEmotes");
+    private static readonly int s_errorMaxTeleportEffects = CrownShopErrors.Register("CantHoldItemMaxTeleportEffects");
+    private static readonly int s_errorInCombat = CrownShopErrors.Register("Error_InCombat");
+    private static readonly int s_errorNotInCombat = CrownShopErrors.NotInCombat;
+    private static readonly int s_errorLevelTooLow = CrownShopErrors.Register("Error_LevelTooLow");
+    private static readonly int s_errorOneCastle = CrownShopErrors.Register("Error_OnlyOneOfEachIsland");
+    private static readonly int s_errorMaxElixirs = CrownShopErrors.Register("Error_MaxElixirs");
+    private static readonly int s_errorCSDisabled = CrownShopErrors.Register("Error_CrownShopDisabled");
+    private static readonly int s_errorPurchase = CrownShopErrors.PriceLockMismatch;
+    private static readonly int s_errorNoGiftThisItem = CrownShopErrors.Register("Error_NoGiftThisItem");
+    private static readonly int s_errorFailedToSendGift = CrownShopErrors.Register("Error_FailedToSendGift");
+    private static readonly int s_errorNoPriceForType = CrownShopErrors.Register("Error_PriceLockNoPriceForType");
 
     private const string HenchmanSummonTimeoutKey = "HenchmanSummonTimeout";
     private static readonly TimeSpan s_henchmanSummonTimeout = TimeSpan.FromSeconds(10);
@@ -211,14 +203,12 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         var wizard = GetActiveWizard();
 
         if (message.Count < 1 || message.Count > CrownShopHandler.s_maxBuyCount || message.SaleID != 0) {
-            Logger.Warning("Rejected purchase request for item {0}.", Logger.Args(message.Item));
             SendPurchaseError(s_errorPurchase, message.Item, wizard.IsInDuel);
             return;
         }
 
         // Authoritative cost lookup from catalog
         if (!CrownShopHandler.TryGetCrownShopItem(message.Item, out var catalogItem)) {
-            Logger.Warning("Item {0} not found in CrownShop.", Logger.Args(message.Item));
             SendPurchaseError(s_errorPurchase, message.Item, wizard.IsInDuel);
             return;
         }
@@ -297,11 +287,6 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (_henchmanPurchase.IsPending) {
-            Logger.Warning("Henchman purchase of item {0} refused: another henchman purchase is in flight.",
-                Logger.Args(message.Item));
-        }
-
         var purchaseId = GenerateRandomUlong() | 1;
         var error = _henchmanPurchase.Begin(purchaseId,
             () => TryDebit(wizard, message.Type, amountToPay),
@@ -334,7 +319,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         var wizard = GetActiveWizard();
         var request = message.Request;
         if (!_henchmanPurchase.TryFinish(request.PurchaseId, message.Result, out var error)) {
-            Logger.Warning("Henchman purchase {0} of item {1} answered {2} after it was settled.",
+            Logger.Warning("Henchman purchase {PurchaseId} of item {ItemId} answered {Result} after it was settled.",
                 Logger.Args(request.PurchaseId, request.Item, message.Result));
             if (message.Result == HenchmanSummonResult.Summoned) {
                 message.DuelActor.Tell(new COMBAT_106_PROTOCOL.MSG_DISMISSMINION {
@@ -347,7 +332,8 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
 
         Timers.Cancel(HenchmanSummonTimeoutKey);
         if (error != 0) {
-            Logger.Warning("Henchman summon for item {0} ended {1}; payment refunded.", Logger.Args(request.Item, message.Result));
+            Logger.Warning("Henchman summon for item {ItemId} ended {Result}; payment refunded.",
+                Logger.Args(request.Item, message.Result));
             SendPurchaseError(error, request.Item, wizard.IsInDuel);
             return;
         }
@@ -890,8 +876,8 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     }
 
     private void SendPurchaseError(int errorCode, ulong item, bool isInDuel) {
-        Logger.Warning("Refused purchase of item {0}: {1}, in duel: {2}.",
-            Logger.Args(item, s_errorNames.GetValueOrDefault(errorCode, errorCode.ToString()), isInDuel));
+        Logger.Warning("Refused purchase of item {ItemId}: {Error}, in duel: {InDuel}.",
+            Logger.Args(item, CrownShopErrors.NameOf(errorCode), isInDuel));
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
             Error = errorCode
         });
