@@ -165,6 +165,7 @@ public class Wizard {
     public ByteString RadialMenu3Data { get; set; } = new ByteString();
 
     public ByteString CrownShopWishlist { get; set; }
+    public ByteString HiddenQuestsData { get; set; }
     public List<TieredSpellProgress> TieredSpells { get; set; } = [];
     /// <summary>
     /// Tracks hatched pets for MSG_PETTOMEPETADDED. Key: pet global ID, Value: pet template ID.

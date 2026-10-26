@@ -65,6 +65,7 @@ public static class WizardObjectLoader {
         SetWishlistBehavior(clientObject, ref character);
         SetAtticBehavior(clientObject, character);
         SetBadgeBehavior(clientObject, ref character);
+        SetHiddenQuestsBehavior(clientObject, character);
 
         return clientObject;
     }
@@ -201,6 +202,12 @@ public static class WizardObjectLoader {
         if (CoreObjectFactory.FindBehaviorInstance<ClientAtticBehavior>(clientObject, out var atticBehavior)) {
             atticBehavior.m_containerGID = (GID) character.AtticContainerGid;
             atticBehavior.m_atticItemCount = character.AtticItemCount;
+        }
+    }
+
+    public static void SetHiddenQuestsBehavior(WizClientObject clientObject, Wizard character) {
+        if (CoreObjectFactory.FindBehaviorInstance<HiddenQuestsBehavior>(clientObject, out var hiddenQuestsBehavior)) {
+            hiddenQuestsBehavior.m_hiddenQuestsData = character.HiddenQuestsData;
         }
     }
 
