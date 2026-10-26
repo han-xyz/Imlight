@@ -39,12 +39,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Wad;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Pet.Config;
 using Imlight.CoreLib.Game.Pet.Progression;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
@@ -146,6 +148,66 @@ public sealed class PetItemBehaviorTests {
         Assert.True(PetProgression.EnsureInitialized(pet));
         Assert.Equal((uint) PetRules.MaximumHappiness, PetItemOf(pet).m_maximumHappiness);
         Assert.Equal(s_glowbugSlotTypes, pet.m_inactiveBehaviors.Select(behavior => behavior?.GetType()));
+    }
+
+    [RootWadFact]
+    public void HatchedEgg_KeepsBehaviorsInTemplateSlots() {
+        LoadGameData();
+        var egg = PetFactory.CreatePet(OwnerId, ZappyGlowbugTemplateId);
+
+        Assert.True(PetProgression.Hatch(egg, hatchedTimeSecs: 1));
+
+        Assert.Equal(1, PetItemOf(egg).m_level);
+        Assert.Equal((uint) PetRules.MaximumHappiness, PetItemOf(egg).m_maximumHappiness);
+        Assert.Equal(s_glowbugSlotTypes, egg.m_inactiveBehaviors.Select(behavior => behavior?.GetType()));
+    }
+
+    [RootWadFact]
+    public void AddXp_GameXpIsMultipliedAndCombatXpIsNot() {
+        LoadGameData();
+
+        var combat = PetProgression.AddXp(PetFactory.CreateHatchedPet(OwnerId, ZappyGlowbugTemplateId), 1, PetXpSource.Combat);
+        var game = PetProgression.AddXp(PetFactory.CreateHatchedPet(OwnerId, ZappyGlowbugTemplateId), 1, PetXpSource.Game);
+
+        Assert.Equal(1u, combat.Granted);
+        Assert.Equal((uint) PetRules.MemberXpMultiplier, game.Granted);
+    }
+
+    [RootWadFact]
+    public void AddXp_EnoughXpLevelsThePetUp() {
+        LoadGameData();
+        var pet = PetFactory.CreateHatchedPet(OwnerId, ZappyGlowbugTemplateId);
+
+        var result = PetProgression.AddXp(pet, 1_000_000, PetXpSource.Command);
+
+        Assert.NotEmpty(result.LevelUps);
+        Assert.True(PetItemOf(pet).m_level > 1);
+    }
+
+    [RootWadFact]
+    public void Feed_WithoutTheSnackInTheBag_LeavesThePetAlone() {
+        LoadGameData();
+        var wizard = new Wizard { CharId = OwnerId, PetSnackBehavior = new ServerPetSnackBehavior { Snacks = [] } };
+        var pet = PetFactory.CreateHatchedPet(OwnerId, ZappyGlowbugTemplateId);
+        PetProgression.EnsureInitialized(pet);
+        var happiness = PetItemOf(pet).m_happiness;
+
+        var result = PetFeeding.Feed(wizard, pet, snackTemplateId: 1, wholeStack: true);
+
+        Assert.False(result.Fed);
+        Assert.Equal(happiness, PetItemOf(pet).m_happiness);
+        Assert.False(PetFeeding.TryCreateSnackBagUpdate(wizard, result, out _));
+    }
+
+    [Fact]
+    public void SnackBagUpdate_UpdatesALeftStackAndRemovesAnEmptyOne() {
+        var wizard = new Wizard { CharId = OwnerId };
+
+        Assert.True(PetFeeding.TryCreateSnackBagUpdate(wizard, new PetFeedResult(new ClientPetSnackItem { m_quantity = 2 }, 1), out var left));
+        Assert.True(PetFeeding.TryCreateSnackBagUpdate(wizard, new PetFeedResult(new ClientPetSnackItem { m_quantity = 0 }, 3), out var emptied));
+
+        Assert.Equal(2, Assert.IsType<PET_9_PROTOCOL.MSG_PETSNACKUPDATE>(left).Quantity);
+        Assert.IsType<PET_9_PROTOCOL.MSG_PETSNACKREMOVE>(emptied);
     }
 
     private static ClientPetItemBehavior PetItemOf(WizClientObjectItem pet)
