@@ -99,6 +99,21 @@ internal static class Program {
     private static string s_adminAccountPassword;
 
     private static void Main(string[] args) {
+        // =============================================================
+        // IMLIGHT CONFIGURATION
+        // =============================================================
+        // The logger reads its settings from Imlight.ini, so a missing file can only go to the console.
+        var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config/Imlight.ini");
+        if (!File.Exists(configPath)) {
+            Console.Error.WriteLine($"Missing {configPath}. Restore Config/Imlight.ini from the release download.");
+            Environment.ExitCode = 1;
+
+            return;
+        }
+
+        ConfigurationManager.Initialize(configPath);
+
+        // The console client reads the settings too: they say where the server's console socket is.
         if (args.Length > 0 && args[0] == "console") {
             Environment.ExitCode = ServerConsole.RunClient(args[1..]);
 
@@ -117,19 +132,6 @@ internal static class Program {
         // =============================================================
         PrintTitle();
 
-        // =============================================================
-        // IMLIGHT CONFIGURATION
-        // =============================================================
-        // The logger reads its settings from Imlight.ini, so a missing file can only go to the console.
-        var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config/Imlight.ini");
-        if (!File.Exists(configPath)) {
-            Console.Error.WriteLine($"Missing {configPath}. Restore Config/Imlight.ini from the release download.");
-            Environment.ExitCode = 1;
-
-            return;
-        }
-
-        ConfigurationManager.Initialize(configPath);
         if (!TryRunStartupStep("read Config/Imlight.ini", "Set it, then restart.", ReadSettings)) {
             return;
         }
