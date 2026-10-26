@@ -24,7 +24,9 @@ using System.Linq;
 using Imcodec.Math;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Behaviors;
+using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -701,6 +703,11 @@ public static class WizardCollection {
         var items = session.Query<WizClientObjectItem>(collectionName: WizardItemCollection.CollectionName)
             .Where(x => x.m_characterId == wizard.CharId)
             .ToList();
+
+        // Pets stored before their behaviors followed the template order would break the client's read of the inventory.
+        foreach (var pet in items.Where(item => PetFactory.IsPetTemplate(ItemHelper.GetTemplateId(item)))) {
+            CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        }
 
         wizard.InventoryBehavior.Items = [.. items
             .Where(i => wizard.InventoryBehavior.InventoryItemIds
