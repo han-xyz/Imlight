@@ -108,7 +108,7 @@ internal static class DialogSpeakers {
         };
     }
 
-    private static GameObjectTemplate FindSpeaker(string personaName)
+    public static GameObjectTemplate FindSpeaker(string personaName)
         => s_speakerByPersona.GetOrAdd(personaName, ResolveSpeaker);
 
     private static GameObjectTemplate ResolveSpeaker(string personaName) {
