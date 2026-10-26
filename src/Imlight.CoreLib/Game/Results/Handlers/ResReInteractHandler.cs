@@ -20,7 +20,7 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Tells the NPC a ResReInteract names to re-send the player's option list.
+ * Asks the session to have the NPC a ResReInteract names re-send its options.
  * 
  * USAGE EXAMPLE:
  * Runs from a quest or goal result list.
@@ -36,7 +36,6 @@
 
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
-using Imlight.Common;
 using Imlight.CoreLib.Shared.Packets;
 
 namespace Imlight.CoreLib.Game.Results.Handlers;
@@ -44,20 +43,9 @@ namespace Imlight.CoreLib.Game.Results.Handlers;
 internal sealed class ResReInteractHandler : BaseResultHandler<ResReInteract> {
 
     public override bool Execute(IResultContext context) {
-        var zoneActor = context.GetZoneActor();
-        var playerObject = context.GetPlayerObj();
-        if (zoneActor is null || playerObject is null) {
-            Logger.Debug("Re-interaction with {PersonaName} not sent: no zone or player.", Logger.Args(Result.m_personaName));
-
-            return true;
-        }
-
-        zoneActor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
-            Messages = [new ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED {
-                PlayerGlobalId = playerObject.m_globalID.Full,
-                PersonaName = Result.m_personaName,
-            }],
-            Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Paths,
+        // The session batches this with the refresh its own quest change sends, and holds it while a dialog is open.
+        context.GetPlayerRef().Tell(new CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH {
+            PersonaName = Result.m_personaName,
         }, ActorRefs.NoSender);
 
         return true;

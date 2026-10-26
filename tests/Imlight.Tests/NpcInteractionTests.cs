@@ -110,6 +110,24 @@ public sealed class NpcInteractionTests {
     }
 
     [Fact]
+    public void Refresh_VendorOnlyNpc_IsSkipped() {
+        var vendor = new InteractVendorComponent(null!);
+
+        Assert.False(InteractServiceMementoComponent.RefreshesOnQuestChange([vendor]));
+        Assert.True(InteractServiceMementoComponent.RefreshesOnQuestChange([vendor, new InteractQuestOfferComponent(null!)]));
+    }
+
+    [Fact]
+    public void Refresh_SuffixedPersonaName_MatchesNpc() {
+        Assert.True(InteractServiceMementoComponent.IsPersona("WC-ST01-NPC03", "WC-ST01-NPC03_Persona"));
+    }
+
+    [Fact]
+    public void Refresh_OtherPersonaName_DoesNotMatchNpc() {
+        Assert.False(InteractServiceMementoComponent.IsPersona("WC-ST01-NPC03", "WC-ST01-NPC04_Persona"));
+    }
+
+    [Fact]
     public void Vendor_NoInventory_OffersNoShopOption() {
         var vendor = new InteractVendorComponent(null!);
 

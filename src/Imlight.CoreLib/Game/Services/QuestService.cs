@@ -86,6 +86,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     }
 
     private static readonly TimeSpan PENDING_GOAL_DIALOG_TIMEOUT = TimeSpan.FromMinutes(2);
+    private const string NpcRefreshDialogTimerKey = "npc-refresh-dialog";
     private static readonly TimeSpan PERSONA_TRANSITION_DELAY = TimeSpan.FromMilliseconds(1500);
 
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
@@ -104,6 +105,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     private readonly List<PendingGoalCompletion> _pendingGoalCompletions = [];
     private bool _clientReportsPersonaCompletion;
+    private readonly NpcRefreshGate _npcRefresh = new();
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new QuestService(parentActor));
@@ -345,6 +347,10 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         string completionType = message.CompletionType;
         if (string.Equals(completionType, DIALOG_ENTRY_EVENT_COMPLETION, StringComparison.OrdinalIgnoreCase)) {
             return;
+        }
+
+        if (_npcRefresh.DialogClosed(out var personaNames)) {
+            SendNpcRefresh(personaNames);
         }
 
         if (_clientReportsPersonaCompletion || _pendingGoalCompletions.Count == 0) {
@@ -1325,17 +1331,53 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         RefreshNpcOptions();
     }
 
-    private void RefreshNpcOptions() {
+    private void RefreshNpcOptions(string personaName = null) {
+        if (_npcRefresh.Request(personaName)) {
+            Self.Tell(new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH());
+        }
+    }
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH))]
+    private void ReceiveRequestNpcRefresh(CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH message)
+        => RefreshNpcOptions(message.PersonaName);
+
+    [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH))]
+    private void ReceiveFlushNpcRefresh(CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH message) {
+        IReadOnlyList<string> personaNames;
+        var taken = message.DialogTimedOut
+            ? _npcRefresh.TakeAfterDialogTimeout(out personaNames)
+            : _npcRefresh.TryTake(out personaNames);
+        if (taken) {
+            SendNpcRefresh(personaNames);
+            return;
+        }
+
+        // Safety net only: a dialog whose close never arrives must not hold the NPC options back for good.
+        if (_npcRefresh.IsWaitingForDialog && !Timers.IsTimerActive(NpcRefreshDialogTimerKey)) {
+            Timers.StartSingleTimer(NpcRefreshDialogTimerKey,
+                new CHARACTER_103_PROTOCOL.MSG_FLUSHNPCREFRESH { DialogTimedOut = true },
+                PENDING_GOAL_DIALOG_TIMEOUT);
+        }
+    }
+
+    private void SendNpcRefresh(IReadOnlyList<string> personaNames) {
+        Timers.Cancel(NpcRefreshDialogTimerKey);
+
         var zoneActor = SessionActor.GetZoneActor();
         var playerObject = GetActiveGameObject();
         if (zoneActor is null || playerObject is null) {
             return;
         }
 
-        zoneActor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
-            Messages = [new ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED { PlayerGlobalId = playerObject.m_globalID.Full }],
-            Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Paths,
-        });
+        foreach (var personaName in personaNames) {
+            zoneActor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
+                Messages = [new ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED {
+                    PlayerGlobalId = playerObject.m_globalID.Full,
+                    PersonaName = personaName,
+                }],
+                Targets = ZoneBroadcastTarget.Objects | ZoneBroadcastTarget.Paths,
+            });
+        }
     }
 
     // Zone triggers listen for this event to react to a goal (an NPC walks to a new spot, a barricade falls).
@@ -1893,6 +1935,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         };
 
         SendToSocket(dialogMsg);
+        _npcRefresh.DialogShown();
     }
 
     private void RemoveDungeonQuestsOutsideZone(Wizard wizard) {

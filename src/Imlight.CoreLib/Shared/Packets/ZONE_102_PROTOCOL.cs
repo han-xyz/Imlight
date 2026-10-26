@@ -1439,7 +1439,7 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
 
     /// <summary>
     /// Broadcast to a <see cref="Zone"/>'s objects when a player's quests changed (a quest accepted or completed,
-    /// a goal completed): every NPC the player stands at re-sends that player's option list.
+    /// a goal completed): every quest NPC the player stands at re-sends that player's option list.
     /// </summary>
     public sealed class MSG_QUESTSTATECHANGED : IServerMessage {
 

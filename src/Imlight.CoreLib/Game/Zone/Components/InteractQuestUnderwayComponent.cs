@@ -67,6 +67,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
 
     public string ServiceName => "QuestUnderwayService";
+    public bool FollowsQuestState => true;
     public string NpcIcon => "";
     public string NpcNameKey => null;
     public string NpcTextKey => null;

@@ -36,7 +36,7 @@
  *
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/27/2026
+ * Last Updated: 10/26/2026
  */
 
 using System.Collections.Generic;
@@ -56,6 +56,7 @@ internal sealed class InteractQuestSelectComponent(ZoneEntity entity)
     : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory {
 
     public string ServiceName => "Interact";
+    public bool FollowsQuestState => true;
     public string NpcIcon { get; private set; } = null;
     public string NpcNameKey { get; private set; } = null;
     public string NpcTextKey => "GUI_ChestInteract"; // TODO: Presumably the same for all quest interactables?

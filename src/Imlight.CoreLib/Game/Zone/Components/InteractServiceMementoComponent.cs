@@ -62,6 +62,7 @@ public interface IServiceComponent {
     IEnumerable<ServiceOptionBase> GetServiceOptions(Wizard playerCharacter);
     void OnServiceInteraction(IActorRef playerActor, Wizard playerCharacter, CoreObject playerObject, uint serviceOptionIndex);
     void ForgetPlayerState(Wizard playerCharacter) { }
+    bool FollowsQuestState => false;
 
     string ServiceName { get; }
     string NpcIcon { get; }
@@ -238,7 +239,12 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED))]
     private void ReceiveQuestStateChanged(ZONE_102_PROTOCOL.MSG_QUESTSTATECHANGED message) {
-        if (!string.IsNullOrEmpty(message.PersonaName) && !IsPersona(message.PersonaName)) {
+        if (!RefreshesOnQuestChange(_serviceComponents)) {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(message.PersonaName)
+            && !(Entity.Template is GameObjectTemplate template && IsPersona(template.m_objectName, message.PersonaName))) {
             return;
         }
 
@@ -250,9 +256,11 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         SendActorServiceOptions(playerActor, message.PlayerGlobalId);
     }
 
-    private bool IsPersona(string personaName)
-        => Entity.Template is GameObjectTemplate template
-           && PersonaName.Normalize(template.m_objectName) == PersonaName.Normalize(personaName);
+    internal static bool RefreshesOnQuestChange(IEnumerable<IServiceComponent> components)
+        => components.Any(component => component.FollowsQuestState);
+
+    internal static bool IsPersona(string objectName, string personaName)
+        => PersonaName.Normalize(objectName) == PersonaName.Normalize(personaName);
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL))]
     private void HandleWizBangUpdateInterval(ZONE_102_PROTOCOL.MSG_WIZBANGUPDATEINTERVAL message) {

@@ -82,6 +82,7 @@ internal sealed class InteractPersonaGoalComponent(ZoneEntity entity)
     private const float QUEST_COMPLETION_TRANSITION_DELAY_MS = 1500f;
 
     public string ServiceName => "QuestPersonaGoalService";
+    public bool FollowsQuestState => true;
     public string NpcIcon => "";
     public string NpcNameKey => null;
     public string NpcTextKey => null;

@@ -311,6 +311,34 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Internal message: the QuestService tells the NPCs around its player to re-send their options, once the
+    /// current batch of quest changes is done and no quest dialog is open.
+    /// </summary>
+    public sealed class MSG_FLUSHNPCREFRESH : IServerMessage {
+
+        public byte MessageOrder { get; } = 51;
+        public byte ServiceID { get; } = 103;
+
+        /// <summary>
+        /// Set by the safety timer when an open dialog was never reported closed.
+        /// </summary>
+        public bool DialogTimedOut;
+
+    }
+
+    /// <summary>
+    /// Sent to a player's session by a ResReInteract result: the NPC with this persona name re-sends its options.
+    /// </summary>
+    public sealed class MSG_REQUESTNPCREFRESH : IServerMessage {
+
+        public byte MessageOrder { get; } = 52;
+        public byte ServiceID { get; } = 103;
+
+        public string PersonaName;
+
+    }
+
+    /// <summary>
     /// Sent by the ResCinematicActor handler to the player's session: the CinematicService plays it.
     /// </summary>
     public sealed class MSG_PLAYCINEMATICACTOR : IServerMessage {
