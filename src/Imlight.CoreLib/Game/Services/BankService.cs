@@ -105,10 +105,6 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
     private void ReceiveDoneShopping()
         => _openBankEntityId = 0;
 
-    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONETRANSFER))]
-    private void ReceiveZoneTransfer(ZONE_102_PROTOCOL.MSG_ZONETRANSFER message)
-        => _openBankEntityId = 0;
-
     [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE))]
     private void ReceiveAttachComplete(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE message)
         => _openBankEntityId = 0;
