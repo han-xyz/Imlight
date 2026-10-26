@@ -819,11 +819,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         if (BackpackExpansion.IsBackpackExpansion(templateId)) {
-            if (!BackpackExpansion.TryExpand(wizard)) {
+            var result = BackpackExpansion.TryExpand(wizard, () => WizardCollection.UpdateCharacterItems(wizard));
+            if (result != BackpackExpansionResult.Expanded) {
                 return false;
             }
 
-            WizardCollection.UpdateCharacterItems(wizard);
             SendToSocket(BackpackExpansion.ExtraInventoryUpdate(wizard));
             PlaySound(elixirTemplate.m_equipSound);
             return true;

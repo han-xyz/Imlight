@@ -92,7 +92,7 @@ public sealed class BackpackExpansionTests {
         wizard.InventoryBehavior.AddItem(elixir);
         var freeBefore = wizard.InventoryBehavior.FreeSlots;
 
-        Assert.True(BackpackExpansion.TryUse(wizard, elixir));
+        Assert.Equal(BackpackExpansionResult.Expanded, BackpackExpansion.TryUse(wizard, elixir, Saved));
 
         Assert.False(wizard.InventoryBehavior.HasItem(elixir.m_globalID));
         Assert.Equal(SlotsPerElixir, wizard.InventoryBehavior.ExtraSpace);
@@ -107,12 +107,51 @@ public sealed class BackpackExpansionTests {
             wizard.InventoryBehavior.AddItem(elixir);
         }
 
-        Assert.True(BackpackExpansion.TryUse(wizard, elixirs[0]));
-        Assert.True(BackpackExpansion.TryUse(wizard, elixirs[1]));
-        Assert.False(BackpackExpansion.TryUse(wizard, elixirs[2]));
+        Assert.Equal(BackpackExpansionResult.Expanded, BackpackExpansion.TryUse(wizard, elixirs[0], Saved));
+        Assert.Equal(BackpackExpansionResult.Expanded, BackpackExpansion.TryUse(wizard, elixirs[1], Saved));
+        Assert.Equal(BackpackExpansionResult.AtLimit, BackpackExpansion.TryUse(wizard, elixirs[2], Saved));
 
         Assert.True(wizard.InventoryBehavior.HasItem(elixirs[2].m_globalID));
         Assert.Equal(2 * SlotsPerElixir, wizard.InventoryBehavior.ExtraSpace);
+    }
+
+    [Fact]
+    public void TryUse_SavesTheRemovalAndTheSpaceTogether() {
+        var wizard = Bare();
+        var elixir = Item(1);
+        wizard.InventoryBehavior.AddItem(elixir);
+        var savedRemoval = false;
+        var savedSpace = 0;
+
+        BackpackExpansion.TryUse(wizard, elixir, () => {
+            savedRemoval = !wizard.InventoryBehavior.HasItem(elixir.m_globalID);
+            savedSpace = wizard.InventoryBehavior.ExtraSpace;
+            return true;
+        });
+
+        Assert.True(savedRemoval);
+        Assert.Equal(SlotsPerElixir, savedSpace);
+    }
+
+    [Fact]
+    public void TryUse_FailedSaveKeepsTheElixirAndTheOldSpace() {
+        var wizard = Bare();
+        var elixir = Item(1);
+        wizard.InventoryBehavior.AddItem(elixir);
+
+        Assert.Equal(BackpackExpansionResult.SaveFailed, BackpackExpansion.TryUse(wizard, elixir, () => false));
+
+        Assert.True(wizard.InventoryBehavior.HasItem(elixir.m_globalID));
+        Assert.Equal(0, wizard.InventoryBehavior.ExtraSpace);
+    }
+
+    [Fact]
+    public void TryExpand_FailedSaveKeepsTheOldSpace() {
+        var wizard = Bare();
+
+        Assert.Equal(BackpackExpansionResult.SaveFailed, BackpackExpansion.TryExpand(wizard, () => false));
+
+        Assert.Equal(0, wizard.InventoryBehavior.ExtraSpace);
     }
 
     [Theory]
@@ -145,6 +184,8 @@ public sealed class BackpackExpansionTests {
 
         return RequirementDispatcher.EvaluateRequirements(requirements, new GenericRequirementContext(requirements, null, null, wizard));
     }
+
+    private static bool Saved() => true;
 
     private static void Fill(Wizard wizard, int count) {
         for (var i = 0; i < count; i++) {

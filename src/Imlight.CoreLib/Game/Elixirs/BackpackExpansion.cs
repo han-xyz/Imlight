@@ -39,11 +39,19 @@
  * Last Updated: 10/26/2026
  */
 
+using System;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Elixirs;
+
+internal enum BackpackExpansionResult {
+    Expanded,
+    AtLimit,
+    NotInBackpack,
+    SaveFailed
+}
 
 internal static class BackpackExpansion {
 
@@ -61,27 +69,44 @@ internal static class BackpackExpansion {
         => wizard.InventoryBehavior.ExtraSpace + count * SlotsPerElixir <= MaxExtraSpace;
 
     /// <summary>
-    /// Adds one elixir's slots to the wizard. False, with nothing changed, at the limit.
+    /// Adds one elixir's slots to the wizard and stores them with <paramref name="save"/>. Unless the result is
+    /// <see cref="BackpackExpansionResult.Expanded"/>, the wizard is left as it was.
     /// </summary>
-    public static bool TryExpand(Wizard wizard) {
+    public static BackpackExpansionResult TryExpand(Wizard wizard, Func<bool> save) {
         if (IsAtLimit(wizard)) {
-            return false;
+            return BackpackExpansionResult.AtLimit;
         }
 
         wizard.InventoryBehavior.ExtraSpace += SlotsPerElixir;
+        if (save()) {
+            return BackpackExpansionResult.Expanded;
+        }
 
-        return true;
+        wizard.InventoryBehavior.ExtraSpace -= SlotsPerElixir;
+        return BackpackExpansionResult.SaveFailed;
     }
 
     /// <summary>
-    /// Uses an elixir from the backpack: removes it and adds its slots. False, with the elixir kept, at the limit.
+    /// Uses an elixir from the backpack: takes it out and adds its slots, and stores both in the one
+    /// <paramref name="save"/>. Unless the result is <see cref="BackpackExpansionResult.Expanded"/>, the elixir
+    /// stays in the backpack and the space is unchanged.
     /// </summary>
-    public static bool TryUse(Wizard wizard, WizClientObjectItem elixir) {
-        if (IsAtLimit(wizard) || !wizard.InventoryBehavior.RemoveItem(elixir)) {
-            return false;
+    public static BackpackExpansionResult TryUse(Wizard wizard, WizClientObjectItem elixir, Func<bool> save) {
+        var inventory = wizard.InventoryBehavior;
+        if (IsAtLimit(wizard)) {
+            return BackpackExpansionResult.AtLimit;
         }
 
-        return TryExpand(wizard);
+        if (!inventory.RemoveItem(elixir)) {
+            return BackpackExpansionResult.NotInBackpack;
+        }
+
+        var result = TryExpand(wizard, save);
+        if (result != BackpackExpansionResult.Expanded) {
+            inventory.AddItem(elixir);
+        }
+
+        return result;
     }
 
     public static WIZARD2_53_PROTOCOL.MSG_UPDATEEXTRAINVENTORY ExtraInventoryUpdate(Wizard wizard)
