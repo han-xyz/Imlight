@@ -43,6 +43,7 @@ using System.Linq;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
+using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Combat;
 using Imlight.CoreLib.Game.Spells;
@@ -233,10 +234,12 @@ internal sealed class CombatCreatureAIComponent(ZoneEntity entity) : ZoneEntityC
 
         // A minion has no world to return to: remove and delete now, no death-animation timer.
         if (_currentSubCircle?.IsSummonedMinion == true) {
-            _currentDuelComponent.ZoneBroadcast(new DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATREMOVE {
-                DuelID = _currentDuelComponent.SigilId,
-                ParticipantID = _currentSubCircle.ParticipantObject.m_globalID
-            });
+            // The duel clears its sub-circles right after telling its minions to die, so the circle no longer names this minion.
+            var removal = MinionRemoval(_currentDuelComponent?.SigilId, Entity.ActiveGameObject.m_globalID);
+            if (removal is not null) {
+                _currentDuelComponent.ZoneBroadcast(removal);
+            }
+
             _sentFinalKill = true;
             Entity.DeleteObject();
 
@@ -258,6 +261,9 @@ internal sealed class CombatCreatureAIComponent(ZoneEntity entity) : ZoneEntityC
         var delay = TimeSpan.FromMilliseconds(COMBAT_DEATH_ANIMATION_IN_MS);
         Timers.StartSingleTimer("FinalKill", new COMBAT_106_PROTOCOL.MSG_COMBATDEATH(), delay);
     }
+
+    internal static DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATREMOVE MinionRemoval(ulong? sigilId, GID minionId)
+        => sigilId is null ? null : new() { DuelID = sigilId.Value, ParticipantID = minionId };
 
     private void DiscardDeadCards() {
         var deadCards = _roundHand.m_spellList.Where(IsDeadCard).ToList();
