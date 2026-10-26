@@ -27,8 +27,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8af87eba5e7cdafb1514d7388be2873
 WORKDIR /app
 COPY --from=build /app .
 # /app stays root-owned; the embedded RavenDB server writes its logs to /app/RavenDB and its NuGet package cache to /app/RavenDBServer/Packages on first start
-RUN mkdir -p /data/db /data/spiraldb /data/logs /data/cache /app/RavenDB /app/RavenDBServer/Packages \
-    && chown -R "$APP_UID" /data /app/RavenDB /app/RavenDBServer/Packages
+RUN mkdir -p /data/db /data/spiraldb /data/logs /data/cache /app/RavenDB /app/RavenDBServer/Packages /app/run \
+    && chown -R "$APP_UID" /data /app/RavenDB /app/RavenDBServer/Packages /app/run \
+    && chmod 700 /app/run
 USER $APP_UID
 ENV IMLIGHT__Database__EmbeddedDatabaseDataDirectory=/data/db \
     IMLIGHT__Database__SpiralDBLocalPath=/data/spiraldb \
