@@ -44,7 +44,22 @@ namespace Imlight.CoreLib.Game.AdminPanel;
 /// </remarks>
 public static class ServerConsole {
 
-    private static readonly string s_socketPath = Path.Combine(Path.GetTempPath(), "imlight-console.sock");
+    private const string SocketFileName = "imlight-console.sock";
+    private const UnixFileMode OwnerOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    private const UnixFileMode OwnerOnlyFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+    private static string SocketDirectory {
+        get {
+            var configured = ConfigurationManager.GetSetting("Admin Panel.ConsoleSocketDirectory");
+
+            return Path.GetFullPath(string.IsNullOrWhiteSpace(configured) ? "run" : configured, AppContext.BaseDirectory);
+        }
+    }
+
+    private static string SocketPath => Path.Combine(SocketDirectory, SocketFileName);
+
+    private static bool TrustAllLocalPeers
+        => bool.TryParse(ConfigurationManager.GetSetting("Admin Panel.ConsoleTrustAllLocalPeers"), out var trust) && trust;
 
     private static readonly string[] s_help = [
         "account list                               List every account.",
@@ -66,11 +81,17 @@ public static class ServerConsole {
     /// <param name="actors">Reaches the sessions of online players, whose Crowns are changed through them.</param>
     /// <param name="actorUsername">The account the commands act as.</param>
     public static void Listen(IActorRefFactory actors, string actorUsername) {
+        var socketPath = SocketPath;
         try {
+            if (!PrepareSocketDirectory(SocketDirectory)) {
+                return;
+            }
+
             // A socket file left by an earlier run would block the bind.
-            File.Delete(s_socketPath);
+            File.Delete(socketPath);
             var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            listener.Bind(new UnixDomainSocketEndPoint(s_socketPath));
+            listener.Bind(new UnixDomainSocketEndPoint(socketPath));
+            File.SetUnixFileMode(socketPath, OwnerOnlyFile);
             listener.Listen(4);
 
             var thread = new Thread(() => Accept(listener, actors, actorUsername)) {
@@ -81,8 +102,24 @@ public static class ServerConsole {
             Logger.Information("Server console ready: dotnet Imlight.Director.dll console");
         }
         catch (Exception ex) {
-            Logger.Warning("Server console unavailable: could not listen on {0}: {1}", Logger.Args(s_socketPath, ex.Message));
+            Logger.Warning("Server console unavailable: could not listen on {0}: {1}", Logger.Args(socketPath, ex.Message));
         }
+    }
+
+    private static bool PrepareSocketDirectory(string directory) {
+        if (!Directory.Exists(directory)) {
+            Directory.CreateDirectory(directory, OwnerOnlyDirectory);
+        }
+
+        if (ConsoleSocketPolicy.IsDirectoryAcceptable(ConsoleSocketNative.GetOwnerUid(directory),
+                ConsoleSocketNative.ServerUid, File.GetUnixFileMode(directory))) {
+            return true;
+        }
+
+        Logger.Warning("Server console disabled: {0} must be owned by the server's user and closed to group and others.",
+            Logger.Args(directory));
+
+        return false;
     }
 
     /// <summary>
@@ -112,7 +149,7 @@ public static class ServerConsole {
     private static bool Send(string line) {
         try {
             using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            socket.Connect(new UnixDomainSocketEndPoint(s_socketPath));
+            socket.Connect(new UnixDomainSocketEndPoint(SocketPath));
             using var stream = new NetworkStream(socket);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
@@ -136,6 +173,13 @@ public static class ServerConsole {
         while (true) {
             try {
                 using var client = listener.Accept();
+                if (!ConsoleSocketPolicy.IsPeerAcceptable(ConsoleSocketNative.GetPeerUid(client), ConsoleSocketNative.ServerUid,
+                        TrustAllLocalPeers)) {
+                    Logger.Warning("Server console: refused a connection from another user.");
+
+                    continue;
+                }
+
                 using var stream = new NetworkStream(client);
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
