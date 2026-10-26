@@ -25,6 +25,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Results;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
@@ -294,7 +295,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             _tutorialInfo.m_tutorialStage = 99;
             RemoveControlQuests(wizard);
             CompleteTutorialIntro(wizard, playerObj);
-            EquipStarterWandAndDeck(wizard);
+            EquipStarterKit(wizard);
             Teleport(ConfigurationManager.Settings["Character.StartingZone"]);
 
             return true;
@@ -396,9 +397,9 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             );
 
             // The intro quest is the shared finale for the tutorial and the skip flow;
-            // the starter wand and deck must be equipped in both.
+            // the starter kit must be equipped in both.
             if (goalInstance.quest.QuestName == TUTORIAL_INTRO_QUEST_NAME) {
-                EquipStarterWandAndDeck(wizard);
+                EquipStarterKit(wizard);
             }
 
             return removeSuccess;
@@ -490,12 +491,16 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
         return removeSuccess;
     }
 
-    private void EquipStarterWandAndDeck(Wizard wizard) {
-        // The starter kit is config-driven, so resolve the wand and deck by slot rather
+    private void EquipStarterKit(Wizard wizard) {
+        // The starter kit is config-driven, so resolve its items by slot rather
         // than template ID; equip only the first instance of each.
-        EquipFirstStarterItem(wizard, EquipmentSlotType.Weapon);
-        EquipFirstStarterItem(wizard, EquipmentSlotType.Deck);
+        foreach (var slotType in StarterKitOf(wizard).EquippedSlots) {
+            EquipFirstStarterItem(wizard, slotType);
+        }
     }
+
+    private static StarterKit StarterKitOf(Wizard wizard)
+        => StarterKits.Instance.For(wizard.Account.AuthLevel, wizard.MagicSchoolBehavior.MagicSchool);
 
     private void EquipFirstStarterItem(Wizard wizard, EquipmentSlotType slotType) {
         var item = wizard.InventoryBehavior.Items.FirstOrDefault(item => {
@@ -614,15 +619,12 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
             return;
         }
 
-        var templateIds = ConfigurationManager.Settings["Character.DefaultItems"].AsList()
-            .Select(id => ulong.TryParse(id, out var parsed) ? parsed : 0)
-            .Where(id => id > 0)
-            .ToArray();
-        if (templateIds.Length == 0) {
+        var kit = StarterKitOf(wizard);
+        if (kit.ItemTemplateIds.Count == 0) {
             return;
         }
 
-        var grantedItems = wizard.GrantStarterItems(templateIds);
+        var grantedItems = wizard.GrantStarterItems(kit);
         Logger.Information("Granted starter kit ({0} items) to {1}.",
             Logger.Args(grantedItems.Count, wizard.PlayerNameBehavior.GetWizardName()));
 

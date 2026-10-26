@@ -47,6 +47,7 @@ using Akka.Util.Internal;
 using Imcodec.Cryptography;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Housing.Houses;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Networking;
@@ -90,6 +91,7 @@ public class GameWorld : ReceiveProtocolDispatcher, IWithTimers {
         NpcDropTableCollection.PreloadDropTables();
         HouseZoneIndex.Preload();
         _ = TieredSpellIndex.Instance;
+        _ = StarterKits.Instance;
         HouseTemplates.ValidateStarters();
     }
 

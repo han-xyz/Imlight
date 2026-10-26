@@ -29,6 +29,7 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Effects;
 using Imlight.CoreLib.Game.Housing.Items;
+using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Behaviors;
@@ -175,7 +176,6 @@ public class Wizard {
 
     [JsonIgnore] private bool _hasLocation;
     [JsonIgnore] private bool _hasOrientation;
-    [JsonIgnore] private readonly uint _defaultPetTemplateId = 126412; // Black Cat Pet;
     private const string TutorialStartingZone = "WizardCity/Tutorial_Exterior";
 
     // Constructor: Used for deserialization. If this is not present, the default constructor will be used.
@@ -1823,9 +1823,9 @@ public class Wizard {
     /// Adds the starter kit items (config-driven) to the inventory and database.
     /// Called on first attach: in the tutorial, or on first login when the tutorial is disabled.
     /// </summary>
-    public List<WizClientObjectItem> GrantStarterItems(IEnumerable<ulong> templateIds) {
+    internal List<WizClientObjectItem> GrantStarterItems(StarterKit kit) {
         var itemsToAdd = new List<WizClientObjectItem>();
-        foreach (var templateId in templateIds) {
+        foreach (var templateId in kit.ItemTemplateIds) {
             var cObj = (WizClientObjectItem) CoreObjectFactory.FinalizeCoreObject(templateId);
             CoreObjectFactory.InitializeCoreObjectBehaviors(cObj, templateId);
             cObj.m_characterId = (GID) CharId;
@@ -1836,12 +1836,12 @@ public class Wizard {
         }
 
         // The default pet must be created through the pet factory. 
-        var defaultPet = PetFactory.CreateHatchedPet(CharId, _defaultPetTemplateId);
-        if (defaultPet is null) {
+        var defaultPet = kit.PetTemplateId == 0 ? null : PetFactory.CreateHatchedPet(CharId, kit.PetTemplateId);
+        if (defaultPet is null && kit.PetTemplateId != 0) {
             Logger.Error("Could not create default pet (template {0}) for Wizard {1}.",
-                Logger.Args(_defaultPetTemplateId, CharId));
+                Logger.Args(kit.PetTemplateId, CharId));
         }
-        else {
+        else if (defaultPet is not null) {
             // Add pet to inventory.
             itemsToAdd.Add(defaultPet);
             InventoryBehavior.InventoryItemIds.Add(defaultPet.m_globalID);
