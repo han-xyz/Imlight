@@ -636,22 +636,32 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                                             Func<string, bool> isHeld,
                                             Func<string, bool> isCompleted,
                                             Func<QuestTemplate, bool> meetsRequirements) {
-        // todo: should a completed repeatable quest be accepted again?
         if (isHeld(quest.m_questName)) {
             return "the quest is already held";
         }
 
-        if (isCompleted(quest.m_questName)) {
+        if (isCompleted(quest.m_questName) && !IsRepeatable(quest)) {
             return "the quest is already completed";
         }
 
         return meetsRequirements(quest) ? null : "the quest requirements are not met";
     }
 
-    private static bool MeetsOfferRequirements(QuestTemplate quest, Wizard wizard)
-        => quest.m_requirements is null || RequirementDispatcher.EvaluateRequirements(
-            requirements: quest.m_requirements,
-            context: new QuestRequirementContext(quest.m_requirements, null, null, wizard, quest.m_questName));
+    /// <summary>
+    /// The data pack sets m_questRepeat to -1 only on its weekly quest; 0 and 1 are both one-time quests.
+    /// </summary>
+    internal static bool IsRepeatable(QuestTemplate quest)
+        => quest.m_questRepeat < 0;
+
+    internal static bool MeetsOfferRequirements(QuestTemplate quest, Wizard wizard)
+        => Passes(quest.m_requirements, quest, wizard)
+            && Passes(quest.m_prepRequirements, quest, wizard)
+            && (quest.m_pruneRequirements is null || !Passes(quest.m_pruneRequirements, quest, wizard));
+
+    private static bool Passes(RequirementList requirements, QuestTemplate quest, Wizard wizard)
+        => requirements is null || RequirementDispatcher.EvaluateRequirements(
+            requirements: requirements,
+            context: new QuestRequirementContext(requirements, null, null, wizard, quest.m_questName));
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND))]
     private void ReceiveQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
@@ -917,8 +927,20 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
                                                      Wizard wizard,
                                                      IActorRef playerRef,
                                                      CoreObject playerObj,
-                                                     Func<QuestInstance, bool> addQuest)
-        => StartQuestInstance(quest, wizard.CharId, q => RollQuestRewards(q, wizard, playerRef, playerObj), addQuest);
+                                                     Func<QuestInstance, bool> addQuest) {
+        var completions = IsRepeatable(quest) ? wizard.GetQuestRegistryValue(quest.m_questName, QUEST_COMPLETED_ENTRY) : 0UL;
+        var reopensRepeat = completions > 0;
+        if (reopensRepeat) {
+            wizard.QuestBehavior.RemoveFromQuestRegistry(quest.m_questName, QUEST_COMPLETED_ENTRY);
+        }
+
+        var questInstance = StartQuestInstance(quest, wizard.CharId, q => RollQuestRewards(q, wizard, playerRef, playerObj), addQuest);
+        if (questInstance is null && reopensRepeat) {
+            wizard.QuestBehavior.SetQuestRegistryValue(quest.m_questName, QUEST_COMPLETED_ENTRY, completions);
+        }
+
+        return questInstance;
+    }
 
     internal static QuestInstance StartQuestInstance(QuestTemplate quest,
                                                      ulong charId,

@@ -196,6 +196,37 @@ public sealed class NpcInteractionTests {
         Assert.Same(beta, ClickOffer(table, offer, 1, [alpha, beta], wizard));
     }
 
+    [Theory]
+    [InlineData(-1, false, true)]
+    [InlineData(0, false, false)]
+    [InlineData(1, false, false)]
+    [InlineData(1, true, false)]
+    public void QuestOffer_CompletedQuest_OfferedAgainOnlyWhenRepeatable(int questRepeat, bool prepAlways, bool offered) {
+        var quest = new QuestTemplate { m_questName = "Weekly", m_questRepeat = questRepeat, m_prepAlways = prepAlways };
+        var wizard = NewWizard();
+        wizard.QuestBehavior.AddToQuestRegistry("Weekly", "Complete", 1);
+
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+
+        Assert.Equal(offered, quests.Contains(quest));
+    }
+
+    [Fact]
+    public void QuestOffer_HeldRepeatableQuest_NotOffered() {
+        var quest = new QuestTemplate { m_questName = "Weekly", m_questRepeat = -1 };
+
+        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard("Weekly")));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void QuestOffer_HiddenOrOutdated_NotOffered(bool hidden, bool outdated) {
+        var quest = new QuestTemplate { m_questName = "Old", m_isHidden = hidden, m_outdated = outdated };
+
+        Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard()));
+    }
+
     [Fact]
     public void QuestUnderway_TwoHeldQuests_TwoOptionsRouteToEachQuest() {
         var beta = new QuestTemplate { m_questName = "Beta", m_questTitle = "Title_Beta" };

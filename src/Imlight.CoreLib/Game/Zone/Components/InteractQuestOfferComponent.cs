@@ -47,8 +47,6 @@ using Imcodec.Types;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Madlibs;
-using Imlight.CoreLib.Game.Requirements;
-using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Game.WizBang;
 using Imlight.CoreLib.Game.Zone.Core;
@@ -143,13 +141,15 @@ internal sealed class InteractQuestOfferComponent(ZoneEntity entity)
             .OrderBy(quest => (string) quest.m_questName, StringComparer.Ordinal)];
 
     private static bool IsAvailable(QuestTemplate quest, Wizard wizard) {
-        if (wizard.HasQuest(quest.m_questName) || wizard.HasCompletedQuest(quest.m_questName)) {
+        if (quest.m_isHidden || quest.m_outdated || wizard.HasQuest(quest.m_questName)) {
             return false;
         }
 
-        return quest.m_requirements == null || RequirementDispatcher.EvaluateRequirements(
-            requirements: quest.m_requirements,
-            context: new QuestRequirementContext(quest.m_requirements, null, null, wizard, quest.m_questName));
+        if (wizard.HasCompletedQuest(quest.m_questName) && !QuestService.IsRepeatable(quest)) {
+            return false;
+        }
+
+        return QuestService.MeetsOfferRequirements(quest, wizard);
     }
 
     public override void OnStart() {

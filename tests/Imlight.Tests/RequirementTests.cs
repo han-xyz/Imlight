@@ -33,7 +33,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/26/2026
  */
 
 using System.IO;
@@ -41,6 +41,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
+using Imlight.CoreLib.Game.Zone.Components;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Xunit;
@@ -76,5 +77,38 @@ public sealed class RequirementTests {
 
         Assert.Equal(expected, met);
     }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void QuestOffer_PruneRequirementsMet_NotOffered(bool entrySet, bool offered) {
+        var quest = new QuestTemplate { m_questName = "Side", m_pruneRequirements = HasEntry("Main_Complete") };
+        var wizard = new Wizard { QuestBehavior = new ServerQuestBehavior() };
+        if (entrySet) {
+            wizard.QuestBehavior.AddToRegistry("Main_Complete", 1);
+        }
+
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+
+        Assert.Equal(offered, quests.Contains(quest));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void QuestOffer_PrepRequirementsUnmet_NotOffered(bool entrySet, bool offered) {
+        var quest = new QuestTemplate { m_questName = "Side", m_prepRequirements = HasEntry("Prepared") };
+        var wizard = new Wizard { QuestBehavior = new ServerQuestBehavior() };
+        if (entrySet) {
+            wizard.QuestBehavior.AddToRegistry("Prepared", 1);
+        }
+
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+
+        Assert.Equal(offered, quests.Contains(quest));
+    }
+
+    private static RequirementList HasEntry(string entryName)
+        => new() { m_requirements = [new ReqHasEntry { m_entryName = entryName }] };
 
 }
