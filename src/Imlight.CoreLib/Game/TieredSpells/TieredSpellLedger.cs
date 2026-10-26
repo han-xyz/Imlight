@@ -52,6 +52,7 @@ public enum TieredSpellUpgradeOutcome {
     Retired,
     RequirementFailed,
     NotEnoughShards,
+    WrongGroup,
 }
 
 internal readonly record struct TieredSpellUpgradeDecision(TieredSpellUpgradeOutcome Outcome, int Cost, int FailedRequirementIndex);
@@ -59,22 +60,39 @@ internal readonly record struct TieredSpellUpgradeDecision(TieredSpellUpgradeOut
 internal static class TieredSpellLedger {
 
     internal const int NoFailedRequirement = -1;
+    internal const int NoGroup = -1;
 
     private const int PercentBase = 100;
 
     /// <summary>
+    /// Finds the group both tiers belong to, so the server never takes the group from the client.
+    /// </summary>
+    /// <returns>The group's index, or NoGroup when no one group holds both.</returns>
+    internal static int ResolveGroup(IReadOnlyList<IndexedTieredSpellGroup> groups, string currentName, string nextName) {
+        for (var index = 0; index < groups.Count; index++) {
+            if (IsInGroup(groups[index], currentName, nextName)) {
+                return index;
+            }
+        }
+
+        return NoGroup;
+    }
+
+    /// <summary>
     /// Decides an upgrade from the current tier to the next one.
     /// </summary>
+    /// <param name="group">The group whose shards pay for the upgrade.</param>
     /// <param name="isTrained">Whether the wizard has the current tier in the spellbook.</param>
     /// <param name="current">The current tier.</param>
     /// <param name="next">The tier asked for.</param>
     /// <param name="failedRequirementIndex">The index of the next tier's first unmet requirement, or NoFailedRequirement.</param>
     /// <param name="shardsOwned">How many of the group's shards the wizard holds.</param>
     /// <returns>The outcome, the shards to debit and the failing requirement index.</returns>
-    internal static TieredSpellUpgradeDecision DecideUpgrade(bool isTrained, TieredSpellTemplate current,
-        TieredSpellTemplate next, int failedRequirementIndex, int shardsOwned) {
+    internal static TieredSpellUpgradeDecision DecideUpgrade(IndexedTieredSpellGroup group, bool isTrained,
+        TieredSpellTemplate current, TieredSpellTemplate next, int failedRequirementIndex, int shardsOwned) {
         var cost = next.m_newShardCost;
         var outcome = true switch {
+            _ when !IsInGroup(group, current.m_name.ToString(), next.m_name.ToString()) => TieredSpellUpgradeOutcome.WrongGroup,
             _ when !isTrained => TieredSpellUpgradeOutcome.NotTrained,
             _ when !IsNextTier(current, next) => TieredSpellUpgradeOutcome.NotNextTier,
             _ when next.m_retired => TieredSpellUpgradeOutcome.Retired,
@@ -105,9 +123,27 @@ internal static class TieredSpellLedger {
         return NoFailedRequirement;
     }
 
-    internal static void ApplyUpgrade(TieredSpellProgress progress, uint spellId, uint newSpellId, int cost) {
+    /// <summary>
+    /// Whether an upgrade may be recorded: it starts at the current tier and buys a tier not yet on the path.
+    /// </summary>
+    internal static bool CanApplyUpgrade(TieredSpellProgress progress, uint spellId, uint newSpellId)
+        => spellId == progress.CurrentSpellId
+            && newSpellId != progress.TierOneSpellId
+            && progress.Unlocks.TrueForAll(unlock => unlock.SpellId != newSpellId);
+
+    /// <summary>
+    /// Records a paid upgrade.
+    /// </summary>
+    /// <returns>False, with nothing changed, when CanApplyUpgrade refuses it.</returns>
+    internal static bool ApplyUpgrade(TieredSpellProgress progress, uint spellId, uint newSpellId, int cost) {
+        if (!CanApplyUpgrade(progress, spellId, newSpellId)) {
+            return false;
+        }
+
         progress.Unlocks.Add(new TieredSpellUnlock { SpellId = newSpellId, FromSpellId = spellId, ShardsSpent = cost });
         progress.CurrentSpellId = newSpellId;
+
+        return true;
     }
 
     /// <summary>
@@ -149,13 +185,20 @@ internal static class TieredSpellLedger {
 
     /// <summary>
     /// The one-time reset: keep the current tier, or return to tier one with the shards refunded.
-    /// Either way the group is done with the prep.
+    /// Done means the wizard has made this choice for the group; it is offered once.
     /// </summary>
-    /// <returns>The shards to return.</returns>
-    internal static int PrepForMultiplePaths(TieredSpellProgress progress, bool keepProgression, uint returnRate) {
-        progress.DonePrepForMultiplePaths = true;
+    /// <returns>False, with nothing changed, when the group is already done.</returns>
+    internal static bool TryPrepForMultiplePaths(TieredSpellProgress progress, bool keepProgression, uint returnRate,
+        out int shardsReturned) {
+        shardsReturned = 0;
+        if (progress.DonePrepForMultiplePaths) {
+            return false;
+        }
 
-        return keepProgression ? 0 : Reset(progress, returnRate);
+        progress.DonePrepForMultiplePaths = true;
+        shardsReturned = keepProgression ? 0 : Reset(progress, returnRate);
+
+        return true;
     }
 
     /// <summary>
@@ -166,10 +209,13 @@ internal static class TieredSpellLedger {
         => Remove(progress, [.. PathDown(progress)], returnRate);
 
     /// <summary>
-    /// Whether a spell is a tier the wizard may cast: a group's tier-one spell or a tier bought on its path.
+    /// Whether a spell is a tier the wizard may cast: a group's tier-one spell or a tier on its current path.
     /// </summary>
     internal static bool IsTrainedTier(IEnumerable<TieredSpellProgress> progress, uint spellId)
-        => progress.Any(group => group.TierOneSpellId == spellId || group.Unlocks.Any(unlock => unlock.SpellId == spellId));
+        => progress.Any(group => group.TierOneSpellId == spellId || PathDown(group).Any(unlock => unlock.SpellId == spellId));
+
+    private static bool IsInGroup(IndexedTieredSpellGroup group, string currentName, string nextName)
+        => group.Spells.Contains(currentName) && group.Spells.Contains(nextName);
 
     private static bool IsNextTier(TieredSpellTemplate current, TieredSpellTemplate next)
         => (current.m_nextTierSpells ?? []).Any(name => name.ToString() == next.m_name.ToString());

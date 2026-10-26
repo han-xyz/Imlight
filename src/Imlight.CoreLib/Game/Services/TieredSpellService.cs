@@ -104,7 +104,7 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         var groups = TieredSpellIndex.Instance.Groups;
         var decision = message.TieredSpellGroup < groups.Count
             ? Upgrade(wizard, (int) message.TieredSpellGroup, message.SpellID, message.SpellIDNew)
-            : NotUpgraded(TieredSpellUpgradeOutcome.NotNextTier);
+            : NotUpgraded(TieredSpellUpgradeOutcome.WrongGroup);
 
         Logger.Debug("Tiered spell upgrade from {SpellId} to {NewSpellId} in group {Group}: {Outcome}.",
             Logger.Args(message.SpellID, message.SpellIDNew, message.TieredSpellGroup, decision.Outcome));
@@ -159,30 +159,44 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
     }
 
     private TieredSpellUpgradeDecision Upgrade(Wizard wizard, int groupIndex, uint spellId, uint newSpellId) {
-        var group = TieredSpellIndex.Instance.Groups[groupIndex];
+        var groups = TieredSpellIndex.Instance.Groups;
         if (CoreObjectFactory.GetCoreTemplate(spellId) is not TieredSpellTemplate current
             || CoreObjectFactory.GetCoreTemplate(newSpellId) is not TieredSpellTemplate next
             || SpellFactory.GetSpell(newSpellId) is not { } newSpell) {
             return NotUpgraded(TieredSpellUpgradeOutcome.NotNextTier);
         }
 
+        if (TieredSpellLedger.ResolveGroup(groups, current.m_name.ToString(), next.m_name.ToString()) != groupIndex) {
+            return NotUpgraded(TieredSpellUpgradeOutcome.WrongGroup);
+        }
+
+        var group = groups[groupIndex];
+
         TieredSpellUpgradeDecision decision;
         ClientReagentItem shards = null;
         lock (HousingItems.BackpackLock(wizard)) {
             var isTrained = wizard.SpellbookBehavior.HasSpell(spellId) && !wizard.SpellbookBehavior.HasSpell(newSpellId);
             var shardsOwned = wizard.AlchemyBehavior.GetReagent(group.ShardTemplateId)?.m_quantity ?? 0;
-            decision = TieredSpellLedger.DecideUpgrade(isTrained, current, next,
+            decision = TieredSpellLedger.DecideUpgrade(group, isTrained, current, next,
                 FirstFailedRequirement(wizard, next.m_requirements), shardsOwned);
             if (decision.Outcome != TieredSpellUpgradeOutcome.Upgraded) {
                 return decision;
+            }
+
+            var existing = wizard.TieredSpells.Find(candidate => candidate.GroupIndex == groupIndex);
+            var progress = existing ?? NewProgress(groupIndex, spellId);
+            if (!TieredSpellLedger.CanApplyUpgrade(progress, spellId, newSpellId)) {
+                return NotUpgraded(TieredSpellUpgradeOutcome.NotTrained);
             }
 
             if (decision.Cost > 0 && !wizard.RemoveReagents(group.ShardTemplateId, decision.Cost, out shards)) {
                 return NotUpgraded(TieredSpellUpgradeOutcome.NotEnoughShards);
             }
 
-            var progress = wizard.TieredSpells.Find(candidate => candidate.GroupIndex == groupIndex)
-                ?? StartProgress(wizard, groupIndex, spellId);
+            if (existing is null) {
+                wizard.TieredSpells.Add(progress);
+            }
+
             wizard.UnlearnSpell(spellId);
             wizard.LearnSpell(newSpell);
             TieredSpellLedger.ApplyUpgrade(progress, spellId, newSpellId, decision.Cost);
@@ -279,15 +293,22 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         int shardsReturned;
         IndexedTieredSpellGroup group;
         lock (HousingItems.BackpackLock(wizard)) {
-            var progress = wizard.TieredSpells.Find(candidate => IsTierOf(candidate, spellId) || IsTierOf(candidate, oldSpellId))
-                ?? StartProgressForTrainedTier(wizard, spellId, oldSpellId);
+            var existing = wizard.TieredSpells.Find(candidate => IsTierOf(candidate, spellId) || IsTierOf(candidate, oldSpellId));
+            var progress = existing ?? NewProgressForTrainedTier(wizard, spellId, oldSpellId);
             if (progress is null) {
                 return false;
             }
 
             group = TieredSpellIndex.Instance.Groups[progress.GroupIndex];
             previousSpellId = progress.CurrentSpellId;
-            shardsReturned = TieredSpellLedger.PrepForMultiplePaths(progress, keepProgression, group.ReturnRate);
+            if (!TieredSpellLedger.TryPrepForMultiplePaths(progress, keepProgression, group.ReturnRate, out shardsReturned)) {
+                return false;
+            }
+
+            if (existing is null) {
+                wizard.TieredSpells.Add(progress);
+            }
+
             currentSpellId = progress.CurrentSpellId;
             SwapTrainedSpell(wizard, previousSpellId, currentSpellId);
             wizard.SaveTieredSpells();
@@ -375,26 +396,24 @@ internal class TieredSpellService(SessionActor sessionActor) : MessageService(se
         wizard.LearnSpell(newSpell);
     }
 
-    private static TieredSpellProgress StartProgress(Wizard wizard, int groupIndex, uint currentSpellId) {
+    private static TieredSpellProgress NewProgress(int groupIndex, uint currentSpellId) {
         var tierOne = SpellFactory.GetSpell(TieredSpellIndex.Instance.Groups[groupIndex].TierOneSpell);
-        var progress = new TieredSpellProgress {
+
+        return new TieredSpellProgress {
             GroupIndex = groupIndex,
             TierOneSpellId = tierOne?.m_templateID ?? currentSpellId,
             CurrentSpellId = currentSpellId,
-            DonePrepForMultiplePaths = true,
+            DonePrepForMultiplePaths = false,
         };
-        wizard.TieredSpells.Add(progress);
-
-        return progress;
     }
 
-    private static TieredSpellProgress StartProgressForTrainedTier(Wizard wizard, params uint[] spellIds) {
+    private static TieredSpellProgress NewProgressForTrainedTier(Wizard wizard, params uint[] spellIds) {
         var groups = TieredSpellIndex.Instance.Groups;
         foreach (var spellId in spellIds.Where(wizard.SpellbookBehavior.HasSpell)) {
             var name = (CoreObjectFactory.GetCoreTemplate(spellId) as SpellTemplate)?.m_name.ToString();
             var groupIndex = groups.ToList().FindIndex(group => group.Spells.Contains(name));
             if (groupIndex >= 0) {
-                return StartProgress(wizard, groupIndex, spellId);
+                return NewProgress(groupIndex, spellId);
             }
         }
 
