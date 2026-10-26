@@ -96,10 +96,13 @@ public static class AccountCollection {
         });
     }
 
+    // Only staff actions look accounts up by name to change them, and they often follow a write (create, then set
+    // the level), so this waits for the index to include it.
     private static ulong? GetAccountId(string username) {
         using var session = s_store.OpenSession();
 
         return session.Query<Account>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
             .Where(account => account.Username == username)
             .Select(account => (ulong?) account.AccountId)
             .FirstOrDefault();
@@ -288,12 +291,18 @@ public static class AccountCollection {
     /// Gets an account from the database by its username.
     /// </summary>
     /// <param name="username"></param>
+    /// <param name="waitForIndex">Whether to wait until the index includes recent writes, for reads that must see
+    /// an account just created or changed. Login reads don't wait.</param>
     /// <returns></returns>
-    public static Account GetAccount(string username) {
+    public static Account GetAccount(string username, bool waitForIndex = false) {
         using var session = s_store.OpenSession();
 
-        var account = session.Query<Account>(collectionName: CollectionName)
-            .FirstOrDefault(a => a.Username == username);
+        var query = session.Query<Account>(collectionName: CollectionName);
+        if (waitForIndex) {
+            query = query.Customize(options => options.WaitForNonStaleResults());
+        }
+
+        var account = query.FirstOrDefault(a => a.Username == username);
 
         return account is null
             ? null
@@ -363,6 +372,21 @@ public static class AccountCollection {
             .Select(account => new { account.Username, account.PasswordHash, account.AuthLevel })
             .ToList()
             .Select(account => new StaffAccountCredential(account.Username, account.PasswordHash, account.AuthLevel))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Gets the username, auth level and lock of every account, ordered by username.
+    /// </summary>
+    public static List<(string Username, AuthLevel AuthLevel, bool IsLocked)> GetAccountSummaries() {
+        using var session = s_store.OpenSession();
+
+        return session.Query<Account>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .Select(account => new { account.Username, account.AuthLevel, account.IsLocked })
+            .ToList()
+            .Select(account => (account.Username, account.AuthLevel, account.IsLocked))
+            .OrderBy(account => account.Username, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -480,6 +504,17 @@ public static class AccountCollection {
         return UpdateAccount(accountId, account => {
             if (account.PurchasedCharacterSlots > 0)
                 --account.PurchasedCharacterSlots;
+        });
+    }
+
+    /// <summary>
+    /// Saves when, from where and from which machine an account last logged in.
+    /// </summary>
+    public static bool RecordLogin(ulong accountId, DateTime time, string ip, ulong machineId) {
+        return UpdateAccount(accountId, account => {
+            account.LastLoginTime = time;
+            account.LastLoginIp = ip;
+            account.LastLoginMachineId = machineId;
         });
     }
 

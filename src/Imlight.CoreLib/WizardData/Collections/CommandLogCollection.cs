@@ -16,6 +16,8 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+using System;
+using System.Linq;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Raven.Client.Documents;
@@ -44,5 +46,35 @@ public static class CommandLogCollection {
 
         session.SaveChanges();
     }
-    
+
+    /// <summary>
+    /// Rewrites saved command log messages through a redaction function.
+    /// </summary>
+    /// <param name="redact">Returns the message to keep for a saved message.</param>
+    /// <returns>The number of messages that changed.</returns>
+    public static int RedactMessages(Func<string, string> redact) {
+        const int pageSize = 512;
+        var changed = 0;
+        for (var start = 0; ; start += pageSize) {
+            using var session = s_store.OpenSession();
+            var page = session.Query<ChatLog>(collectionName: CollectionName)
+                .OrderBy(log => log.TimeStamp)
+                .Skip(start)
+                .Take(pageSize)
+                .ToList();
+            foreach (var log in page) {
+                var redacted = redact(log.Message);
+                if (redacted != log.Message) {
+                    log.Message = redacted;
+                    changed++;
+                }
+            }
+
+            session.SaveChanges();
+            if (page.Count < pageSize) {
+                return changed;
+            }
+        }
+    }
+
 }

@@ -26,6 +26,7 @@
  * USAGE EXAMPLE:
  * The application is launched directly with no command-line arguments.
  * All configuration is loaded from Config/Imlight.ini and Config/akka.conf files.
+ * "console [command]" instead runs server console commands against the server already running on this machine.
  * 
  * NOTE:
  * This system uses System.Threading and Akka.Actor for concurrency.
@@ -58,6 +59,7 @@ using Imlight.CoreLib.WizardData;
 using Imlight.CoreLib.WizardData.Databases;
 using Imlight.CoreLib.WizardData.Models.Player;
 using Imlight.CoreLib.WizardData.Collections;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.CrownShop;
 
 namespace Imlight.Director;
@@ -102,7 +104,13 @@ internal static class Program {
     private static readonly string s_adminAccountPassword = 
         ConfigurationManager.Settings["Database.AdminAccountPassword"].AsString();
 
-    private static void Main() {
+    private static void Main(string[] args) {
+        if (args.Length > 0 && args[0] == "console") {
+            Environment.ExitCode = ServerConsole.RunClient(args[1..]);
+
+            return;
+        }
+
         // =============================================================
         // THREAD POOL
         // =============================================================
@@ -187,6 +195,8 @@ internal static class Program {
 
             return;
         }
+
+        ServerConsole.Listen(s_imlightSystem, s_adminAccountUsername);
 
         // Keep program busy with a while loop.
         Logger.Information("Imlight may now be connected to.");

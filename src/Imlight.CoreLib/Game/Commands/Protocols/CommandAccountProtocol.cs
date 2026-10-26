@@ -17,11 +17,10 @@
  */
 
 using Imlight.CoreLib.Auth;
-using Imlight.CoreLib.WizardData;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
-using System;
 using System.Text;
 
 namespace Imlight.CoreLib.Game.Commands.Protocols;
@@ -33,12 +32,7 @@ internal class CommandAccountProtocol : CommandProtocol {
     [Command("create")]
     [AuthRequired(AuthLevel.HallMonitor)]
     private void CreateAccountCommand(string username, string password) {
-        var passwordHash = DatabaseUtilities.CreateHashedPassword(password);
-        var newAccount = new Account(username, "", passwordHash);
-        var createdSuccess = AccountCollection.CreateAccount(newAccount);
-
-        var reply = createdSuccess ? "Account created successfully." : "Account creation failed.";
-        InformSenderClient(reply);
+        Reply(AccountAdministration.CreateAccount(Context.Account, Context.Character, username, password));
     }
 
     [Command("delete")]
@@ -72,46 +66,13 @@ internal class CommandAccountProtocol : CommandProtocol {
     [Command("lock")]
     [AuthRequired(AuthLevel.HallMonitor)]
     private void LockAccountCommand(string username) {
-        var account = AccountCollection.GetAccount(username);
-        if (account is null) {
-            InformSenderClient("Account not found.");
-
-            return;
-        }
-
-        var authorityReason = $"{Context.Account.Username} wants to lock account {username}.";
-        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
-            InformSenderClient("You cannot lock an account with a higher auth level than you.");
-
-            return;
-        }
-
-        var accountLockedSuccess = AccountCollection.LockAccount(username);
-        var reply = accountLockedSuccess ? "Account locked successfully." : "Account lock failed.";
-        InformSenderClient(reply);
+        Reply(AccountAdministration.SetLocked(Context.Account, Context.Character, username, true));
     }
 
     [Command("unlock")]
     [AuthRequired(AuthLevel.HallMonitor)]
     private void UnlockAccountCommand(string username) {
-        var account = AccountCollection.GetAccount(username);
-        if (account is null) {
-            InformSenderClient("Account not found.");
-
-            return;
-        }
-
-        var authorityReason = $"{Context.Account.Username} wants to unlock account {username}.";
-        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
-            InformSenderClient("You cannot unlock an account with a higher auth level than you.");
-
-            return;
-        }
-
-        var accountUnlockedSuccess = AccountCollection.UnlockAccount(username);
-
-        var reply = accountUnlockedSuccess ? "Account unlocked successfully." : "Account unlock failed.";
-        InformSenderClient(reply);
+        Reply(AccountAdministration.SetLocked(Context.Account, Context.Character, username, false));
     }
 
     [Command("password")]
@@ -123,62 +84,13 @@ internal class CommandAccountProtocol : CommandProtocol {
             return;
         }
 
-        var account = AccountCollection.GetAccount(username);
-        if (account is null) {
-            InformSenderClient("Account not found.");
-
-            return;
-        }
-
-        var passwordChangedSuccess = AccountCollection.ChangePassword(username, newPassword);
-
-        var reply = passwordChangedSuccess ? "Password changed successfully." : "Password change failed.";
-        InformSenderClient(reply);
+        Reply(AccountAdministration.ChangePassword(Context.Account, Context.Character, username, newPassword));
     }
 
     [Command("authlevel")]
     [AuthRequired(AuthLevel.Administrator)]
     private void ChangeAuthLevelCommand(string username, string authLevel) {
-        var account = AccountCollection.GetAccount(username);
-        if (account is null) {
-            InformSenderClient("Account not found.");
-
-            return;
-        }
-
-        // You cannot change the auth level of an account with a higher auth level than you.
-        var authorityReason = $"{Context.Account.Username} wants to change the auth level of account {username}.";
-        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
-            InformSenderClient("You cannot change the auth level of an account with a higher auth level than you.");
-
-            return;
-        }
-
-        // You cannot change the auth level of your own account.
-        if (username == Context.Account.Username) {
-            InformSenderClient("You cannot change the auth level of your own account.");
-
-            return;
-        }
-
-        // Parse the authLevel as an integer.
-        if (!int.TryParse(authLevel, out var authLevelInt)) {
-            InformSenderClient("Invalid auth level.");
-
-            return;
-        }
-
-        // Make sure the auth level is valid.
-        if (!Enum.IsDefined(typeof(AuthLevel), authLevelInt)) {
-            InformSenderClient("Invalid auth level.");
-
-            return;
-        }
-
-        var authLevelChangeSuccess = AccountCollection.UpdateAuthLevel(username, (AuthLevel) authLevelInt);
-
-        var reply = authLevelChangeSuccess ? "Account auth level changed successfully." : "Account auth level change failed.";
-        InformSenderClient(reply);
+        Reply(AccountAdministration.SetAuthLevel(Context.Account, Context.Character, username, authLevel));
     }
 
     [Command("info")]
@@ -308,5 +220,7 @@ internal class CommandAccountProtocol : CommandProtocol {
         var reply = infractionRemovedSuccess ? "Infraction removed successfully." : "Infraction remove failed.";
         InformSenderClient(reply);
     }
+
+    private void Reply(AdminActionResult result) => InformSenderClient(result.Message);
 
 }

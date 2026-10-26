@@ -210,6 +210,11 @@ internal class MinigameService(SessionActor sessionActor) : MessageService(sessi
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_MESSAGE_PROCESS))]
     private void ReceiveMessageProcess(GAME_5_PROTOCOL.MSG_MESSAGE_PROCESS message) {
+        // The admin panel's client script shares this message.
+        if (_minigameJob is null || AdminPanelService.IsAdminPanelJob(message.JobID)) {
+            return;
+        }
+
         // The raw message is just like any other message sent by the client.
         // However, it does not include the magic header or body.
         // It immediately begins with the DML header, detailing the service ID, message ID, length, and finally the payload.

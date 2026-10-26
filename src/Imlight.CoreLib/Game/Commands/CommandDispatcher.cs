@@ -44,6 +44,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
@@ -73,8 +74,27 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
 
     private static Dictionary<string, CommandProtocol> s_protocols => s_protocolsLazy.Value;
 
+    private static int s_savedLogsRedacted;
+
     public CommandDispatcher() {
         Instance = Self;
+
+        // Earlier builds logged sensitive command parameters in full. Each realm creates a dispatcher,
+        // so only the first one sweeps the saved logs.
+        if (Interlocked.Exchange(ref s_savedLogsRedacted, 1) != 0) {
+            return;
+        }
+
+        try {
+            var redacted = CommandLogCollection.RedactMessages(
+                message => string.IsNullOrEmpty(message) ? message : RedactPasswords(message));
+            if (redacted > 0) {
+                Logger.Information("Redacted sensitive parameters from {0} saved command logs.", Logger.Args(redacted));
+            }
+        }
+        catch (Exception ex) {
+            Logger.Error("Could not redact saved command logs: {0}", Logger.Args(ex.Message));
+        }
     }
 
     public static Props Props()

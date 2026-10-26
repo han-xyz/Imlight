@@ -46,6 +46,7 @@ using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.Common;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Elixirs;
 using Imlight.CoreLib.Game.Inventory;
@@ -941,6 +942,25 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_PCS_PURCHASE_RESPONSE {
             Error = errorCode
         });
+    }
+
+    // Staff changes to an online player's Crowns arrive here, in the actor that debits purchases, so that the
+    // cached balance a purchase reads is never stale.
+    [InternalMessageHandler(typeof(ACCOUNT_104_PROTOCOL.MSG_ADJUSTCROWNS))]
+    private void InternalReceiveAdjustCrowns(ACCOUNT_104_PROTOCOL.MSG_ADJUSTCROWNS message) {
+        var wizard = GetActiveWizard();
+        var applied = AccountCollection.TryAdjustCrowns(wizard.AccountId, message.Change, out var after);
+        var before = applied ? after - message.Change : after;
+        if (applied) {
+            wizard.Account.Crowns = after;
+            SyncCrownBalance(wizard);
+        }
+
+        Sender.Tell(new ACCOUNT_104_PROTOCOL.MSG_CROWNSADJUSTED {
+            Applied = applied,
+            Before = before,
+            After = applied ? after : before
+        }, Self);
     }
 
     private void SyncCrownBalance(Wizard wizard)

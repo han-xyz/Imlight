@@ -368,3 +368,6 @@ spiraldb-cache/
 
 # Cache file created by Imlight
 cache
+
+# Admin panel client files built from the operator's game client (KingsIsle content; never commit)
+/tools/admin-panel/out/
