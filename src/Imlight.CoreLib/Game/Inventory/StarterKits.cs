@@ -125,7 +125,10 @@ internal sealed class StarterKits {
         return idsByName;
     }
 
-    internal StarterKit For(AuthLevel authLevel, MagicSchool school) {
+    /// <summary>
+    /// The QA kit for QualityAssurance and above, else the school's retail kit; a missing account gets the retail kit.
+    /// </summary>
+    internal StarterKit For(AuthLevel? authLevel, MagicSchool school) {
         if (authLevel >= AuthLevel.QualityAssurance) {
             return _qaKit;
         }

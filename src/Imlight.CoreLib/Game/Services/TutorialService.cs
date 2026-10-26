@@ -500,7 +500,7 @@ internal sealed class TutorialService(SessionActor sessionActor) : MessageServic
     }
 
     private static StarterKit StarterKitOf(Wizard wizard)
-        => StarterKits.Instance.For(wizard.Account.AuthLevel, wizard.MagicSchoolBehavior.MagicSchool);
+        => StarterKits.Instance.For(wizard.Account?.AuthLevel, wizard.MagicSchoolBehavior.MagicSchool);
 
     private void EquipFirstStarterItem(Wizard wizard, EquipmentSlotType slotType) {
         var item = wizard.InventoryBehavior.Items.FirstOrDefault(item => {

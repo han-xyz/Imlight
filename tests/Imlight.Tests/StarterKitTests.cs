@@ -99,6 +99,13 @@ public sealed class StarterKitTests {
     }
 
     [Fact]
+    public void MissingAccount_GetsSchoolRetailKit() {
+        var kits = StarterKits.Load(Settings(), s_templateIdsByName);
+
+        Assert.Equal([1u, 2u], kits.For(null, MagicSchool.Fire).ItemTemplateIds);
+    }
+
+    [Fact]
     public void RetailKit_SkipsUnknownTemplateName() {
         var kits = StarterKits.Load(Settings(("RetailStarterItems.Fire", "Hat-Fire, Robe-Missing")), s_templateIdsByName);
 
