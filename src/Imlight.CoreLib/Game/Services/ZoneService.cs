@@ -209,6 +209,10 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
+        if (message.SendToClient && !ZoneAccess.Admits(GetActiveAccount(), message.DestinationZone)) {
+            return;
+        }
+
         // A trigger or a script that teleports into a house zone names no lot, so the player's own house in that zone is used.
         if (message.SendToClient && message.HouseEntry is null && HouseZoneIndex.IsHouseZone(message.DestinationZone)
             && !TryUseOwnHouse(message)) {
