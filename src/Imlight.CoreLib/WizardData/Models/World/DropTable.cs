@@ -28,6 +28,10 @@ public class DropTable {
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public double RollChance { get; set; } = 1.0;
+
+    /// <summary>
+    /// A table-level weight carried by the data. No roller reads it; item picks use <see cref="DropItem.Weight"/>.
+    /// </summary>
     public int Weight { get; set; } = 100;
     public double NoneChance { get; set; } = 0.0;
     public double PityCounter { get; set; } = 0.0;
@@ -54,6 +58,11 @@ public class DropItem {
     public string ItemId { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public string Notes { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The item's relative chance of being picked from its table; an item the data gives no weight counts as 1.
+    /// </summary>
+    public int Weight { get; set; } = 1;
     public RequirementList? Requirements { get; set; } = null;
 
 }

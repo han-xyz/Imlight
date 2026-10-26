@@ -26,6 +26,7 @@
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
@@ -43,6 +44,7 @@ using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 
 namespace Imlight.CoreLib.Game.Packs;
 
@@ -50,6 +52,7 @@ public static class PackManager {
 
     private static readonly CoreObjectSerializer s_coreObjectSerializer = new(behaviors: SerializerFlags.None);
     private static readonly ObjectSerializer s_objectSerializer = new(Versionable: false);
+    private static readonly ConcurrentDictionary<(ulong AccountId, ulong PackTemplateId), PackPity> s_pity = new();
 
     /// <summary>
     /// Opens booster packs of one template; see <see cref="OpenPacks"/>.
@@ -128,15 +131,24 @@ public static class PackManager {
             return false;
         }
 
+        var packTables = new List<DropTable>(lootTables.Count);
+        foreach (var tableName in lootTables) {
+            if (DropTableCollection.GetDropTable(tableName) is { } packTable) {
+                packTables.Add(packTable);
+            } else {
+                Logger.Warning("Booster pack {0} names missing drop table {1}.", Logger.Args(packTemplateId, tableName));
+            }
+        }
+
+        var chances = PackTierChances.FromConfiguration();
+        var pity = s_pity.GetOrAdd((wizard.Account.AccountId, packTemplateId), _ => new PackPity());
         for (var i = 0; i < count; i++) {
             var rolledDrops = new List<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, string ItemName)>();
-            foreach (var tableName in lootTables) {
-                var rollResult = DropTableRoller.Roll([tableName], sessionActorRef, wizard.GameObject, wizard);
-                if (rollResult.Items.Count == 0) {
-                    continue;
-                }
-
-                foreach (var droppedItem in rollResult.Items) {
+            foreach (var slotTable in packTables) {
+                var slotLoot = PackSlotOdds.ResolveSlot(slotTable, packTables, chances, Random.Shared, pity);
+                var tableName = slotLoot.Name;
+                var droppedItems = DropTableRoller.RollTableItems(slotLoot, sessionActorRef, wizard.GameObject, wizard, Random.Shared);
+                foreach (var droppedItem in droppedItems) {
                     if (!uint.TryParse(droppedItem.ItemId, out var itemTemplateId)) {
                         continue;
                     }

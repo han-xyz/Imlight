@@ -141,7 +141,11 @@ public static class DropTableRoller {
         return random.Next(minGold, maxGold + 1);
     }
 
-    private static List<DropItemResult> RollTableItems(DropTable dropTable,
+    /// <summary>
+    /// Rolls one item from the table that meets its requirements, picked by <see cref="DropItem.Weight"/>, without
+    /// rolling the table's own <see cref="DropTable.RollChance"/>.
+    /// </summary>
+    internal static List<DropItemResult> RollTableItems(DropTable dropTable,
                                                                   IActorRef playerRef,
                                                                   CoreObject playerObj,
                                                                   Wizard wizard,
@@ -160,8 +164,7 @@ public static class DropTableRoller {
 
         // Keep rolling until we find an item that meets requirements or run out of items.
         while (availableItems.Count > 0) {
-            // Randomly select an item from the remaining pool.
-            var randomIndex = random.Next(availableItems.Count);
+            var randomIndex = PickWeighted(availableItems, random);
             var selectedItem = availableItems[randomIndex];
 
             // Check if this item meets requirements.
@@ -193,6 +196,21 @@ public static class DropTableRoller {
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// The index of an item picked with a chance proportional to its <see cref="DropItem.Weight"/>.
+    /// </summary>
+    internal static int PickWeighted(IReadOnlyList<DropItem> items, Random random) {
+        var roll = random.NextDouble() * items.Sum(item => item.Weight);
+        for (var i = 0; i < items.Count - 1; i++) {
+            roll -= items[i].Weight;
+            if (roll < 0) {
+                return i;
+            }
+        }
+
+        return items.Count - 1;
     }
 
     private static DropTableResult CreateEmptyResult(string dropTableId = "") 
