@@ -367,34 +367,15 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 return s_errorPurchase;
 
             case ItemBundleTemplate itemBundle:
-                var bundleReagentCounts = new Dictionary<ulong, int>();
-                var bundleSnackCounts = new Dictionary<ulong, int>();
-                var bundlePackCounts = new Dictionary<ulong, int>();
-
-                foreach (var bundleSubId in itemBundle.m_bundleItems) {
-                    var bundleSub = CoreObjectFactory.GetCoreTemplate(bundleSubId);
-                    if (bundleSub is ReagentItemTemplate) {
-                        bundleReagentCounts[bundleSubId] = bundleReagentCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
-                    }
-                    else if (bundleSub is PetSnackItemTemplate) {
-                        bundleSnackCounts[bundleSubId] = bundleSnackCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
-                    }
-                    else if (bundleSub is BoosterPackTemplate) {
-                        bundlePackCounts[bundleSubId] = bundlePackCounts.GetValueOrDefault(bundleSubId) + (int) message.Count;
-                    }
+                var bundleContents = GiftingService.BundleContents(itemBundle, (int) message.Count).ToList();
+                if (!GiftingService.CanHoldStacks(wizard, bundleContents)) {
+                    return s_errorInvFull;
                 }
 
-                foreach (var (reagentId, needed) in bundleReagentCounts) {
-                    if (!CanHoldReagents(wizard, reagentId, needed)) {
-                        return s_errorInvFull;
-                    }
-                }
-
-                foreach (var (snackId, needed) in bundleSnackCounts) {
-                    if (!CanHoldPetSnacks(wizard, snackId, needed)) {
-                        return s_errorInvFull;
-                    }
-                }
+                var bundlePackCounts = bundleContents
+                    .Where(content => content.Template is BoosterPackTemplate)
+                    .GroupBy(content => content.TemplateId)
+                    .ToDictionary(group => group.Key, group => group.Sum(content => content.Count));
 
                 for (var i = 0; i < message.Count; i++) {
                     foreach (var templateId in itemBundle.m_bundleItems) {

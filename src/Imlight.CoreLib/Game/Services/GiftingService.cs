@@ -180,35 +180,10 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                 return;
             }
         }
-        else if (itemTemplate is ItemBundleTemplate bundlePrecheck) {
-            var bundleReagentCounts = new Dictionary<ulong, int>();
-            var bundleSnackCounts = new Dictionary<ulong, int>();
-
-            foreach (var bundleItemTemplateId in bundlePrecheck.m_bundleItems) {
-                var bundleSubTemplate = CoreObjectFactory.GetCoreTemplate(bundleItemTemplateId);
-                if (bundleSubTemplate is ReagentItemTemplate) {
-                    bundleReagentCounts[bundleItemTemplateId] = bundleReagentCounts.GetValueOrDefault(bundleItemTemplateId) + itemCount;
-                }
-                else if (bundleSubTemplate is PetSnackItemTemplate) {
-                    bundleSnackCounts[bundleItemTemplateId] = bundleSnackCounts.GetValueOrDefault(bundleItemTemplateId) + itemCount;
-                }
-            }
-
-            foreach (var (reagentId, needed) in bundleReagentCounts) {
-                if (!(wizard.AlchemyBehavior?.HasReagentSpace(reagentId, needed) ?? false)) {
-                    InformGameClient("Your reagent bag cannot hold any more of this reagent!");
-                    SendRedeemFailure(message.MailId);
-                    return;
-                }
-            }
-
-            foreach (var (snackId, needed) in bundleSnackCounts) {
-                if (!(wizard.PetSnackBehavior?.HasSnackSpace(snackId, needed) ?? false)) {
-                    InformGameClient("Your pet snack bag cannot hold any more of this snack!");
-                    SendRedeemFailure(message.MailId);
-                    return;
-                }
-            }
+        else if (itemTemplate is ItemBundleTemplate bundlePrecheck && !CanHoldStacks(wizard, BundleContents(bundlePrecheck, itemCount))) {
+            InformGameClient("Your reagent or pet snack bag cannot hold this bundle!");
+            SendRedeemFailure(message.MailId);
+            return;
         }
 
         var customEmote = itemTemplate?.m_behaviors?.OfType<CustomEmoteBehaviorTemplate>().FirstOrDefault();
@@ -377,6 +352,28 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
 
         return count;
     }
+
+    /// <summary>
+    /// Whether the reagent and pet snack bags can take every stack listed; other templates are ignored.
+    /// </summary>
+    internal static bool CanHoldStacks(Wizard wizard, IEnumerable<(ulong TemplateId, CoreTemplate Template, int Count)> items) {
+        var reagents = new Dictionary<ulong, int>();
+        var snacks = new Dictionary<ulong, int>();
+        foreach (var (templateId, template, count) in items) {
+            if (template is ReagentItemTemplate) {
+                reagents[templateId] = reagents.GetValueOrDefault(templateId) + count;
+            }
+            else if (template is PetSnackItemTemplate) {
+                snacks[templateId] = snacks.GetValueOrDefault(templateId) + count;
+            }
+        }
+
+        return reagents.All(reagent => wizard.AlchemyBehavior?.HasReagentSpace(reagent.Key, reagent.Value) ?? false)
+            && snacks.All(snack => wizard.PetSnackBehavior?.HasSnackSpace(snack.Key, snack.Value) ?? false);
+    }
+
+    internal static IEnumerable<(ulong TemplateId, CoreTemplate Template, int Count)> BundleContents(ItemBundleTemplate bundle, int count)
+        => bundle.m_bundleItems.Select(templateId => ((ulong) templateId, CoreObjectFactory.GetCoreTemplate(templateId), count));
 
     private bool TryOpenPacks(Wizard wizard, ulong packTemplateId, int count) {
         if (PackManager.OpenPack(SessionActor.ActorRef, wizard, packTemplateId, count)) {
