@@ -31,6 +31,7 @@
  * - Supports item equip and unequip operations
  * - Manages equipment-related effects and broadcasts
  * - Implements security checks for suspicious equipment actions
+ * - A house is equipped in the Islands and Structure slots, which only house items fit (HouseEquipment)
  * 
  * TODO:
  * - Enhance error handling for equipment transfers
@@ -39,7 +40,7 @@
  * 
  * Created by: Joji
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/15/2026
  */
 
 using System;
@@ -59,6 +60,7 @@ using Imlight.CoreLib.Game.Pet;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Game.Results;
+using Imlight.CoreLib.Game.Housing.Houses;
 using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -168,6 +170,18 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
         var elixirTemplate = itemTemplate?.m_behaviors?.OfType<ElixirBehaviorTemplate>().FirstOrDefault();
         if (elixirTemplate is not null) {
             EquipElixirFromInventory(wizard, item, itemTemplate, elixirTemplate);
+            return;
+        }
+
+        // A house goes in a house slot and nothing else does.
+        if (!HouseEquipment.Allows(item, message.SlotName)) {
+            var infractionText = $"Player tried to equip item {itemId} in slot {message.SlotName}, which does not take it!";
+            account.AddInfraction(InfractionType.SuspiciousBehavior, infractionText);
+
+            Logger.Warning("Player tried to equip item {0} in slot {1}, which does not take it."
+                        + " This has been logged as suspicious behavior.",
+                Logger.Args(itemId, message.SlotName));
+
             return;
         }
 
@@ -625,7 +639,7 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
                 levelUpElixir,
                 SendToSocket,
                 (msg, selfless, target) => ZoneBroadcast(msg, selfless, target),
-                Teleport,
+                (zone, effects, isPrivate, ownerCharId, location) => Teleport(zone, effects, isPrivate, ownerCharId, location),
                 PlaySound
             );
             return;

@@ -98,6 +98,7 @@ public class Account {
     public int PurchasedCharacterSlots { get; set; }
     public int Crowns { get; set; }
     public List<Mail> GiftMailbox { get; set; } = new();
+    public AccountSharedBank SharedBank { get; set; } = new();
 
     [JsonIgnore] public List<Wizard> Characters = new();
     [JsonIgnore] public InfractionHistory InfractionHistory { get; set; }

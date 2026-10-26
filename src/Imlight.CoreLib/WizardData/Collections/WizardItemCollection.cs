@@ -180,6 +180,19 @@ public static class WizardItemCollection {
     }
 
     /// <summary>
+    /// Checks whether an item is stored under a global id, whoever owns it.
+    /// </summary>
+    /// <param name="itemId">The global id of the item.</param>
+    /// <returns>True if an item with the id is stored, false otherwise.</returns>
+    public static bool Exists(ulong itemId) {
+        using var session = s_store.OpenSession();
+
+        return session.Query<WizClientObjectItem>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .Any(x => x.m_globalID == itemId);
+    }
+
+    /// <summary>
     /// Stores a new item through a session the caller saves, so the item commits together with the caller's
     /// other changes. Unlike <see cref="AddItem"/> it does not touch the character document.
     /// </summary>
@@ -312,6 +325,29 @@ public static class WizardItemCollection {
             return false;
         }
 
+        session.SaveChanges();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Saves the lot a stored deed item points at.
+    /// </summary>
+    /// <param name="item">The deed item.</param>
+    /// <param name="lotGid">The lot of the house the deed opens.</param>
+    /// <returns>True if the deed was found and saved, false otherwise.</returns>
+    public static bool ApplyDeedLot(WizClientObjectItem item, ulong lotGid) {
+        using var session = s_store.OpenSession();
+
+        var associatedItem = session.Query<WizClientObjectItem>(collectionName: CollectionName)
+            .Customize(query => query.WaitForNonStaleResults())
+            .FirstOrDefault(x => x.m_globalID == item.m_globalID && x.m_characterId == item.m_characterId);
+        if (associatedItem is null
+            || !CoreObjectFactory.FindBehaviorInstance<DeedBehavior>(associatedItem, out var deedBehavior)) {
+            return false;
+        }
+
+        deedBehavior.m_lotInstanceGID = lotGid;
         session.SaveChanges();
 
         return true;
