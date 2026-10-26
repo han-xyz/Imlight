@@ -95,7 +95,7 @@ public sealed class RequirementTests {
             wizard.QuestBehavior.AddToRegistry("Main_Complete", 1);
         }
 
-        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard, QuestOfferGate.Open);
 
         Assert.Equal(offered, quests.Contains(quest));
     }
@@ -110,7 +110,7 @@ public sealed class RequirementTests {
             wizard.QuestBehavior.AddToRegistry("Prepared", 1);
         }
 
-        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard);
+        var quests = InteractQuestOfferComponent.FindAvailableQuests([quest], wizard, QuestOfferGate.Open);
 
         Assert.Equal(offered, quests.Contains(quest));
     }

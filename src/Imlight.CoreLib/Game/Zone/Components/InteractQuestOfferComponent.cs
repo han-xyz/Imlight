@@ -68,6 +68,11 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
 
     private const string PREP_NPC_ICON = "Prep";
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
+    private const string RequirePredecessorKey = "Quests.RequirePredecessor";
+
+    private static readonly Lazy<QuestOfferGate> s_gate = new(() => QuestOfferGate.FromPack(
+        QuestTemplateCollection.GetAllQuests(),
+        requirePredecessor: ConfigurationManager.GetValue(RequirePredecessorKey, true)));
 
     public string ServiceName => "QuestOfferService";
     public bool FollowsQuestState => true;
@@ -158,9 +163,10 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
             .Any(group => group.Any(quest => OldStyleQuestName().IsMatch(quest.m_questName))
                 && group.Any(quest => !OldStyleQuestName().IsMatch(quest.m_questName)));
 
-    internal static List<QuestTemplate> FindAvailableQuests(IEnumerable<QuestTemplate> offeredQuests, Wizard wizard)
+    internal static List<QuestTemplate> FindAvailableQuests(IEnumerable<QuestTemplate> offeredQuests, Wizard wizard,
+                                                            QuestOfferGate gate)
         => [.. offeredQuests
-            .Where(quest => IsAvailable(quest, wizard))
+            .Where(quest => IsAvailable(quest, wizard) && gate.IsUnlocked(quest, wizard.HasCompletedQuest))
             .OrderBy(quest => (string) quest.m_questName, StringComparer.Ordinal)];
 
     private static bool IsAvailable(QuestTemplate quest, Wizard wizard) {
@@ -274,7 +280,7 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
         }
 
         var state = new PlayerQuestOfferState {
-            AvailableQuests = FindAvailableQuests(_givesQuests, wizard),
+            AvailableQuests = FindAvailableQuests(_givesQuests, wizard, s_gate.Value),
             LastUpdated = now,
         };
 
