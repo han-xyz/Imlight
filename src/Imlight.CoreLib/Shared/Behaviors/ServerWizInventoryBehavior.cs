@@ -42,10 +42,10 @@ public class ServerWizInventoryBehavior : IClientBehaviorProvider<ClientWizInven
     [JsonIgnore] public List<WizClientObjectItem> Items { get; set; }
 
     /// <summary>
-    /// The slots the wizard's Expand Backpack Elixirs added, mirrored from
-    /// <see cref="ServerWizGameStats.m_extraInventorySpace"/>, which is the stored value.
+    /// The slots the wizard's Expand Backpack Elixirs added. The client learns it as
+    /// WizGameStats.m_extraInventorySpace.
     /// </summary>
-    [JsonIgnore] public int ExtraSpace { get; set; }
+    public int ExtraSpace { get; set; }
 
     [JsonIgnore] public int NumItemsAllowed
         => (s_maxItemsAllowed > 0 ? s_maxItemsAllowed : s_maxItemsAllowedFallback) + ExtraSpace;

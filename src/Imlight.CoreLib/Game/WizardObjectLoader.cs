@@ -84,6 +84,7 @@ public static class WizardObjectLoader {
         // We can't send the character game stats because the EquipmentService will broadcast the equipment effects,
         // causing each stat to duplicate.
         clientObject.m_gameStats = character.GameStats.GetClientTypeAlternative();
+        clientObject.m_gameStats.m_extraInventorySpace = character.InventoryBehavior.ExtraSpace;
     }
 
     public static void SetInventoryBehavior(WizClientObject clientObject, ref Wizard character) {

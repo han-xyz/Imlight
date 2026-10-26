@@ -55,10 +55,10 @@ internal static class BackpackExpansion {
 
     public static bool IsBackpackExpansion(ulong templateId) => templateId == ElixirTemplateId;
 
-    public static bool IsAtLimit(Wizard wizard) => wizard.GameStats.m_extraInventorySpace >= MaxExtraSpace;
+    public static bool IsAtLimit(Wizard wizard) => wizard.InventoryBehavior.ExtraSpace >= MaxExtraSpace;
 
     public static bool MayPurchase(Wizard wizard, int count)
-        => wizard.GameStats.m_extraInventorySpace + count * SlotsPerElixir <= MaxExtraSpace;
+        => wizard.InventoryBehavior.ExtraSpace + count * SlotsPerElixir <= MaxExtraSpace;
 
     /// <summary>
     /// Adds one elixir's slots to the wizard. False, with nothing changed, at the limit.
@@ -68,8 +68,7 @@ internal static class BackpackExpansion {
             return false;
         }
 
-        wizard.GameStats.m_extraInventorySpace += SlotsPerElixir;
-        wizard.InventoryBehavior.ExtraSpace = wizard.GameStats.m_extraInventorySpace;
+        wizard.InventoryBehavior.ExtraSpace += SlotsPerElixir;
 
         return true;
     }
@@ -87,7 +86,7 @@ internal static class BackpackExpansion {
 
     public static WIZARD2_53_PROTOCOL.MSG_UPDATEEXTRAINVENTORY ExtraInventoryUpdate(Wizard wizard)
         => new() {
-            ExtraInventorySpace = wizard.GameStats.m_extraInventorySpace,
+            ExtraInventorySpace = wizard.InventoryBehavior.ExtraSpace,
             CurrentInventorySpace = wizard.InventoryBehavior.NumItemsAllowed
         };
 

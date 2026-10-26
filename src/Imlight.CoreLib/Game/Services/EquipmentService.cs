@@ -697,7 +697,6 @@ internal class EquipmentService(SessionActor sessionActor) : MessageService(sess
 
         WizardItemCollection.RemoveItem(wizard.CharId, item.m_globalID);
         WizardCollection.UpdateCharacterItems(wizard);
-        WizardCollection.UpdateCharacterGameStats(wizard);
 
         SendToSocket(new GAME_5_PROTOCOL.MSG_INVENTORYBEHAVIOR_REMOVEITEM {
             GlobalID = wizard.GameObjectID,

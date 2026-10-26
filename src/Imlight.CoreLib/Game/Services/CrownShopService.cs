@@ -823,7 +823,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
                 return false;
             }
 
-            WizardCollection.UpdateCharacterGameStats(wizard);
+            WizardCollection.UpdateCharacterItems(wizard);
             SendToSocket(BackpackExpansion.ExtraInventoryUpdate(wizard));
             PlaySound(elixirTemplate.m_equipSound);
             return true;

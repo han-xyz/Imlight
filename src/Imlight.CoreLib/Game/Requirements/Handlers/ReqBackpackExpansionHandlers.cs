@@ -46,7 +46,7 @@ internal sealed class ReqIsLimitExpandBackpackElixirsHandler : BaseRequirementHa
     public override bool Evaluate(IRequirementContext context) {
         var wizard = context.GetWizard();
 
-        return wizard?.GameStats is not null && BackpackExpansion.IsAtLimit(wizard);
+        return wizard?.InventoryBehavior is not null && BackpackExpansion.IsAtLimit(wizard);
     }
 
 }
@@ -56,7 +56,7 @@ internal sealed class ReqAddIncreaseInventoryHandler : BaseRequirementHandler<Re
     public override bool Evaluate(IRequirementContext context) {
         var wizard = context.GetWizard();
 
-        return wizard?.GameStats is not null && !BackpackExpansion.IsAtLimit(wizard);
+        return wizard?.InventoryBehavior is not null && !BackpackExpansion.IsAtLimit(wizard);
     }
 
 }

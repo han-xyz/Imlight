@@ -34,6 +34,7 @@
  * Last Updated: 10/26/2026
  */
 
+using System.Text.Json;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.CoreLib.Game.Elixirs;
@@ -49,13 +50,13 @@ namespace Imlight.Tests;
 public sealed class BackpackExpansionTests {
 
     private const ulong ElixirTemplateId = 1431039;
-    private const ulong HatchElixirTemplateId = 1439023;
+    private const ulong OtherElixirTemplateId = 1439023;
     private const int SlotsPerElixir = 25;
 
     [Fact]
     public void IsBackpackExpansion_MatchesOnlyTheExpandBackpackElixir() {
         Assert.True(BackpackExpansion.IsBackpackExpansion(ElixirTemplateId));
-        Assert.False(BackpackExpansion.IsBackpackExpansion(HatchElixirTemplateId));
+        Assert.False(BackpackExpansion.IsBackpackExpansion(OtherElixirTemplateId));
     }
 
     [Fact]
@@ -76,6 +77,15 @@ public sealed class BackpackExpansionTests {
     }
 
     [Fact]
+    public void ExtraSpace_IsStoredWithTheInventory() {
+        var inventory = new ServerWizInventoryBehavior { Items = [], InventoryItemIds = [], ExtraSpace = SlotsPerElixir };
+
+        var stored = JsonSerializer.Deserialize<ServerWizInventoryBehavior>(JsonSerializer.Serialize(inventory));
+
+        Assert.Equal(SlotsPerElixir, stored!.ExtraSpace);
+    }
+
+    [Fact]
     public void TryUse_ConsumesTheElixirAndAddsTheIncrementOnce() {
         var wizard = Bare();
         var elixir = Item(1);
@@ -85,7 +95,7 @@ public sealed class BackpackExpansionTests {
         Assert.True(BackpackExpansion.TryUse(wizard, elixir));
 
         Assert.False(wizard.InventoryBehavior.HasItem(elixir.m_globalID));
-        Assert.Equal(SlotsPerElixir, wizard.GameStats.m_extraInventorySpace);
+        Assert.Equal(SlotsPerElixir, wizard.InventoryBehavior.ExtraSpace);
         Assert.Equal(freeBefore + 1 + SlotsPerElixir, wizard.InventoryBehavior.FreeSlots);
     }
 
@@ -102,7 +112,7 @@ public sealed class BackpackExpansionTests {
         Assert.False(BackpackExpansion.TryUse(wizard, elixirs[2]));
 
         Assert.True(wizard.InventoryBehavior.HasItem(elixirs[2].m_globalID));
-        Assert.Equal(2 * SlotsPerElixir, wizard.GameStats.m_extraInventorySpace);
+        Assert.Equal(2 * SlotsPerElixir, wizard.InventoryBehavior.ExtraSpace);
     }
 
     [Theory]
@@ -113,7 +123,7 @@ public sealed class BackpackExpansionTests {
     [InlineData(2 * SlotsPerElixir, 1, false)]
     public void MayPurchase_RefusesPastTheLimit(int extraSpace, int count, bool expected) {
         var wizard = Bare();
-        wizard.GameStats.m_extraInventorySpace = extraSpace;
+        wizard.InventoryBehavior.ExtraSpace = extraSpace;
 
         Assert.Equal(expected, BackpackExpansion.MayPurchase(wizard, count));
     }
@@ -124,7 +134,7 @@ public sealed class BackpackExpansionTests {
     [InlineData(2 * SlotsPerElixir, true)]
     public void Requirements_FollowTheLimit(int extraSpace, bool atLimit) {
         var wizard = Bare();
-        wizard.GameStats.m_extraInventorySpace = extraSpace;
+        wizard.InventoryBehavior.ExtraSpace = extraSpace;
 
         Assert.Equal(atLimit, Evaluate(new ReqIsLimitExpandBackpackElixirs(), wizard));
         Assert.Equal(!atLimit, Evaluate(new ReqAddIncreaseInventory(), wizard));
