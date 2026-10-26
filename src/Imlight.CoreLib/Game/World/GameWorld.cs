@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/26/2026
  */
 
 using System;
@@ -47,6 +47,7 @@ using Akka.Util.Internal;
 using Imcodec.Cryptography;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Housing.Houses;
+using Imlight.CoreLib.Game.TieredSpells;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -88,6 +89,7 @@ public class GameWorld : ReceiveProtocolDispatcher, IWithTimers {
         CreatureSpellbookCollection.PreloadSpellbooks();
         NpcDropTableCollection.PreloadDropTables();
         HouseZoneIndex.Preload();
+        _ = TieredSpellIndex.Instance;
         HouseTemplates.ValidateStarters();
     }
 
