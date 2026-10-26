@@ -20,14 +20,14 @@
  * ========================================================================
  * 
  * PURPOSE:
- * Decides whose instance a wizard enters from a dungeon sigil, and whether that entry starts a fresh run.
+ * Chooses the owner of a group's dungeon run and the members who hear a sigil countdown.
  * 
  * USAGE EXAMPLE:
- * var entry = SigilEntryPlan.Decide(charId, group, padOccupants, liveOwnerCharId);
+ * var ownerCharId = SigilEntryPlan.ChooseOwner(charId, group, padOccupants);
  * 
  * NOTE:
- * - Grouped wizards share the instance of the group leader when the leader is on the pad, otherwise of the first
- *   member to enter. Only the first entrant resets it; members who enter later join it as it is.
+ * - The group leader owns the run when online and on the pad, otherwise the first member to enter. DungeonRunBook
+ *   keeps the run.
  * 
  * TODO:
  * 
@@ -52,35 +52,16 @@ internal sealed record SigilEntry(ulong OwnerCharId, bool ResetInstance);
 internal static class SigilEntryPlan {
 
     /// <summary>
-    /// Decides the instance a wizard enters when their sigil countdown ends.
+    /// Chooses the owner of a group's new dungeon run: the group leader when they are online and counting down on the
+    /// pad, otherwise the wizard whose countdown ended first.
     /// </summary>
     /// <param name="entrantCharId">The wizard whose countdown ended.</param>
-    /// <param name="group">The entrant's group, or null when they are not grouped.</param>
-    /// <param name="padOccupants">The members of the group still counting down on the pad, the entrant included.</param>
-    /// <param name="liveOwnerCharId">The owner of the group's instance of this dungeon while one is running, otherwise 0.</param>
-    internal static SigilEntry Decide(ulong entrantCharId, GroupSnapshot group, IReadOnlyCollection<ulong> padOccupants,
-                                      ulong liveOwnerCharId) {
-        if (group is null) {
-            return new SigilEntry(entrantCharId, ResetInstance: true);
-        }
-
-        if (group.GetMember(liveOwnerCharId)?.IsOnline == true) {
-            return new SigilEntry(liveOwnerCharId, ResetInstance: false);
-        }
-
-        var owner = padOccupants.Contains(group.LeaderCharId) ? group.LeaderCharId : entrantCharId;
-
-        return new SigilEntry(owner, ResetInstance: true);
-    }
-
-    /// <summary>
-    /// Decides the instance a teleport out of an instanced zone leads to: the owner of the source instance keeps the
-    /// traveller, so a group stays together from floor to floor. A teleport never resets the instance.
-    /// </summary>
-    /// <param name="travellerCharId">The wizard who teleports.</param>
-    /// <param name="sourceOwnerCharId">The owner of the instance the wizard teleports from.</param>
-    internal static SigilEntry FollowTeleport(ulong travellerCharId, ulong sourceOwnerCharId)
-        => new(sourceOwnerCharId, ResetInstance: false);
+    /// <param name="group">The entrant's group.</param>
+    /// <param name="padOccupants">The wizards counting down on the pad, the entrant included.</param>
+    internal static ulong ChooseOwner(ulong entrantCharId, GroupSnapshot group, IReadOnlyCollection<ulong> padOccupants)
+        => padOccupants.Contains(group.LeaderCharId) && group.GetMember(group.LeaderCharId)?.IsOnline == true
+            ? group.LeaderCharId
+            : entrantCharId;
 
     /// <summary>
     /// The members told about a countdown, so those standing on the same pad start it together.

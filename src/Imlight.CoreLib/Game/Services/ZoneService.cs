@@ -92,8 +92,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
     private const float SIGIL_COUNTDOWN_SECONDS = 10.0f;
     private const float SIGIL_YAW_ERROR_COMPENSATION = 1.58f; // Gamebryo yaw compensation
     private ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY _activeSigilEntry;
-    private ulong _sigilGroupId;
-    private (ulong GroupId, string ZoneName)? _ownedGroupInstance;
 
     private readonly CoreObjectSerializer _effectSerializer = new(
         versionable: false,
@@ -227,13 +225,14 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        if (message.SendToClient && message.HouseEntry is null && !message.IsPrivate) {
-            FollowSourceInstance(message);
-        }
-
-        if (message.SendToClient && _ownedGroupInstance is { } owned && owned.ZoneName != message.DestinationZone) {
-            GroupSigilEntries.Release(owned.GroupId, owned.ZoneName, GetActiveWizard().CharId);
-            _ownedGroupInstance = null;
+        // A member travelling on from one of their run's zones is sent to the run owner's container; GameWorld still
+        // places a public destination in its public copy.
+        var traveller = GetActiveWizard();
+        var runOwnerCharId = message.SendToClient && message.HouseEntry is null && !message.IsPrivate
+            ? DungeonRunBook.Shared.RouteTransfer(traveller.CharId, traveller.Zone)
+            : 0;
+        if (runOwnerCharId != 0) {
+            message.OwnerCharId = runOwnerCharId;
         }
 
         // Sending the server transfer request to the server will allocate and load the zone.
@@ -254,6 +253,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         if (failed) {
             return;
         }
+
+        DungeonRunBook.Shared.Arrived(traveller.CharId, message.DestinationZone, zoneDetails.IsInstance,
+            fromRunZone: runOwnerCharId != 0);
 
         // Check if the destination zone is the same as the current zone. If so, just teleport the player.
         var wizard = GetActiveWizard();
@@ -340,12 +342,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         );
 
         _activeSigilEntry = message;
-        _sigilGroupId = 0;
-        var charId = GetActiveWizard().CharId;
-        if (GroupRegistry.TryGetGroup(charId, out var group)) {
-            _sigilGroupId = group.GroupId;
-            GroupSigilEntries.Wait(group.GroupId, message.DestinationZone, charId);
-        }
+        DungeonRunBook.Shared.Wait(GetActiveWizard().CharId, message.DestinationZone);
 
         SnapPlayerToSigilFace(message);
 
@@ -387,7 +384,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         var entry = _activeSigilEntry;
         _activeSigilEntry = null;
 
-        var instance = EnterSigilInstance(wizard.CharId, entry.DestinationZone);
+        // The client attaches again after the transfer; the run sends that attach to the owner's container.
+        var instance = DungeonRunBook.Shared.Enter(wizard.CharId, entry.DestinationZone);
 
         Logger.Information("Entering dungeon instance '{0}' (owner {1}, reset {2})",
             Logger.Args(entry.DestinationZone, instance.OwnerCharId, instance.ResetInstance));
@@ -403,47 +401,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
         SendTeleportEffects();
         ReceiveZoneTransferRequest(tpMsg);
-    }
-
-    private SigilEntry EnterSigilInstance(ulong charId, string zoneName) {
-        var groupId = _sigilGroupId;
-        _sigilGroupId = 0;
-
-        var isSameGroup = GroupRegistry.TryGetGroup(charId, out var group) && group.GroupId == groupId;
-        if (groupId != 0 && !isSameGroup) {
-            GroupSigilEntries.StopWaiting(groupId, zoneName, charId);
-        }
-
-        var instance = isSameGroup
-            ? GroupSigilEntries.Enter(charId, group, zoneName)
-            : SigilEntryPlan.Decide(charId, group: null, padOccupants: [], liveOwnerCharId: 0);
-
-        // The client attaches again after the transfer; the assignment sends that attach to the owner's container.
-        if (instance.OwnerCharId == charId) {
-            ZoneInstanceOwners.Clear(charId, zoneName);
-        } else {
-            ZoneInstanceOwners.Assign(charId, zoneName, instance.OwnerCharId);
-        }
-
-        if (isSameGroup && instance.OwnerCharId == charId) {
-            _ownedGroupInstance = (groupId, zoneName);
-        }
-
-        return instance;
-    }
-
-    private void FollowSourceInstance(ZONE_102_PROTOCOL.MSG_ZONETRANSFER message) {
-        var wizard = GetActiveWizard();
-        var (sourceOwnerCharId, _) = ZoneInstanceOwners.Resolve(wizard.CharId, wizard.Zone, houseOwnerCharId: 0);
-        var instance = SigilEntryPlan.FollowTeleport(wizard.CharId, sourceOwnerCharId);
-        if (instance.OwnerCharId == wizard.CharId) {
-            ZoneInstanceOwners.Unfollow(wizard.CharId, message.DestinationZone);
-
-            return;
-        }
-
-        message.OwnerCharId = instance.OwnerCharId;
-        ZoneInstanceOwners.Follow(wizard.CharId, message.DestinationZone, instance.OwnerCharId);
     }
 
     private static bool IsOnSigilPad(ZONE_102_PROTOCOL.MSG_STARTSIGILENTRY entry, Wizard wizard) {
@@ -1416,10 +1373,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
             return;
         }
 
-        if (_sigilGroupId != 0) {
-            GroupSigilEntries.StopWaiting(_sigilGroupId, entry.DestinationZone, GetActiveWizard().CharId);
-            _sigilGroupId = 0;
-        }
+        DungeonRunBook.Shared.StopWaiting(GetActiveWizard().CharId, entry.DestinationZone);
 
         SendToSocket(new WIZARD_12_PROTOCOL.MSG_MINIGAMETIMEREND { SigilGID = entry.SigilGID });
 

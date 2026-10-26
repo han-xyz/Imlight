@@ -775,6 +775,7 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
         public ushort MobileId;
         public uint DynamicZoneId;
         public string ZoneDisplayName;
+        public bool IsInstance;
         public Vector3 Location;
         public float Orientation;
         public uint ErrorCode;

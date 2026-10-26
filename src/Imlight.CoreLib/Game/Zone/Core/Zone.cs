@@ -126,6 +126,12 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
     private readonly HashSet<IActorRef> _players = [];
     private const string IDLE_EXPIRE_TIMER = "instance-idle-expire";
     private const int DEFAULT_INSTANCE_IDLE_MINUTES = 30;
+
+    /// <summary>
+    /// Minutes an instance zone, and a dungeon run, is kept after the last wizard inside leaves; 0 or less keeps it.
+    /// </summary>
+    internal static int InstanceIdleMinutes
+        => ConfigurationManager.GetValue("Zone.InstanceIdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES);
     private const int PUBLIC_ZONE_IDLE_MINUTES = 10; // todo: tune
     private bool _activitySinceIdleRequest;
     private readonly List<ZONE_102_PROTOCOL.MSG_PLAYERMOVE> _pendingPlayerMoves = [];
@@ -585,6 +591,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
             ErrorCode = 0,
             MobileId = GenerateObjectIdentifier(),
             ZoneDisplayName = ZoneName,
+            IsInstance = IsInstance,
             CriticalObjects = [.. _criticalObjectIds]
         };
 
@@ -632,7 +639,7 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
 
         // Zone.InstanceIdleMinutes of 0 or less disables the instance expiry; a join cancels the timer.
         var minutes = IsInstance
-            ? ConfigurationManager.GetValue("Zone.InstanceIdleMinutes", DEFAULT_INSTANCE_IDLE_MINUTES)
+            ? InstanceIdleMinutes
             : PUBLIC_ZONE_IDLE_MINUTES;
         if (minutes <= 0) {
             return;

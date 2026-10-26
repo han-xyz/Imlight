@@ -17,6 +17,8 @@
  *
  */
 
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Akka.Actor;
 using Imlight.CoreLib.Game.Groups;
@@ -32,85 +34,169 @@ public sealed class SigilEntryPlanTests {
     private const ulong Other = 3;
 
     [Fact]
-    public void Decide_WithoutGroup_EntrantOwnsAFreshInstance() {
-        var entry = SigilEntryPlan.Decide(Member, group: null, padOccupants: [Member], liveOwnerCharId: 0);
-
-        Assert.Equal(new SigilEntry(Member, ResetInstance: true), entry);
+    public void ChooseOwner_LeaderOnThePad_LeaderOwns() {
+        Assert.Equal(Leader, SigilEntryPlan.ChooseOwner(Member, Group(Leader, Member), padOccupants: [Leader, Member]));
     }
 
     [Fact]
-    public void Decide_LeaderOnThePad_LeaderOwnsAndTheFirstEntrantResets() {
-        var entry = SigilEntryPlan.Decide(Member, Group(Leader, Member), padOccupants: [Leader, Member], liveOwnerCharId: 0);
-
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: true), entry);
+    public void ChooseOwner_LeaderNotOnThePad_FirstEntrantOwns() {
+        Assert.Equal(Member, SigilEntryPlan.ChooseOwner(Member, Group(Leader, Member), padOccupants: [Member]));
     }
 
     [Fact]
-    public void Decide_LeaderNotOnThePad_FirstEntrantOwns() {
-        var entry = SigilEntryPlan.Decide(Member, Group(Leader, Member), padOccupants: [Member], liveOwnerCharId: 0);
+    public void ChooseOwner_LeaderOfflineOnThePad_FirstEntrantOwns() {
+        var group = new GroupSnapshot(10, 20, Leader, [Offline(Leader), Online(Member)], 0, 0);
 
-        Assert.Equal(new SigilEntry(Member, ResetInstance: true), entry);
-    }
-
-    [Fact]
-    public void Decide_LateMember_JoinsTheLiveInstanceWithoutReset() {
-        var entry = SigilEntryPlan.Decide(Member, Group(Leader, Member), padOccupants: [Member], liveOwnerCharId: Leader);
-
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), entry);
-    }
-
-    [Fact]
-    public void Decide_LiveOwnerOutsideTheGroup_IsNotJoined() {
-        var entry = SigilEntryPlan.Decide(Member, Group(Leader, Member), padOccupants: [Member], liveOwnerCharId: Other);
-
-        Assert.Equal(new SigilEntry(Member, ResetInstance: true), entry);
-    }
-
-    [Fact]
-    public void Decide_LiveOwnerOffline_IsNotJoined() {
-        var group = new GroupSnapshot(10, 20, Leader,
-            [new GroupMemberSnapshot(Leader, "", null, null, 0), Online(Member)], 0, 0);
-
-        var entry = SigilEntryPlan.Decide(Member, group, padOccupants: [Member], liveOwnerCharId: Leader);
-
-        Assert.Equal(new SigilEntry(Member, ResetInstance: true), entry);
+        Assert.Equal(Member, SigilEntryPlan.ChooseOwner(Member, group, padOccupants: [Leader, Member]));
     }
 
     [Fact]
     public void CountdownRecipients_AreTheOtherOnlineMembers() {
-        var group = new GroupSnapshot(10, 20, Leader,
-            [Online(Leader), Online(Member), new GroupMemberSnapshot(Other, "", null, null, 0)], 0, 0);
+        var group = new GroupSnapshot(10, 20, Leader, [Online(Leader), Online(Member), Offline(Other)], 0, 0);
 
         var recipients = SigilEntryPlan.CountdownRecipients(Leader, group);
 
         Assert.Equal([Member], recipients.Select(member => member.CharId));
     }
 
-    [Fact]
-    public void FollowTeleport_FromAnotherOwnersInstance_StaysInThatInstanceWithoutReset() {
-        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), SigilEntryPlan.FollowTeleport(Member, sourceOwnerCharId: Leader));
-    }
-
-    [Fact]
-    public void FollowTeleport_FromOwnInstance_KeepsTheTraveller() {
-        Assert.Equal(new SigilEntry(Member, ResetInstance: false), SigilEntryPlan.FollowTeleport(Member, sourceOwnerCharId: Member));
-    }
-
-    [Fact]
-    public void Resolve_AfterFollow_AttachesToTheOwnerWithoutForcingAPrivateCopy() {
-        const string Street = "Tests/FollowedStreet";
-        ZoneInstanceOwners.Follow(Member, Street, Leader);
-
-        var resolved = ZoneInstanceOwners.Resolve(Member, Street, houseOwnerCharId: 0);
-        ZoneInstanceOwners.Clear(Member, Street);
-
-        Assert.Equal((Leader, false), resolved);
-    }
-
-    private static GroupSnapshot Group(params ulong[] charIds)
+    internal static GroupSnapshot Group(params ulong[] charIds)
         => new(10, 20, charIds[0], [.. charIds.Select(Online)], 0, 0);
 
-    private static GroupMemberSnapshot Online(ulong charId)
+    internal static GroupMemberSnapshot Online(ulong charId)
         => new(charId, "", null, ActorRefs.Nobody, 0);
+
+    internal static GroupMemberSnapshot Offline(ulong charId)
+        => new(charId, "", null, null, 0);
+
+}
+
+public sealed class DungeonRunBookTests {
+
+    private const ulong Leader = 1;
+    private const ulong Member = 2;
+    private const ulong Stranger = 3;
+    private const string Floor1 = "Dungeon/Floor1";
+    private const string Floor2 = "Dungeon/Floor2";
+    private const string Street = "Street/Avenue";
+
+    private readonly Dictionary<ulong, GroupSnapshot> _groups = [];
+    private DateTimeOffset _now = new(2026, 10, 26, 12, 0, 0, TimeSpan.Zero);
+    private readonly DungeonRunBook _book;
+
+    public DungeonRunBookTests() {
+        var group = SigilEntryPlanTests.Group(Leader, Member);
+        _groups[Leader] = group;
+        _groups[Member] = group;
+        _book = new DungeonRunBook(charId => _groups.GetValueOrDefault(charId), () => TimeSpan.FromMinutes(30), () => _now);
+    }
+
+    [Fact]
+    public void Enter_WithoutGroup_EntrantOwnsAFreshInstanceAndNoRun() {
+        Assert.Equal(new SigilEntry(Stranger, ResetInstance: true), _book.Enter(Stranger, Floor1));
+        Assert.Equal(0ul, _book.RunOwnerOf(Stranger, Floor1));
+    }
+
+    [Fact]
+    public void Enter_GroupOnThePad_SharesTheLeadersRunAndOnlyTheFirstResets() {
+        _book.Wait(Leader, Floor1);
+        _book.Wait(Member, Floor1);
+
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: true), _book.Enter(Member, Floor1));
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1));
+        Assert.Equal(Leader, _book.RunOwnerOf(Member, Floor1));
+    }
+
+    [Fact]
+    public void Enter_OwnerReturningFromTheStreet_JoinsTheLiveRunWithoutReset() {
+        EnterTogether();
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Leader, Floor1));
+    }
+
+    [Fact]
+    public void Enter_LateMemberWhileTheOwnerIsOnFloor2_JoinsWithoutReset() {
+        _book.Enter(Leader, Floor1);
+        _book.Arrived(Leader, Floor1, isInstance: true, fromRunZone: false);
+        Assert.Equal(Leader, _book.RouteTransfer(Leader, Floor1));
+        _book.Arrived(Leader, Floor2, isInstance: true, fromRunZone: true);
+
+        Assert.Equal(new SigilEntry(Leader, ResetInstance: false), _book.Enter(Member, Floor1));
+    }
+
+    [Fact]
+    public void RouteTransfer_FromARunFloor_FollowsTheOwnerToTheNextFloor() {
+        EnterTogether();
+
+        Assert.Equal(Leader, _book.RouteTransfer(Member, Floor1));
+        _book.Arrived(Member, Floor2, isInstance: true, fromRunZone: true);
+
+        Assert.Equal(Leader, _book.RunOwnerOf(Member, Floor2));
+    }
+
+    [Fact]
+    public void RouteTransfer_AfterAStreetHop_DoesNotFollowAgain() {
+        EnterTogether();
+        Assert.Equal(Leader, _book.RouteTransfer(Member, Floor1));
+        _book.Arrived(Member, Street, isInstance: false, fromRunZone: true);
+
+        Assert.Equal(0ul, _book.RouteTransfer(Member, Street));
+        Assert.Equal(0ul, _book.RunOwnerOf(Member, Street));
+    }
+
+    [Fact]
+    public void RunOwnerOf_MemberWhoLeftTheGroup_IsNotRouted() {
+        EnterTogether();
+        _groups.Remove(Member);
+
+        Assert.Equal(0ul, _book.RunOwnerOf(Member, Floor1));
+        Assert.Equal(0ul, _book.RouteTransfer(Member, Floor1));
+    }
+
+    [Fact]
+    public void RunOwnerOf_NonMember_IsNotRouted() {
+        EnterTogether();
+
+        Assert.Equal(0ul, _book.RunOwnerOf(Stranger, Floor1));
+    }
+
+    [Fact]
+    public void Enter_AfterTheRunWasEmptyForTheIdleTime_StartsAFreshRun() {
+        EnterTogether();
+        _book.Arrived(Leader, Street, isInstance: false, fromRunZone: true);
+        _book.Arrived(Member, Street, isInstance: false, fromRunZone: true);
+        _now += TimeSpan.FromMinutes(31);
+
+        Assert.Equal(0ul, _book.RunOwnerOf(Member, Floor1));
+        Assert.Equal(new SigilEntry(Member, ResetInstance: true), _book.Enter(Member, Floor1));
+    }
+
+    private void EnterTogether() {
+        _book.Wait(Leader, Floor1);
+        _book.Enter(Leader, Floor1);
+        _book.Enter(Member, Floor1);
+        _book.Arrived(Leader, Floor1, isInstance: true, fromRunZone: false);
+        _book.Arrived(Member, Floor1, isInstance: true, fromRunZone: false);
+    }
+
+}
+
+public sealed class ZoneInstanceOwnersRunRouteTests {
+
+    [Fact]
+    public void Resolve_PrivateAssignment_IsNotReplacedByARunRoute() {
+        const string Arena = "Tests/RunRouteArena";
+        ZoneInstanceOwners.Assign(7, Arena, 70);
+
+        var resolved = ZoneInstanceOwners.Resolve(7, Arena, houseOwnerCharId: 0, runOwnerOf: (_, _) => 80);
+        ZoneInstanceOwners.Clear(7, Arena);
+
+        Assert.Equal((70ul, true), resolved);
+    }
+
+    [Fact]
+    public void Resolve_RunRoute_SendsTheAttachToTheRunOwnersPrivateCopy() {
+        Assert.Equal((80ul, true), ZoneInstanceOwners.Resolve(7, "Tests/RunFloor", houseOwnerCharId: 0, runOwnerOf: (_, _) => 80));
+    }
 
 }
