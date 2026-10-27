@@ -32,6 +32,7 @@
  * TODO:
  * - MSG_GETNEXTWORLD needs a world order; the data has none yet.
  * - MSG_JEWELSOCKETUNLOCKCOST needs socket unlock costs; the data has none yet.
+ * - MSG_LOYALTYPROGRAMFORDAILYSPIRAL: the client drops the session when the server echoes a zero-valued reply (2026-10-27), so it is only acknowledged until the real loyalty response is captured.
  * 
  * Created by: Han
  * Version: KALI 1.0
@@ -92,13 +93,7 @@ internal sealed class AcknowledgedRequestService(SessionActor sessionActor) : Me
     }
 
     [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_LOYALTYPROGRAMFORDAILYSPIRAL))]
-    private void ReceiveLoyaltyProgramRequest(WIZARD3_56_PROTOCOL.MSG_LOYALTYPROGRAMFORDAILYSPIRAL message) {
-        Acknowledge(message);
-        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_LOYALTYPROGRAMFORDAILYSPIRAL {
-            LoyaltyProgramFlag = 0,
-            LoyaltyNumTokensCanClaim = 0
-        });
-    }
+    private void ReceiveLoyaltyProgramRequest(WIZARD3_56_PROTOCOL.MSG_LOYALTYPROGRAMFORDAILYSPIRAL message) => Acknowledge(message);
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_NOT_AFK))]
     private void ReceiveNotAfk(GAME_5_PROTOCOL.MSG_NOT_AFK message) => Acknowledge(message);
