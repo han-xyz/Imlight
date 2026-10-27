@@ -25,7 +25,7 @@
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
  *
- * Created by: BobFromIHT with Claude
+ * Created by: BobFromIHT
  * Version: KALI 1.0
  * Last Updated: 10/26/2026
  */
