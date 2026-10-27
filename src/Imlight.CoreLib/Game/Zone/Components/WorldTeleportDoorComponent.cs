@@ -28,23 +28,26 @@
  * NOTE:
  * 
  * TODO:
- * - Implement dynamic world list fetching from database
  * 
  * Created by: Jeff
  * Version: KALI 1.0
  * Last Updated: 3/18/2025
  */
 
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Akka.Actor;
 using Imcodec.Cryptography;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.World;
 using Imlight.CoreLib.Game.WizBang;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Packets;
+using Imlight.CoreLib.WizardData;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Zone.Components;
@@ -52,6 +55,22 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 internal sealed class WorldTeleportDoorComponent(ZoneEntity entity) : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory {
 
     private const uint WORLD_DOOR_TEMPLATE_ID = 84113;
+
+    private static readonly string[] s_retailWorldOrder = [
+        "WizardCity", "Krokotopia", "Marleybone", "MooShu", "DragonSpire", "Grizzleheim", "Celestia",
+        "Wysteria", "Zafaria", "Avalon", "Azteca", "Aquila", "Khrysalis", "Polaris", "Arcanum", "Mirage",
+        "Empyrea", "Karamelle", "Lemuria", "Novus", "Wallaru"
+    ];
+
+    private static readonly Lazy<List<string>> s_worlds = new(() => {
+        var questPrefixes = SpiralDB.QuestTemplates
+            .Select(quest => quest.m_questName.ToString().Split('-')[0])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var worlds = SelectWorlds(world => WorldHubZones.GetHubForZone(world)?.m_universeTPZone, questPrefixes);
+        Logger.Information("Spiral Door worlds: {Worlds}", Logger.Args(string.Join(", ", worlds)));
+
+        return worlds;
+    });
 
     public string ServiceName     => "UniverseMapService";
     public string NpcIcon         => "GUI/Buttons/Button_Spiral.dds";
@@ -80,16 +99,25 @@ internal sealed class WorldTeleportDoorComponent(ZoneEntity entity) : ZoneEntity
         BroadcastPlayerEnteringService(playerObject.m_globalID, StringHash.Compute(InteractWizBang), StateName);
     }
 
+    /// <summary>
+    /// The retail-ordered worlds that have a hub zone and whose quests are in the data pack.
+    /// A world's quest prefix is the prefix of its hub zone's name, such as CL for Celestia/CL_Hub.
+    /// </summary>
+    internal static List<string> SelectWorlds(Func<string, string> hubZoneOf, IReadOnlyCollection<string> questPrefixes)
+        => [.. s_retailWorldOrder.Where(world => {
+            var hubZone = hubZoneOf(world);
+            if (hubZone is null) {
+                return false;
+            }
+
+            var zoneName = hubZone[(hubZone.IndexOf('/') + 1)..];
+
+            return questPrefixes.Contains(zoneName.Split('_')[0]);
+        })];
+
     private void SendWorldTeleportOptions(IActorRef playerActor) {
         var teleportDoorOptions = new WorldTeleportOptions {
-            m_worldList = [ // TODO: fetch available worlds for user to teleport to from db
-                "WizardCity",
-                "Krokotopia",
-                "Marleybone",
-                "MooShu",
-                "Grizzleheim",
-                "DragonSpire"
-            ]
+            m_worldList = [.. s_worlds.Value]
         };
 
         // Serialize the teleport door options and send it to the player.

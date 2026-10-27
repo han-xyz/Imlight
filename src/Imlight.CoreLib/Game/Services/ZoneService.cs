@@ -695,6 +695,7 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         if (zoneMap is null) {
             Logger.Warning("Character {CharId} tried to teleport to world {World}, which has no hub zone.",
                 Logger.Args(GetActiveWizard().CharId, message.World));
+            InformGameClient("You cannot travel to that world.", true);
 
             return;
         }
