@@ -33,11 +33,12 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using Akka.Actor;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.Common;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -52,6 +53,8 @@ namespace Imlight.CoreLib.Game.Zone.Components;
 internal sealed class VolumeComponent(ZoneEntity entity) : ZoneEntityComponent(entity), IComponentFactory {
 
     // Keyed by the player's actor: a CoreObject is a record, so its hash changes with every move.
+    private const string VolumeEnterEventPrefix = "Enter_";
+
     private readonly HashSet<IActorRef> _playersInRange = [];
     private readonly List<(string QuestName, string GoalName)> _volumeGoals = [];
     private Volume _volume;
@@ -90,29 +93,48 @@ internal sealed class VolumeComponent(ZoneEntity entity) : ZoneEntityComponent(e
 
         // Track every quest goal that references this volume by its proximity tag, so we
         // only ever bother a player's quest service for goals this volume actually activates.
-        string volumeName = _volume.m_volumeName;
-        if (string.IsNullOrEmpty(volumeName)) {
+        _volumeGoals.AddRange(FindProximityGoals(QuestTemplateCollection.GetAllQuests(), _volume, Entity.Zone?.ZonePath));
+        if (_volumeGoals.Count == 0) {
             return;
         }
 
-        var zonePath = Entity.Zone?.ZonePath;
-        foreach (var quest in QuestTemplateCollection.GetAllQuests()) {
+        Logger.Debug("Volume {Volume} completes {Count} proximity goals.",
+            Logger.Args((string) _volume.m_volumeName, _volumeGoals.Count));
+        Logger.Verbose("Volume {Volume} completes proximity goals {Goals}.",
+            Logger.Args((string) _volume.m_volumeName, string.Join(", ", _volumeGoals.Select(g => $"{g.QuestName}/{g.GoalName}"))));
+    }
+
+    internal static List<(string QuestName, string GoalName)> FindProximityGoals(IEnumerable<QuestTemplate> quests,
+                                                                               Volume volume,
+                                                                               string zonePath) {
+        // Most proximity tags name the volume's enter event ("Enter_Golem Court Smith"), a few the volume itself.
+        var volumeTags = volume.m_enterEvents.Select(e => (string) e).ToHashSet(StringComparer.Ordinal);
+        string volumeName = volume.m_volumeName;
+        if (!string.IsNullOrEmpty(volumeName)) {
+            volumeTags.Add(volumeName);
+            volumeTags.Add(VolumeEnterEventPrefix + volumeName);
+        }
+
+        var goals = new List<(string QuestName, string GoalName)>();
+        foreach (var quest in quests) {
             foreach (var goal in quest.m_goals) {
                 if (goal is not WaypointGoalTemplate waypointGoal
                     || string.IsNullOrEmpty(waypointGoal.m_proximityTag)
-                    || waypointGoal.m_proximityTag != volumeName) {
+                    || !volumeTags.Contains(waypointGoal.m_proximityTag)) {
                     continue;
                 }
 
-                // Only track goals that target this zone (when one is specified).
+                // An empty zone tag means the goal completes in any zone.
                 if (!string.IsNullOrEmpty(waypointGoal.m_zoneTag)
-                    && waypointGoal.m_zoneTag != zonePath) {
+                    && !string.Equals(waypointGoal.m_zoneTag, zonePath, StringComparison.OrdinalIgnoreCase)) {
                     continue;
                 }
 
-                _volumeGoals.Add((quest.m_questName, goal.m_goalName));
+                goals.Add((quest.m_questName, goal.m_goalName));
             }
         }
+
+        return goals;
     }
 
     private bool IsBox
