@@ -166,31 +166,52 @@ internal sealed class VolumeComponent(ZoneEntity entity) : ZoneEntityComponent(e
 
         // Quest proximity goals are tied to the volume by name; if the player has one of
         // this volume's goals active, tell their quest service to complete it.
-        NotifyProximityGoals(playerObj, playerActor, playerWizard);
+        NotifyProximityGoals(playerActor, playerWizard);
     }
 
-    private void NotifyProximityGoals(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
+    [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_RECHECKPROXIMITYGOAL))]
+    private void ReceiveRecheckProximityGoal(ZONE_102_PROTOCOL.MSG_RECHECKPROXIMITYGOAL message) {
+        if (!_playersInRange.Contains(message.PlayerActor)
+            || !_volumeGoals.Contains((message.QuestName, message.GoalName))) {
+            return;
+        }
+
+        var completion = ProximityGoalCompletion(message.Wizard, message.QuestName, message.GoalName);
+        if (completion is not null) {
+            message.PlayerActor.Tell(completion);
+        }
+    }
+
+    private void NotifyProximityGoals(IActorRef playerActor, Wizard playerWizard) {
         if (_volumeGoals.Count == 0 || playerWizard is null) {
             return;
         }
 
         foreach (var (questName, goalName) in _volumeGoals) {
-            var qInstance = playerWizard.QuestBehavior.CurrentQuestInstances
-                .FirstOrDefault(q => q.QuestName == questName);
-            if (qInstance is null || !qInstance.IsGoalActive(goalName)) {
-                continue;
+            var completion = ProximityGoalCompletion(playerWizard, questName, goalName);
+            if (completion is not null) {
+                playerActor.Tell(completion);
             }
-
-            var gInstance = qInstance.GoalProgress.FirstOrDefault(g => g.GoalName == goalName);
-            if (gInstance is null) {
-                continue;
-            }
-
-            playerActor.Tell(new ZONE_102_PROTOCOL.MSG_COMPLETEPROXIMITYGOAL {
-                QuestID = qInstance.ID,
-                GoalID = gInstance.ID,
-            });
         }
+    }
+
+    internal static ZONE_102_PROTOCOL.MSG_COMPLETEPROXIMITYGOAL ProximityGoalCompletion(Wizard wizard,
+                                                                                       string questName,
+                                                                                       string goalName) {
+        var qInstance = wizard.QuestBehavior.CurrentQuestInstances.FirstOrDefault(q => q.QuestName == questName);
+        if (qInstance is null || !qInstance.IsGoalActive(goalName)) {
+            return null;
+        }
+
+        var gInstance = qInstance.GoalProgress.FirstOrDefault(g => g.GoalName == goalName);
+        if (gInstance is null) {
+            return null;
+        }
+
+        return new ZONE_102_PROTOCOL.MSG_COMPLETEPROXIMITYGOAL {
+            QuestID = qInstance.ID,
+            GoalID = gInstance.ID,
+        };
     }
 
     private void OnProximityExit(CoreObject playerObj, IActorRef playerActor) {

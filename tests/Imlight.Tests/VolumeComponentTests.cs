@@ -21,7 +21,7 @@
  * 
  * PURPOSE:
  * Behaviour tests for which quest proximity goals a zone volume completes
- * when a player is inside it.
+ * when a player is inside it, including a goal that starts while they are.
  * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
@@ -37,10 +37,14 @@
  * Last Updated: 10/27/2026
  */
 
-using System.Collections.Generic;
-using Imcodec.ObjectProperty.TypeCache;
+using System.Linq;
 using Imcodec.IO;
+using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Game.Zone.Components;
+using Imlight.CoreLib.Shared.Behaviors;
+using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -88,6 +92,29 @@ public sealed class VolumeComponentTests {
         var quest = WaypointQuest("Opt-Explorer-001", "Opt-Explorer-001_Goal1", "Enter_The Commons Smith", GolemTower);
 
         Assert.Empty(VolumeComponent.FindProximityGoals([quest], GolemCourtSmith(), GolemTower));
+    }
+
+    [Fact]
+    public void ProximityGoal_QuestJustStarted_CompletesForPlayerInVolume() {
+        var template = WaypointQuest("Opt-Explorer-001", "Opt-Explorer-001_Goal0", "Enter_Golem Court Smith", GolemTower);
+        var wizard = new Wizard { CharId = 1, QuestBehavior = new ServerQuestBehavior() };
+        var quest = QuestService.StartQuestInstance(template, 1, _ => new DropTableResult(), wizard.QuestBehavior.AddQuest);
+
+        var completion = VolumeComponent.ProximityGoalCompletion(wizard, "Opt-Explorer-001", "Opt-Explorer-001_Goal0");
+
+        Assert.NotNull(completion);
+        Assert.Equal(quest.ID, completion.QuestID);
+        Assert.Equal(quest.GoalProgress.Single().ID, completion.GoalID);
+    }
+
+    [Fact]
+    public void ProximityGoal_AlreadyCompleted_IsNotCompletedAgain() {
+        var template = WaypointQuest("Opt-Explorer-001", "Opt-Explorer-001_Goal0", "Enter_Golem Court Smith", GolemTower);
+        var wizard = new Wizard { CharId = 1, QuestBehavior = new ServerQuestBehavior() };
+        var quest = QuestService.StartQuestInstance(template, 1, _ => new DropTableResult(), wizard.QuestBehavior.AddQuest);
+        quest.CompleteGoal("Opt-Explorer-001_Goal0");
+
+        Assert.Null(VolumeComponent.ProximityGoalCompletion(wizard, "Opt-Explorer-001", "Opt-Explorer-001_Goal0"));
     }
 
     private static Volume GolemCourtSmith() => new() {

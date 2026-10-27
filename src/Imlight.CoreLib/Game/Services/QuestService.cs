@@ -1195,6 +1195,24 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         // A zone-entry goal that starts while the player is already in its zone would otherwise wait for
         // the next zone attach. Complete it now, after the start message, as the attach path does.
         TryCompleteZoneEntryGoal(questInstance, goalTemplate, wizard);
+        RecheckProximityGoal(questInstance, goalTemplate, wizard);
+    }
+
+    private void RecheckProximityGoal(QuestInstance questInstance, GoalTemplate goalTemplate, Wizard wizard) {
+        // A player already standing in the goal's volume never walks into it, so the volume is asked to look.
+        if (goalTemplate is not WaypointGoalTemplate waypointGoal || string.IsNullOrEmpty(waypointGoal.m_proximityTag)) {
+            return;
+        }
+
+        SessionActor.GetZoneActor()?.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
+            Messages = [new ZONE_102_PROTOCOL.MSG_RECHECKPROXIMITYGOAL {
+                PlayerActor = SessionActor.ActorRef,
+                Wizard = wizard,
+                QuestName = questInstance.QuestName,
+                GoalName = goalTemplate.m_goalName,
+            }],
+            Targets = ZoneBroadcastTarget.Volumes,
+        });
     }
 
     private void TryCompleteZoneEntryGoal(QuestInstance questInstance, GoalTemplate goalTemplate, Wizard wizard) {

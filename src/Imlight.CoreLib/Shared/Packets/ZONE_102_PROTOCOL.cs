@@ -731,6 +731,22 @@ public class ZONE_102_PROTOCOL : IServerProtocol {
     }
 
     /// <summary>
+    /// Broadcast to a zone's volumes when a player's proximity goal starts. The volume that completes the goal
+    /// answers with <see cref="MSG_COMPLETEPROXIMITYGOAL"/> if the player is already inside it.
+    /// </summary>
+    public sealed class MSG_RECHECKPROXIMITYGOAL : IServerMessage {
+
+        public byte MessageOrder { get; } = 106;
+        public byte ServiceID { get; } = 102;
+
+        public IActorRef PlayerActor;
+        public Wizard Wizard;
+        public string QuestName;
+        public string GoalName;
+
+    }
+
+    /// <summary>
     /// Sent by a <see cref="SessionActor"/> to a <see cref="Zone"/> to request a zone transfer.
     /// </summary>
     public class MSG_ZONETRANSFER : IServerMessage {
