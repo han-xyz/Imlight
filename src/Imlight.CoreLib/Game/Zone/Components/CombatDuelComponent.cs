@@ -167,6 +167,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private CombatSigilTemplate _sigilTemplate;
     private PvPDuelState _pvp;
     private bool _isActive;
+    // Counts the duels this sigil has run, so a timer of an earlier duel cannot act on a later one.
+    private int _duelGeneration;
     private bool _awaitingCombatMoves;
     private TutorialDuelDirector _tutorialDirector;
     // Seconds of cinematics before a caster's cast; SummonMinion adds the animation delay to it.
@@ -686,13 +688,14 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         // The round's deaths are playing on the clients; ending the duel now would cut them short.
-        Timers.StartSingleTimer(END_AFTER_DEATHS_KEY, new COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS(),
+        Timers.StartSingleTimer(END_AFTER_DEATHS_KEY,
+            new COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS { DuelGeneration = _duelGeneration },
             TimeSpan.FromMilliseconds(DEATH_ANIMATION_IN_MS));
     }
 
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS))]
     private void ReceiveEndDuelAfterDeaths(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS message) {
-        if (!_isActive) {
+        if (!_isActive || message.DuelGeneration != _duelGeneration) {
             return;
         }
 
@@ -770,6 +773,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_ENDDUEL))]
     private void DespawnDuel() {
         _isActive = false;
+        Timers.Cancel(END_AFTER_DEATHS_KEY);
 
         // Minions are children of this sigil entity, which persists between fights; MSG_COMBATDEATH
         // deletes them outright.
@@ -898,6 +902,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         _isActive = true;
+        _duelGeneration++;
         ReserveCirclesForGroupOf(startingPlayerObject);
 
         Logger.Debug("Duel {0} | Created. Grace period over in {1}",

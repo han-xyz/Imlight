@@ -352,6 +352,9 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
         public byte MessageOrder => 32;
         public byte ServiceID => 106;
 
+        /// <summary>The duel the timer was started for; a later duel on the same sigil ignores it.</summary>
+        public int DuelGeneration;
+
     }
 
 }
