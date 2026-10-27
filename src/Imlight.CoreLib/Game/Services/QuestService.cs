@@ -1516,6 +1516,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             GoalMadlibs = madLibData,
             ClientTags = clientTagData,
             NoQuestHelper = gTemplate.m_noQuestHelper ? (byte) 1 : (byte) 0,
+            PetOnlyQuest = PetOnlyGoals.IsPetOnlyGoal(gTemplate) ? (byte) 1 : (byte) 0,
         };
 
         SendToSocket(packet);
@@ -2277,10 +2278,13 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 internal static class PetOnlyGoals {
 
     public static bool IsPetOnlyQuest(QuestTemplate quest)
-        => quest.m_playAsYourPetNPC || quest.m_goals?.Any(goal => goal is { m_petOnlyQuest: true }) == true;
+        => quest.m_playAsYourPetNPC || quest.m_goals?.Any(IsPetOnlyGoal) == true;
+
+    public static bool IsPetOnlyGoal(GoalTemplate goal)
+        => goal is { m_petOnlyQuest: true };
 
     public static bool NeedsPet(GoalTemplate goal, ServerPetOwnerBehavior petOwner)
-        => goal.m_petOnlyQuest && !petOwner.PlayingAsPet;
+        => IsPetOnlyGoal(goal) && !petOwner.PlayingAsPet;
 
 }
 

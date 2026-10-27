@@ -111,6 +111,13 @@ public sealed class PlayAsPetTests {
     }
 
     [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void IsPetOnlyGoal_FollowsTheGoalFlag(bool petOnlyGoal, bool expected) {
+        Assert.Equal(expected, PetOnlyGoals.IsPetOnlyGoal(new WaypointGoalTemplate { m_petOnlyQuest = petOnlyGoal }));
+    }
+
+    [Theory]
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     [InlineData(false, false, false)]
