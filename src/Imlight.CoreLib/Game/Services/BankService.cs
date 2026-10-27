@@ -32,8 +32,8 @@
  * The bank counts as open from the moment the bank NPC lets the player in until the window is closed,
  * the zone changes or the session attaches again. A request outside that time is refused and logged.
  * The crown shop's delivery invoice is the other way in: it asks for the bank stream, then moves bought
- * items into the bank from anywhere, after the shop has already sent MSG_DONESHOPPING. Its moves count
- * as made with the bank open until the zone changes.
+ * items into the bank from anywhere, after the shop has already sent MSG_DONESHOPPING. Only moves from the
+ * backpack into the bank are open to it, until the zone changes; everything else still needs the NPC.
  *
  * TODO:
  *
@@ -67,7 +67,8 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_MOVEINVTOBANK))]
     private void ReceiveMoveInventoryToBank(WIZARD_12_PROTOCOL.MSG_MOVEINVTOBANK message)
-        => CreateRequests().InventoryToBank(message);
+        // The delivery invoice only ever moves bought items into the bank, so it opens this move alone.
+        => CreateRequests(_deliveryInvoiceOpen).InventoryToBank(message);
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_MOVEBANKTOINV))]
     private void ReceiveMoveBankToInventory(WIZARD_12_PROTOCOL.MSG_MOVEBANKTOINV message)
@@ -122,14 +123,10 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
         _deliveryInvoiceOpen = false;
     }
 
-    private BankRequests CreateRequests()
-        => new(GetActiveWizard(), SessionActor.ActorRef, IsBankOpen, UnequipItem);
+    private BankRequests CreateRequests(bool openWithoutNpc = false)
+        => new(GetActiveWizard(), SessionActor.ActorRef, openWithoutNpc ? () => true : IsBankOpen, UnequipItem);
 
     private bool IsBankOpen() {
-        if (_deliveryInvoiceOpen) {
-            return true;
-        }
-
         if (_openBankEntityId == 0) {
             return false;
         }
