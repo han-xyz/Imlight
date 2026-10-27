@@ -189,11 +189,12 @@ internal class PetService(SessionActor sessionActor) : MessageService(sessionAct
             return;
         }
 
+        // The client switches only on the server's word, so it hears its own switch too.
         ZoneBroadcast(new WIZARD2_53_PROTOCOL.MSG_SWITCHTOPET {
             GlobalID = GetActiveGameObject().m_globalID,
             Status = message.Status,
             PetTemplate = message.PetTemplate != 0 ? message.PetTemplate : (uint) petOwnerBehavior.EquippedPetTemplateId
-        });
+        }, isSelfless: false);
     }
 
     private void InitializeEggs(Wizard wizard) {

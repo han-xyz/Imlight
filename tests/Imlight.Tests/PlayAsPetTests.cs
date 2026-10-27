@@ -77,6 +77,16 @@ public sealed class PlayAsPetTests {
     }
 
     [Fact]
+    public void PlayAsPet_WorksWithoutAnEquippedPet() {
+        var owner = new ServerPetOwnerBehavior();
+
+        owner.PlayAsPet();
+
+        Assert.True(owner.PlayingAsPet);
+        Assert.True(owner.GetClientBehaviorInstance().m_playingAsPet);
+    }
+
+    [Fact]
     public void SwitchToPet_Leaving_StopsPlayingAsPet() {
         var owner = new ServerPetOwnerBehavior { EquippedPetTemplateId = EquippedPetTemplateId };
         owner.SwitchToPet(Entering, EquippedPetTemplateId);

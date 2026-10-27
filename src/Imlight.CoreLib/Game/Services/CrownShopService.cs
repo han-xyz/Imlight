@@ -654,7 +654,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         for (var i = 0; i < message.Count; i++) {
-            if (!TryAddItemToInventory(transaction, wizard, message.Item, message.Texture, message.Decal)) {
+            if (!TryAddItemToInventory(transaction, wizard, message.Item, message.Texture, message.Decal, message.PetName)) {
                 return s_errorInvFull;
             }
         }
@@ -763,12 +763,18 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         return 0;
     }
 
-    private bool TryAddItemToInventory(GrantTransaction transaction, Wizard wizard, ulong itemTemplateId, int texture, int decal) {
+    /// <param name="petNameKeys">The name the buyer chose for a pet, 0 for the random one (packs, no choice made).</param>
+    private bool TryAddItemToInventory(GrantTransaction transaction, Wizard wizard, ulong itemTemplateId, int texture, int decal, uint petNameKeys = 0) {
         WizClientObjectItem item;
         if (PetFactory.IsPetTemplate((uint) itemTemplateId)) {
             if (!wizard.AddHatchedPetToInventory((uint) itemTemplateId, out item)) {
                 Logger.Warning("Could not add hatched pet {0} to inventory.", Logger.Args(itemTemplateId));
                 return false;
+            }
+
+            if (petNameKeys != 0 && (!WizardNameBank.IsValidPetName(petNameKeys) || !PetFactory.TrySetPetName(item, petNameKeys))) {
+                Logger.Warning("Rejected name keys {NameKeys} for the bought pet {TemplateId}; it keeps its random name.",
+                    Logger.Args(petNameKeys, itemTemplateId));
             }
         }
         else {

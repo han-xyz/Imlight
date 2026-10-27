@@ -278,6 +278,13 @@ public class ServerPetOwnerBehavior : IClientBehaviorProvider<ClientPetOwnerBeha
     }
 
     /// <summary>
+    /// Enters play-as-pet mode as a zone trigger demands it (ResForcePlayerAsPet): the template need not be equipped,
+    /// the pet tower lends the player the pet it names.
+    /// </summary>
+    public void PlayAsPet()
+        => PlayingAsPet = true;
+
+    /// <summary>
     /// Returns the client-facing behavior. m_morphingSlots is always set to null —
     /// the client learns about eggs via MSG_PETEGGMORPHED / MSG_PETMORPHINGSLOT
     /// network messages, not from the serialized behavior blob.

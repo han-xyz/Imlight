@@ -27,9 +27,9 @@
  * The result executor runs it for every ResForcePlayerAsPet of a fired trigger; nothing calls it directly.
  *
  * NOTE:
- * A template of 0 in the result means the equipped pet, like the client's own MSG_SWITCHTOPET. Without a
- * pet equipped, or with another pet than the result names, the result fails and the player stays a wizard.
- * The whole zone hears the switch, the player included, since the client did not start it.
+ * The result names the pet the zone lends the player (the pet tower's quest pet); it need not be equipped. A
+ * template of 0 means the equipped pet, and without one the result fails and the player stays a wizard. The
+ * whole zone hears the switch, the player included, since the client did not start it.
  *
  * TODO:
  *
@@ -66,18 +66,23 @@ internal sealed class ResForcePlayerAsPetHandler : BaseResultHandler<ResForcePla
         }
 
         var petOwner = wizard.PetOwnerBehavior;
-        if (!petOwner.SwitchToPet(ENTERING, Result.m_petTemplate)) {
-            Logger.Warning("ResForcePlayerAsPet asks {Wizard} to play as pet template {PetTemplate}, but they have pet template {EquippedTemplate} equipped.",
-                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), Result.m_petTemplate, petOwner.EquippedPetTemplateId));
+        var petTemplate = Result.m_petTemplate != 0 ? Result.m_petTemplate : (uint) petOwner.EquippedPetTemplateId;
+        if (petTemplate == 0) {
+            Logger.Warning("ResForcePlayerAsPet names no pet template and {Wizard} has no pet equipped, so they stay a wizard.",
+                Logger.Args(wizard.PlayerNameBehavior.GetWizardName()));
 
             return false;
         }
+
+        petOwner.PlayAsPet();
+        Logger.Debug("{Wizard} plays as pet template {PetTemplate} on the zone's demand.",
+            Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), petTemplate));
 
         context.GetZoneActor().Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
             Message = new WIZARD2_53_PROTOCOL.MSG_SWITCHTOPET {
                 GlobalID = context.GetPlayerObj().m_globalID,
                 Status = ENTERING,
-                PetTemplate = (uint) petOwner.EquippedPetTemplateId
+                PetTemplate = petTemplate
             },
             Sender = context.GetPlayerRef(),
             Selfless = false,
