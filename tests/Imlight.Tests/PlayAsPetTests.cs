@@ -35,6 +35,8 @@
  * Last Updated: 10/27/2026
  */
 
+using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Behaviors;
 using Xunit;
 
@@ -82,6 +84,30 @@ public sealed class PlayAsPetTests {
         owner.UnequipPet();
 
         Assert.False(owner.PlayingAsPet);
+    }
+
+    [Fact]
+    public void IsPetOnlyQuest_PlayAsYourPetQuest_True() {
+        var quest = new QuestTemplate { m_playAsYourPetNPC = true, m_goals = [new WaypointGoalTemplate()] };
+
+        Assert.True(PetOnlyGoals.IsPetOnlyQuest(quest));
+    }
+
+    [Fact]
+    public void IsPetOnlyQuest_OnePetOnlyGoal_True() {
+        var quest = new QuestTemplate {
+            m_goals = [new WaypointGoalTemplate(), new ScavengeGoalTemplate { m_petOnlyQuest = true }],
+        };
+
+        Assert.True(PetOnlyGoals.IsPetOnlyQuest(quest));
+    }
+
+    [Fact]
+    public void IsPetOnlyQuest_NoPetOnlyGoal_False() {
+        var quest = new QuestTemplate { m_goals = [new WaypointGoalTemplate(), null] };
+
+        Assert.False(PetOnlyGoals.IsPetOnlyQuest(quest));
+        Assert.False(PetOnlyGoals.IsPetOnlyQuest(new QuestTemplate()));
     }
 
 }

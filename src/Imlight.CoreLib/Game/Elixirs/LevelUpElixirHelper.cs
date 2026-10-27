@@ -378,7 +378,7 @@ internal static class LevelUpElixirHelper {
             Mainline = qTemplate.m_mainline ? (byte) 1 : (byte) 0,
             ReadyToTurnIn = 0,
             SkipQHAutoSelect = 0,
-            PetOnlyQuest = qTemplate.m_playAsYourPetNPC ? (byte) 1 : (byte) 0,
+            PetOnlyQuest = PetOnlyGoals.IsPetOnlyQuest(qTemplate) ? (byte) 1 : (byte) 0,
             ActivityType = 0
         };
     }
