@@ -71,7 +71,7 @@ internal sealed class ZoneObjectSupervisor(Core.Zone zone) : ZoneEntitySuperviso
 
             // Determine if this is a critical object.
             // If so, register it with the Zone.
-            if (IsCriticalObject(template)) {
+            if (IsCriticalObject(template, objectInfo)) {
                 RegisterCriticalObject(coreObject.m_globalID);
             }
 
@@ -189,8 +189,14 @@ internal sealed class ZoneObjectSupervisor(Core.Zone zone) : ZoneEntitySuperviso
         return true;
     }
 
-    private static bool IsCriticalObject(CoreTemplate template) {
-        if (template is not GameObjectTemplate goTemplate) {
+    /// <summary>
+    /// Whether the client is told to wait for a placed object before it shows its HUD. An undetectable object is
+    /// sent to a player only once a quest shows it, so the client would wait out its 30 second timeout for it.
+    /// </summary>
+    /// <param name="template">The object's template, whose adjectives mark it critical.</param>
+    /// <param name="info">The placed object's info.</param>
+    internal static bool IsCriticalObject(CoreTemplate template, CoreObjectInfo info) {
+        if (template is not GameObjectTemplate goTemplate || info is { m_bUndetectable: true }) {
             return false;
         }
 
