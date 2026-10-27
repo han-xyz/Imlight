@@ -28,7 +28,8 @@
  * 
  * NOTE:
  * Volume and goal names come from WizardCity-WC_Golem_Tower.wad and the
- * Opt-Explorer-001 and Explore-001-3 quest templates.
+ * Opt-Explorer-001 and Explore-001-3 quest templates; the Yardbirds names from
+ * the Grizzleheim zone files, which share GH-Explorer-C01-001's misspellings.
  * 
  * TODO:
  * 
@@ -85,6 +86,22 @@ public sealed class VolumeComponentTests {
         var goals = VolumeComponent.FindProximityGoals([quest], GolemCourtSmith(), GolemTower);
 
         Assert.Equal(attaches, goals.Count == 1);
+    }
+
+    [Theory]
+    [InlineData("GH-Exporer-C01-001QuestVolumeGoal4", "Grizzleheim/GH_Hero")]
+    [InlineData("GH-Eplorer-C01-001QuestVolumeGoal6", "Grizzleheim/GH_RedClaw")]
+    [InlineData("GH-Exporer-C01-001QuestVolumeGoal11", "Grizzleheim/GH_Raven")]
+    public void ProximityGoal_YardbirdsMisspelledTag_AttachesToVolumeSpelledTheSame(string volumeName, string zonePath) {
+        var quest = WaypointQuest("GH-Explorer-C01-001", "Goal", $"Enter_{volumeName}", zonePath);
+        var volume = new Volume {
+            m_volumeName = new ByteString(volumeName),
+            m_enterEvents = [new ByteString($"Enter_{volumeName}")],
+        };
+
+        var goals = VolumeComponent.FindProximityGoals([quest], volume, zonePath);
+
+        Assert.Equal([("GH-Explorer-C01-001", "Goal")], goals);
     }
 
     [Fact]
