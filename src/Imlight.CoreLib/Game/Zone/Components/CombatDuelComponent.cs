@@ -111,7 +111,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private const double PVP_RETURN_GRACE_SECONDS = 0;
     private const int TEAM_SLOT_COUNT = 4;
     private const int DEFAULT_BASE_ENEMY_COUNT = 2;
-    private const int ONE_ENEMY_PER_PLAYER_MARKER = -1;
 
     public bool NoTransfer { get; set; } = false;
     public ITimerScheduler Timers { get; set; }
@@ -2549,13 +2548,21 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         return CreatureCount < TEAM_SLOT_COUNT && CreatureCount < maxCreatures;
     }
 
-    private int GetBaseEnemyCount() {
-        var baseEnemyCount = _combatSigilObjectInfo?.m_baseEnemyCount ?? 0;
-        if (baseEnemyCount == ONE_ENEMY_PER_PLAYER_MARKER) {
-            return 1;
+    private int GetBaseEnemyCount()
+        => BaseEnemyCount(_combatSigilObjectInfo?.m_baseEnemyCount ?? 0, _combatSigilObjectInfo?.m_unknown_uint_4 ?? 0);
+
+    /// <summary>
+    /// How many enemies a lone wizard faces on a sigil. A positive count on the sigil is taken as is. The rest of
+    /// the sigils carry -1 or 0, and among those only the beginner streets (Unicorn Way, marked by the sigil's
+    /// non-zero fourth field) start one enemy; every other street starts two, which is what a solo pull in Firecat
+    /// Alley or Cyclops Lane gives on live.
+    /// </summary>
+    internal static int BaseEnemyCount(int sigilCount, uint beginnerMarker) {
+        if (sigilCount > 0) {
+            return sigilCount;
         }
 
-        return baseEnemyCount > 0 ? baseEnemyCount : DEFAULT_BASE_ENEMY_COUNT;
+        return beginnerMarker != 0 ? 1 : DEFAULT_BASE_ENEMY_COUNT;
     }
 
     private void ResendMinionMoveSelections() {
