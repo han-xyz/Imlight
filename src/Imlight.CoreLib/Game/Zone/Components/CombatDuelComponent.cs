@@ -175,6 +175,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     // The players whose victory scene the duel still waits for, and whether the wait has been resolved.
     private readonly HashSet<IActorRef> _victorySceneAwaited = [];
     private bool _victoryFinished;
+    // Set once the result is known; nothing after that may change the result or run the end twice.
+    private bool _duelDecided;
     private bool _awaitingCombatMoves;
     private TutorialDuelDirector _tutorialDirector;
     // Seconds of cinematics before a caster's cast; SummonMinion adds the animation delay to it.
@@ -785,6 +787,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_ENDDUEL))]
     private void DespawnDuel() {
         _isActive = false;
+        _duelDecided = false;
         Timers.Cancel(END_AFTER_DEATHS_KEY);
         Timers.Cancel(VICTORY_SCENE_KEY);
         _victorySceneAwaited.Clear();
@@ -809,6 +812,12 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
+        if (_duelDecided) {
+            LeaveVictoryWait(Sender);
+
+            return;
+        }
+
         // Find the sub circle that the client was in and remove them from the duel.
         var subCircle = SubCircles.FirstOrDefault(x => x.ParticipantActor == Sender);
         if (subCircle is null) {
@@ -824,6 +833,12 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_QUERY_LOGOUT))]
     private void ReceiveQueryLogout(GAME_5_PROTOCOL.MSG_QUERY_LOGOUT message) {
         if (!_isActive) {
+            return;
+        }
+
+        if (_duelDecided) {
+            LeaveVictoryWait(Sender);
+
             return;
         }
 
@@ -916,6 +931,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         _isActive = true;
+        _duelDecided = false;
         _duelGeneration++;
         ReserveCirclesForGroupOf(startingPlayerObject);
 
@@ -998,6 +1014,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         _isActive = true;
+        _duelDecided = false;
 
         Logger.Debug("Duel {0} | PvP match {1} created with {2} players. Grace period over in {3}",
             Logger.Args(Duel.m_duelID.Full, message.MatchId, message.Roster.Count, DUEL_GRACE_PERIOD_IN_SECONDS));
@@ -1286,7 +1303,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
     [MessageHandler(typeof(GROUP_109_PROTOCOL.MSG_JOINRESERVEDDUEL))]
     private void ReceiveJoinReservedDuel(GROUP_109_PROTOCOL.MSG_JOINRESERVEDDUEL message) {
-        if (!_isActive || !_groupReservations.IsReservedFor(message.CharId)) {
+        if (!_isActive || _duelDecided || !_groupReservations.IsReservedFor(message.CharId)) {
             return;
         }
 
@@ -1974,6 +1991,12 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
+        if (_duelDecided) {
+            LeaveVictoryWait(caster.ParticipantActor);
+
+            return;
+        }
+
         if (IsPvPDuel) {
             ForfeitPvPDuel(caster);
 
@@ -2101,7 +2124,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_CHEATINSTAWIN))]
     private void ReceiveCheatInstaWin(COMBAT_106_PROTOCOL.MSG_CHEATINSTAWIN message) {
         // The cheat kills the creatures; the red side of a PvP duel is made of wizards.
-        if (!_isActive || IsPvPDuel) {
+        if (!_isActive || _duelDecided || IsPvPDuel) {
             return;
         }
 
@@ -2136,6 +2159,12 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
             return;
         }
+
+        if (_duelDecided) {
+            return;
+        }
+
+        _duelDecided = true;
 
         // The duel has ended. Inform the clients of the result.
         var playersWin = AliveAndInDuelCreatureCount <= 0;
@@ -2174,6 +2203,15 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER))]
     private void ReceiveVictorySceneOver(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER message) {
         if (_isActive && !IsPvPDuel && message.DuelGeneration == _duelGeneration) {
+            FinishDuel(playersWin: true);
+        }
+    }
+
+    /// <summary>
+    /// A winner who leaves (flee, logout, disconnect) during the victory scene is no longer waited for.
+    /// </summary>
+    private void LeaveVictoryWait(IActorRef actor) {
+        if (actor is not null && _victorySceneAwaited.Remove(actor) && _victorySceneAwaited.Count == 0) {
             FinishDuel(playersWin: true);
         }
     }
