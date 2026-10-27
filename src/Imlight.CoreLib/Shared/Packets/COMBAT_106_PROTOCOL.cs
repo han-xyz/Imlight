@@ -344,4 +344,14 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
 
     }
 
+    /// <summary>
+    /// The duel's own timer: the deaths of the last round have played on the clients, so the duel can end.
+    /// </summary>
+    public sealed class MSG_ENDDUELAFTERDEATHS : IServerMessage {
+
+        public byte MessageOrder => 32;
+        public byte ServiceID => 106;
+
+    }
+
 }

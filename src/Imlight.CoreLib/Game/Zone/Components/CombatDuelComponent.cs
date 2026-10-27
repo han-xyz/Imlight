@@ -41,7 +41,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -98,6 +98,10 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private const string PLANNING_TIME_KEY = "PlanningPhase";
     private const string PREPLANNING_TIME_KEY = "PrePlanningPhase";
     private const string RESOUTION_TIME_KEY = "ResolutionPhase";
+    private const string END_AFTER_DEATHS_KEY = "EndAfterDeaths";
+    // How long the clients play the last creature's death before the duel-over messages reach them. The
+    // creature's own object stays for the same time, see CombatCreatureAIComponent.
+    private const int DEATH_ANIMATION_IN_MS = 2000;
     private const double MINION_SUMMON_ANIMATION_DELAY = 5.5;
     private const string GROUP_JOIN_PROMPT_KEY = "GUI_GotoFriendQuestion";
     private const string PVP_RETURN_GRACE_KEY = "PvPReturnGrace";
@@ -678,6 +682,17 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             // Continue. Start a new round.
             Self.Tell(new COMBAT_106_PROTOCOL.MSG_NEWROUND());
 
+            return;
+        }
+
+        // The round's deaths are playing on the clients; ending the duel now would cut them short.
+        Timers.StartSingleTimer(END_AFTER_DEATHS_KEY, new COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS(),
+            TimeSpan.FromMilliseconds(DEATH_ANIMATION_IN_MS));
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS))]
+    private void ReceiveEndDuelAfterDeaths(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS message) {
+        if (!_isActive) {
             return;
         }
 
