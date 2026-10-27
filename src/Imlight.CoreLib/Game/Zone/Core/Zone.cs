@@ -35,7 +35,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -423,11 +423,14 @@ public class Zone : ReceiveProtocolDispatcher, IWithTimers {
 
         _triggerSupervisor.Tell(message);
 
-        // Goals that list the event complete for every player in this zone instance.
-        DispatchBroadcast(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
-            Messages = [new ZONE_102_PROTOCOL.MSG_ZONEEVENTFORQUESTS { EventName = message.EventName.ToString() }],
-            Targets = ZoneBroadcastTarget.Players,
-        });
+        // Goals that list the event complete for every player in this zone instance. The zone sends it as itself:
+        // a session never hands a message back to its sender, and the poster may be the player's QuestService.
+        if (_players.Count > 0) {
+            _playerSupervisor.Tell(new ZONE_102_PROTOCOL.MSG_ZONEBROADCAST {
+                Messages = [new ZONE_102_PROTOCOL.MSG_ZONEEVENTFORQUESTS { EventName = message.EventName.ToString() }],
+                Targets = ZoneBroadcastTarget.Players,
+            }, Self);
+        }
     }
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_MODIFYTRIGGEROBJECT))]
