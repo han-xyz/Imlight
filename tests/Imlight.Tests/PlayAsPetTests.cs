@@ -57,8 +57,17 @@ public sealed class PlayAsPetTests {
         Assert.True(owner.GetClientBehaviorInstance().m_playingAsPet);
     }
 
+    [Fact]
+    public void SwitchToPet_TemplateZero_PlaysAsEquippedPet() {
+        var owner = new ServerPetOwnerBehavior { EquippedPetTemplateId = EquippedPetTemplateId };
+
+        Assert.True(owner.SwitchToPet(Entering, 0));
+        Assert.True(owner.PlayingAsPet);
+    }
+
     [Theory]
     [InlineData(0u, EquippedPetTemplateId)]
+    [InlineData(0u, 0u)]
     [InlineData(EquippedPetTemplateId, 77u)]
     public void SwitchToPet_PetNotEquipped_Refused(uint equippedTemplateId, uint requestedTemplateId) {
         var owner = new ServerPetOwnerBehavior { EquippedPetTemplateId = equippedTemplateId };

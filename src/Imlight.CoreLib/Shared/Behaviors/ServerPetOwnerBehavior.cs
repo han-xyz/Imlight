@@ -259,7 +259,7 @@ public class ServerPetOwnerBehavior : IClientBehaviorProvider<ClientPetOwnerBeha
     /// Enters or leaves the client's play-as-pet mode (MSG_SWITCHTOPET).
     /// </summary>
     /// <param name="status">1 when the player switches to their pet, 0 when they switch back.</param>
-    /// <param name="petTemplateId">The template of the pet the player switches to.</param>
+    /// <param name="petTemplateId">The template of the pet the player switches to. The client sends 0 for the equipped pet.</param>
     /// <returns>False when the player asked to enter the mode with a pet they do not have equipped.</returns>
     public bool SwitchToPet(byte status, uint petTemplateId) {
         if (status == 0) {
@@ -268,7 +268,7 @@ public class ServerPetOwnerBehavior : IClientBehaviorProvider<ClientPetOwnerBeha
             return true;
         }
 
-        if (EquippedPetTemplateId == 0 || EquippedPetTemplateId != petTemplateId) {
+        if (EquippedPetTemplateId == 0 || (petTemplateId != 0 && EquippedPetTemplateId != petTemplateId)) {
             return false;
         }
 

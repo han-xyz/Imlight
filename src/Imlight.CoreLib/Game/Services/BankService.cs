@@ -31,12 +31,15 @@
  * NOTE:
  * The bank counts as open from the moment the bank NPC lets the player in until the window is closed,
  * the zone changes or the session attaches again. A request outside that time is refused and logged.
+ * The crown shop's delivery invoice is the other way in: it asks for the bank stream, then moves bought
+ * items into the bank from anywhere, after the shop has already sent MSG_DONESHOPPING. Its moves count
+ * as made with the bank open until the zone changes.
  *
  * TODO:
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/27/2026
  */
 
 using Akka.Actor;
@@ -51,6 +54,7 @@ namespace Imlight.CoreLib.Game.Services;
 internal class BankService(SessionActor sessionActor) : MessageService(sessionActor) {
 
     private ulong _openBankEntityId;
+    private bool _deliveryInvoiceOpen;
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new BankService(parentActor));
@@ -94,8 +98,15 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
         => CreateRequests().StreamBankFor(new WIZARD_12_PROTOCOL.MSG_QUICKSELLREQUESTBANK());
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICEREQUESTBANK))]
-    private void ReceiveDeliveryInvoiceRequestBank(WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICEREQUESTBANK message)
-        => CreateRequests().StreamBankFor(new WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICEREQUESTBANK());
+    private void ReceiveDeliveryInvoiceRequestBank(WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICEREQUESTBANK message) {
+        _deliveryInvoiceOpen = true;
+        CreateRequests().StreamBankFor(new WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICEREQUESTBANK());
+    }
+
+    [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICETRANSFEROBJECTSFROMSTORAGETOBANK))]
+    private void ReceiveDeliveryInvoiceTransferToBank(WIZARD_12_PROTOCOL.MSG_DELIVERYINVOICETRANSFEROBJECTSFROMSTORAGETOBANK message)
+        // The invoice announces the moves it is about to make; each one follows as MSG_MOVEINVTOBANK.
+        => _deliveryInvoiceOpen = true;
 
     [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_ITEMFINDERREQUESTBANK))]
     private void ReceiveItemFinderRequestBank(WIZARD2_53_PROTOCOL.MSG_ITEMFINDERREQUESTBANK message)
@@ -106,13 +117,19 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
         => _openBankEntityId = 0;
 
     [MessageHandler(typeof(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE))]
-    private void ReceiveAttachComplete(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE message)
-        => _openBankEntityId = 0;
+    private void ReceiveAttachComplete(SERVICE_101_PROTOCOL.MSG_ATTACHCOMPLETE message) {
+        _openBankEntityId = 0;
+        _deliveryInvoiceOpen = false;
+    }
 
     private BankRequests CreateRequests()
         => new(GetActiveWizard(), SessionActor.ActorRef, IsBankOpen, UnequipItem);
 
     private bool IsBankOpen() {
+        if (_deliveryInvoiceOpen) {
+            return true;
+        }
+
         if (_openBankEntityId == 0) {
             return false;
         }
