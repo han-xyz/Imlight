@@ -98,13 +98,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private const string PLANNING_TIME_KEY = "PlanningPhase";
     private const string PREPLANNING_TIME_KEY = "PrePlanningPhase";
     private const string RESOUTION_TIME_KEY = "ResolutionPhase";
-    private const string END_AFTER_DEATHS_KEY = "EndAfterDeaths";
-    private const string VICTORY_SCENE_KEY = "VictoryScene";
-    // The longest the duel waits for every client's victory scene before it ends anyway.
-    private const int VICTORY_SCENE_IN_MS = 12000;
-    // How long the clients play the last creature's death before the duel-over messages reach them. The
-    // creature's own object stays for the same time, see CombatCreatureAIComponent.
-    private const int DEATH_ANIMATION_IN_MS = 2000;
     private const double MINION_SUMMON_ANIMATION_DELAY = 5.5;
     private const string GROUP_JOIN_PROMPT_KEY = "GUI_GotoFriendQuestion";
     private const string PVP_RETURN_GRACE_KEY = "PvPReturnGrace";
@@ -169,11 +162,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private CombatSigilTemplate _sigilTemplate;
     private PvPDuelState _pvp;
     private bool _isActive;
-    // Counts the duels this sigil has run, so a timer of an earlier duel cannot act on a later one.
-    private int _duelGeneration;
-    // The players whose victory scene the duel still waits for, and whether the wait has been resolved.
-    private readonly HashSet<IActorRef> _victorySceneAwaited = [];
-    private bool _victoryFinished;
     // Set once the result is known; nothing after that may change the result or run the end twice.
     private bool _duelDecided;
     private bool _awaitingCombatMoves;
@@ -700,18 +688,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
-        // The round's deaths are playing on the clients; ending the duel now would cut them short.
-        Timers.StartSingleTimer(END_AFTER_DEATHS_KEY,
-            new COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS { DuelGeneration = _duelGeneration },
-            TimeSpan.FromMilliseconds(DEATH_ANIMATION_IN_MS));
-    }
-
-    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS))]
-    private void ReceiveEndDuelAfterDeaths(COMBAT_106_PROTOCOL.MSG_ENDDUELAFTERDEATHS message) {
-        if (!_isActive || message.DuelGeneration != _duelGeneration) {
-            return;
-        }
-
         EndDuel();
     }
 
@@ -787,9 +763,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void DespawnDuel() {
         _isActive = false;
         _duelDecided = false;
-        Timers.Cancel(END_AFTER_DEATHS_KEY);
-        Timers.Cancel(VICTORY_SCENE_KEY);
-        _victorySceneAwaited.Clear();
 
         // Minions are children of this sigil entity, which persists between fights; MSG_COMBATDEATH
         // deletes them outright.
@@ -812,8 +785,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         if (_duelDecided) {
-            LeaveVictoryWait(Sender);
-
             return;
         }
 
@@ -836,8 +807,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         if (_duelDecided) {
-            LeaveVictoryWait(Sender);
-
             return;
         }
 
@@ -931,7 +900,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
         _isActive = true;
         _duelDecided = false;
-        _duelGeneration++;
         ReserveCirclesForGroupOf(startingPlayerObject);
 
         Logger.Debug("Duel {0} | Created. Grace period over in {1}",
@@ -1991,8 +1959,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         }
 
         if (_duelDecided) {
-            LeaveVictoryWait(caster.ParticipantActor);
-
             return;
         }
 
@@ -2172,25 +2138,10 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         // A queued tutorial card grant must not leak into the next duel on this sigil.
         _tutorialDirector.OnDuelEnded();
 
-        _victoryFinished = false;
-        _victorySceneAwaited.Clear();
+        // A PvE client plays no victory scene and never reports one over, so the winners are let go with the win,
+        // as they are put back on their mounts.
         if (playersWin) {
             PlayerWin();
-
-            // The winners play their victory scene now; each client reports it over (MSG_COMBATVICTORY), and the
-            // duel is torn down when the last one has, or when the scene has had its time.
-            EnactActionOnSubCircles(circle => {
-                if (circle.IsHumanPlayer && circle.AddedToDuel && circle.ParticipantActor is not null) {
-                    _victorySceneAwaited.Add(circle.ParticipantActor);
-                }
-            });
-            if (_victorySceneAwaited.Count > 0) {
-                Timers.StartSingleTimer(VICTORY_SCENE_KEY,
-                    new COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER { DuelGeneration = _duelGeneration },
-                    TimeSpan.FromMilliseconds(VICTORY_SCENE_IN_MS));
-
-                return;
-            }
         }
         else if (creaturesWin) {
             CreatureWin();
@@ -2199,35 +2150,11 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         FinishDuel(playersWin);
     }
 
-    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER))]
-    private void ReceiveVictorySceneOver(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER message) {
-        if (_isActive && !IsPvPDuel && message.DuelGeneration == _duelGeneration) {
-            FinishDuel(playersWin: true);
-        }
-    }
-
     /// <summary>
-    /// A winner who leaves (flee, logout, disconnect) during the victory scene is no longer waited for.
-    /// </summary>
-    private void LeaveVictoryWait(IActorRef actor) {
-        if (actor is not null && _victorySceneAwaited.Remove(actor) && _victorySceneAwaited.Count == 0) {
-            FinishDuel(playersWin: true);
-        }
-    }
-
-    /// <summary>
-    /// Tears the duel down once the result is known and shown: the players leave their circles, the zone hears the
-    /// result and the end, the dead creatures go, the sigil is free again.
+    /// Tears the duel down once the result is known: the players leave their circles, the zone hears the result and
+    /// the end, the dead creatures go, the sigil is free again.
     /// </summary>
     private void FinishDuel(bool playersWin) {
-        if (_victoryFinished) {
-            return;
-        }
-
-        _victoryFinished = true;
-        _victorySceneAwaited.Clear();
-        Timers.Cancel(VICTORY_SCENE_KEY);
-
         RemovePlayersFromDuel();
 
         // Broadcast to the zone of the result.
@@ -2355,13 +2282,6 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void ReceivePvPVictorySeen(COMBAT_106_PROTOCOL.MSG_PVPVICTORYSEEN message) {
         if (IsPvPDuel && _isActive && _pvp.IsEnding && _pvp.StopWaitingFor(message.Actor)) {
             FinishPvPDuel();
-
-            return;
-        }
-
-        // A PvE winner's client reports its victory scene over; the duel ends when the last one has.
-        if (!IsPvPDuel && _isActive && _victorySceneAwaited.Remove(message.Actor) && _victorySceneAwaited.Count == 0) {
-            FinishDuel(playersWin: true);
         }
     }
 

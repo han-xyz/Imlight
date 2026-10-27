@@ -344,30 +344,4 @@ public sealed class COMBAT_106_PROTOCOL : IServerProtocol {
 
     }
 
-    /// <summary>
-    /// The duel's own timer: the deaths of the last round have played on the clients, so the duel can end.
-    /// </summary>
-    public sealed class MSG_ENDDUELAFTERDEATHS : IServerMessage {
-
-        public byte MessageOrder => 32;
-        public byte ServiceID => 106;
-
-        /// <summary>The duel the timer was started for; a later duel on the same sigil ignores it.</summary>
-        public int DuelGeneration;
-
-    }
-
-    /// <summary>
-    /// The duel's own timer: the victory scene has had its time, so the duel ends whether or not every client
-    /// reported it over.
-    /// </summary>
-    public sealed class MSG_VICTORYSCENEOVER : IServerMessage {
-
-        public byte MessageOrder => 33;
-        public byte ServiceID => 106;
-
-        public int DuelGeneration;
-
-    }
-
 }
