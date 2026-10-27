@@ -43,7 +43,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -71,17 +71,21 @@ namespace Imlight.CoreLib.Game.Bank;
 internal sealed class BankRequests(Wizard wizard, IActorRef session, Func<bool> bankIsOpen, Func<ulong, bool> unequip) {
 
     /// <summary>
-    /// Opens the bank window: reads the shared bank again, streams the bank and the shared bank, then opens the
-    /// window. The window fills its lists from what the client holds when it opens, so the stream goes first.
+    /// Opens the bank window: reads the shared bank again, streams the bank and the shared bank, tells the client
+    /// the bank's capacity, then opens the window at the bank NPC. The window fills its lists from what the client
+    /// holds when it opens, so the stream goes first.
     /// </summary>
-    internal void Open() {
+    /// <param name="bankEntityId">The game object id of the bank NPC the player is talking to, like the other
+    /// NPC windows (vendor, seamstress) name their NPC when they open.</param>
+    internal void Open(ulong bankEntityId) {
         if (!AccountCollection.ReloadSharedBank(wizard.Account)) {
             Logger.Error("The shared bank of account {AccountId} could not be read again, the window opens with what the session holds.",
                 Logger.Args(wizard.Account.AccountId));
         }
 
         BankSync.StreamBank(session, wizard, includeShared: true);
-        session.Tell(new WIZARD_12_PROTOCOL.MSG_OPENBANK { GlobalID = wizard.GameObjectID });
+        session.Tell(BankSync.UpdateBankLimit(wizard));
+        session.Tell(new WIZARD_12_PROTOCOL.MSG_OPENBANK { GlobalID = bankEntityId });
     }
 
     /// <summary>

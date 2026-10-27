@@ -62,7 +62,7 @@ internal class BankService(SessionActor sessionActor) : MessageService(sessionAc
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_BEGINBANKSESSION))]
     private void ReceiveBeginBankSession(CHARACTER_103_PROTOCOL.MSG_BEGINBANKSESSION message) {
         _openBankEntityId = message.EntityId;
-        CreateRequests().Open();
+        CreateRequests().Open(message.EntityId);
     }
 
     [MessageHandler(typeof(WIZARD_12_PROTOCOL.MSG_MOVEINVTOBANK))]
