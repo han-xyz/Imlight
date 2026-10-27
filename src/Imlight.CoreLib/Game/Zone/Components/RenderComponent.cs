@@ -27,6 +27,9 @@
  * 
  * NOTE:
  * Supports dynamic object rendering based on player proximity.
+ * A placed object marked m_bUndetectable is absent for a player until a dynamod with the spawn state "On" shows
+ * it (quest results with m_bShowsObject). The client data marks a quest NPC's later-chapter placements and a boss's
+ * post-fight self that way.
  * MSG_NEWOBJECT creates an object in the client's world and MSG_REMOVEOBJECT removes it. An object that
  * comes back into range is sent again with MSG_NEWOBJECT, as live servers do: this client ignores
  * MSG_ADDOBJECT.
@@ -35,7 +38,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Collections.Generic;
@@ -145,6 +148,13 @@ internal sealed class RenderComponent(ZoneEntity entity) : ZoneEntityComponent(e
             if (!mod.ModState.Equals(SPAWN_STATE_NAME, System.StringComparison.OrdinalIgnoreCase)) {
                 persistedState = mod.ModState;
             }
+        }
+
+        // An undetectable object is absent until a quest shows it to the player.
+        if (IsHiddenUntilShown(Entity.Info, relevantDynaMods)) {
+            _playerIgnoreBecauseDynamod[suspect] = wizard;
+
+            return;
         }
 
         // Determine if this player meets the requirements to see the object.
@@ -283,6 +293,12 @@ internal sealed class RenderComponent(ZoneEntity entity) : ZoneEntityComponent(e
                     wizard = hiddenWizard;
                 }
 
+                // An undetectable object stays absent while the player holds no mod that shows it: the "On" a
+                // mod removal broadcasts does not apply to it.
+                if (IsHiddenUntilShown(Entity.Info, ModsOf(wizard))) {
+                    return;
+                }
+
                 _playerIgnoreBecauseDynamod.Remove(player);
 
                 // Mirror the join-time spawn requirements check.
@@ -311,6 +327,24 @@ internal sealed class RenderComponent(ZoneEntity entity) : ZoneEntityComponent(e
         => _playersInRange.Contains(player)
         && _playersWithRequirementsMet.ContainsValue(player)
         && !_playerIgnoreBecauseDynamod.ContainsKey(player);
+
+    /// <summary>
+    /// Whether a placed object marked undetectable is absent for a player: it is, unless one of the player's mods for
+    /// its tag carries the spawn state. The client data marks the later-chapter placements of a quest NPC and a
+    /// boss's post-fight self that way; a quest result with m_bShowsObject shows them.
+    /// </summary>
+    /// <param name="info">The placed object's info, null for a spawned creature.</param>
+    /// <param name="mods">The player's mods for this object's tag in this zone.</param>
+    internal static bool IsHiddenUntilShown(CoreObjectInfo info, IEnumerable<Dynamod> mods)
+        => info is { m_bUndetectable: true }
+        && !mods.Any(mod => string.Equals(mod.ModState, SPAWN_STATE_NAME, System.StringComparison.OrdinalIgnoreCase));
+
+    private List<Dynamod> ModsOf(Wizard wizard)
+        => wizard?.DynamodSet?.Dynamods?
+            .Where(d => d.ClientTag.Equals(Entity.Info?.m_zoneTag, System.StringComparison.OrdinalIgnoreCase))
+            .Where(d => string.IsNullOrEmpty(d.ZoneName)
+                     || d.ZoneName.Equals(Entity.Zone.ZoneData.m_zoneName, System.StringComparison.OrdinalIgnoreCase))
+            .ToList() ?? [];
 
     private static bool IsDespawnState(string stateName) {
         // A dynamod with no state hides its object for the player, as "Off" does (client triggers use both).
