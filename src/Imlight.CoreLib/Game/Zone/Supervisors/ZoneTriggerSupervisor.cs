@@ -111,6 +111,10 @@ internal sealed class ZoneTriggerSupervisor(Core.Zone zone) : ZoneEntitySupervis
             return;
         }
 
+        if (!_orderedTriggers.Any(x => x.Trigger.m_fireEvents?.Any(fireEvent => fireEvent == message.EventName) == true)) {
+            Logger.Debug("Zone {0}: no trigger fires on event {1}.", Logger.Args(Zone.ZonePath, message.EventName));
+        }
+
         // Client wads pair multiple triggers on the same event; every passing trigger fires
         // (their results are independent), but paired teleporter triggers must not both win:
         // only one ResTeleport trigger may execute (see PickTeleportTrigger).
