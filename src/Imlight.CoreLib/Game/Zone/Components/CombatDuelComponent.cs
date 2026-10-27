@@ -99,6 +99,9 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private const string PREPLANNING_TIME_KEY = "PrePlanningPhase";
     private const string RESOUTION_TIME_KEY = "ResolutionPhase";
     private const string END_AFTER_DEATHS_KEY = "EndAfterDeaths";
+    private const string VICTORY_SCENE_KEY = "VictoryScene";
+    // The longest the duel waits for every client's victory scene before it ends anyway.
+    private const int VICTORY_SCENE_IN_MS = 12000;
     // How long the clients play the last creature's death before the duel-over messages reach them. The
     // creature's own object stays for the same time, see CombatCreatureAIComponent.
     private const int DEATH_ANIMATION_IN_MS = 2000;
@@ -169,6 +172,9 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private bool _isActive;
     // Counts the duels this sigil has run, so a timer of an earlier duel cannot act on a later one.
     private int _duelGeneration;
+    // The players whose victory scene the duel still waits for, and whether the wait has been resolved.
+    private readonly HashSet<IActorRef> _victorySceneAwaited = [];
+    private bool _victoryFinished;
     private bool _awaitingCombatMoves;
     private TutorialDuelDirector _tutorialDirector;
     // Seconds of cinematics before a caster's cast; SummonMinion adds the animation delay to it.
@@ -658,15 +664,23 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
+        var playersWin = !IsPvPDuel && AliveCreatureCount <= 0;
+        var creaturesWin = !IsPvPDuel && AlivePlayerCount <= 0;
+        var duelEnds = playersWin || creaturesWin;
+
         // Iterate through dead creature participants and remove them from the duel.
         // Players can be healed and therefore don't need to be removed.
-        EnactActionOnSubCircles(circle => {
-            // A dead minion can't be revived; remove it like an enemy.
-            if (!circle.IsHumanPlayer && !circle.IsAlive) {
-                var removeMsg = new COMBAT_106_PROTOCOL.MSG_COMBATDEATH();
-                circle.ParticipantActor.Tell(removeMsg);
-            }
-        });
+        // When the duel ends, the dead keep their bodies until the duel is torn down, so the clients play their
+        // deaths; a removal now would make them vanish mid-animation.
+        if (!duelEnds) {
+            EnactActionOnSubCircles(circle => {
+                // A dead minion can't be revived; remove it like an enemy.
+                if (!circle.IsHumanPlayer && !circle.IsAlive) {
+                    var removeMsg = new COMBAT_106_PROTOCOL.MSG_COMBATDEATH();
+                    circle.ParticipantActor.Tell(removeMsg);
+                }
+            });
+        }
 
         // All spells have been called. Inform the client whether this duel continues or ends.
         Duel.m_duelPhase = kDuelPhase.kPhase_Resolution;
@@ -678,9 +692,7 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
-        var playersWin = AliveCreatureCount <= 0;
-        var creaturesWin = AlivePlayerCount <= 0;
-        if (!playersWin && !creaturesWin) {
+        if (!duelEnds) {
             // Continue. Start a new round.
             Self.Tell(new COMBAT_106_PROTOCOL.MSG_NEWROUND());
 
@@ -774,6 +786,8 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void DespawnDuel() {
         _isActive = false;
         Timers.Cancel(END_AFTER_DEATHS_KEY);
+        Timers.Cancel(VICTORY_SCENE_KEY);
+        _victorySceneAwaited.Clear();
 
         // Minions are children of this sigil entity, which persists between fights; MSG_COMBATDEATH
         // deletes them outright.
@@ -2130,14 +2144,54 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
         // A queued tutorial card grant must not leak into the next duel on this sigil.
         _tutorialDirector.OnDuelEnded();
 
-        RemovePlayersFromDuel();
-
+        _victoryFinished = false;
+        _victorySceneAwaited.Clear();
         if (playersWin) {
             PlayerWin();
+
+            // The winners play their victory scene now; each client reports it over (MSG_COMBATVICTORY), and the
+            // duel is torn down when the last one has, or when the scene has had its time.
+            EnactActionOnSubCircles(circle => {
+                if (circle.IsHumanPlayer && circle.AddedToDuel && circle.ParticipantActor is not null) {
+                    _victorySceneAwaited.Add(circle.ParticipantActor);
+                }
+            });
+            if (_victorySceneAwaited.Count > 0) {
+                Timers.StartSingleTimer(VICTORY_SCENE_KEY,
+                    new COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER { DuelGeneration = _duelGeneration },
+                    TimeSpan.FromMilliseconds(VICTORY_SCENE_IN_MS));
+
+                return;
+            }
         }
         else if (creaturesWin) {
             CreatureWin();
         }
+
+        FinishDuel(playersWin);
+    }
+
+    [MessageHandler(typeof(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER))]
+    private void ReceiveVictorySceneOver(COMBAT_106_PROTOCOL.MSG_VICTORYSCENEOVER message) {
+        if (_isActive && !IsPvPDuel && message.DuelGeneration == _duelGeneration) {
+            FinishDuel(playersWin: true);
+        }
+    }
+
+    /// <summary>
+    /// Tears the duel down once the result is known and shown: the players leave their circles, the zone hears the
+    /// result and the end, the dead creatures go, the sigil is free again.
+    /// </summary>
+    private void FinishDuel(bool playersWin) {
+        if (_victoryFinished) {
+            return;
+        }
+
+        _victoryFinished = true;
+        _victorySceneAwaited.Clear();
+        Timers.Cancel(VICTORY_SCENE_KEY);
+
+        RemovePlayersFromDuel();
 
         // Broadcast to the zone of the result.
         var combatMatchResult = new DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_COMBATMATCHRESULT {
@@ -2152,6 +2206,16 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
 
         var duelEndedMsg = new DOODLEDOUG_MESSAGES_51_PROTOCOL.MSG_ENDDUEL { DuelID = SigilId };
         ZoneBroadcast(duelEndedMsg);
+
+        // The dead creatures kept their bodies for the death scene; the duel is gone, so they go now.
+        if (playersWin) {
+            var deathMsg = new COMBAT_106_PROTOCOL.MSG_COMBATDEATH();
+            EnactActionOnSubCircles(circle => {
+                if (!circle.IsHumanPlayer && !circle.IsAlive && circle.ParticipantActor is not null) {
+                    circle.ParticipantActor.Tell(deathMsg);
+                }
+            });
+        }
 
         DespawnDuel();
         _isActive = false;
@@ -2254,6 +2318,13 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
     private void ReceivePvPVictorySeen(COMBAT_106_PROTOCOL.MSG_PVPVICTORYSEEN message) {
         if (IsPvPDuel && _isActive && _pvp.IsEnding && _pvp.StopWaitingFor(message.Actor)) {
             FinishPvPDuel();
+
+            return;
+        }
+
+        // A PvE winner's client reports its victory scene over; the duel ends when the last one has.
+        if (!IsPvPDuel && _isActive && _victorySceneAwaited.Remove(message.Actor) && _victorySceneAwaited.Count == 0) {
+            FinishDuel(playersWin: true);
         }
     }
 
