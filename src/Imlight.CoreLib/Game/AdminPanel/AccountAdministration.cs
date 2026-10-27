@@ -17,6 +17,7 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Akka.Actor;
@@ -30,7 +31,21 @@ using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.AdminPanel;
 
-internal sealed record AdminActionResult(bool Succeeded, string Message);
+/// <summary>
+/// The outcome of a staff action. <paramref name="Lines"/> holds any listing it produced, one entry per line.
+/// <paramref name="Deferred"/> means a session service carries the action out and answers by itself.
+/// </summary>
+internal sealed record AdminActionResult(bool Succeeded, string Message, IReadOnlyList<string> Lines = null,
+                                         bool Deferred = false) {
+
+    internal static AdminActionResult Done(string message, IReadOnlyList<string> lines = null)
+        => new(true, message, lines);
+
+    internal static AdminActionResult Refuse(string message) => new(false, message);
+
+    internal static AdminActionResult Sent() => new(true, null, Deferred: true);
+
+}
 
 /// <summary>
 /// The outcome of a Crowns change. <paramref name="Problem"/> is set when the outcome is unknown.
@@ -141,7 +156,7 @@ internal static class AccountAdministration {
             return refusal;
         }
 
-        account = AccountCollection.GetAccount(username?.Trim() ?? "", waitForIndex: true);
+        account = AccountCollection.GetAccountWithoutCharacters(username?.Trim() ?? "", waitForIndex: true);
 
         return account is null ? Refuse($"No account named {username?.Trim()}.") : new(true, $"Found {account.Username}.");
     }
@@ -217,7 +232,7 @@ internal static class AccountAdministration {
 
     internal static string FormatCrowns(long crowns) => crowns.ToString("N0", CultureInfo.InvariantCulture);
 
-    private static bool CanAct(Account actor, AuthLevel required, out AdminActionResult refusal) {
+    internal static bool CanAct(Account actor, AuthLevel required, out AdminActionResult refusal) {
         refusal = null;
         if (actor.AuthLevel < required) {
             refusal = Refuse($"This needs auth level {required}; yours is {actor.AuthLevel}.");
@@ -226,27 +241,38 @@ internal static class AccountAdministration {
         return refusal is null;
     }
 
-    private static bool CanActOn(Account actor, AuthLevel required, string username, out Account target,
-                                 out AdminActionResult refusal) {
+    internal static bool CanActOn(Account actor, AuthLevel required, string username, out Account target,
+                                  out AdminActionResult refusal) {
         target = null;
         if (!CanAct(actor, required, out refusal)) {
             return false;
         }
 
-        target = AccountCollection.GetAccount(username?.Trim() ?? "", waitForIndex: true);
+        target = AccountCollection.GetAccountWithoutCharacters(username?.Trim() ?? "", waitForIndex: true);
         if (target is null) {
             refusal = Refuse("Account not found.");
+
+            return false;
         }
-        else if (!AuthorityRequester.RequestAuthorityOver(target, actor, $"{actor.Username} used an admin action on account {target.Username}.")) {
+
+        return CanActOn(actor, target, out refusal);
+    }
+
+    /// <summary>
+    /// Checks that the actor outranks an account already loaded; the level the action needs is checked separately.
+    /// </summary>
+    internal static bool CanActOn(Account actor, Account target, out AdminActionResult refusal) {
+        refusal = null;
+        if (!AuthorityRequester.RequestAuthorityOver(target, actor, $"{actor.Username} used an admin action on account {target.Username}.")) {
             refusal = Refuse($"You do not outrank {target.Username}.");
         }
 
         return refusal is null;
     }
 
-    private static AdminActionResult Refuse(string message) => new(false, message);
+    internal static AdminActionResult Refuse(string message) => AdminActionResult.Refuse(message);
 
-    private static void Audit(Account actor, Wizard character, AdminAuditAction action, string detail) {
+    internal static void Audit(Account actor, Wizard character, AdminAuditAction action, string detail) {
         var ip = actor.SessionActor?.Ip;
         Logger.Warning("Admin audit: {0} by account {1} ({2}), character {3}, IP {4}. {5}",
             Logger.Args(action, actor.Username, actor.AccountId, character?.CharId, ip ?? "unknown", detail ?? ""));

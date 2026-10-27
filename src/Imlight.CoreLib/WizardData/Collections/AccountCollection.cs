@@ -124,11 +124,7 @@ public static class AccountCollection {
             WizardCollection.LoadWizardsOntoAccount(account.AccountId, ref account);
         }
 
-        var infractions = session.Query<Infraction>(collectionName: InfractionCollection.CollectionName)
-            .Where(i => i.AccountId == account.AccountId)
-            .ToList();
-
-        account.InfractionHistory = new InfractionHistory(account.AccountId, infractions);
+        account.InfractionHistory = QueryInfractionHistory(session, account.AccountId);
 
         if (!characterListOnly) {
             account.SharedBank ??= new AccountSharedBank();
@@ -136,6 +132,14 @@ public static class AccountCollection {
         }
 
         return account;
+    }
+
+    private static InfractionHistory QueryInfractionHistory(IDocumentSession session, ulong accountId) {
+        var infractions = session.Query<Infraction>(collectionName: InfractionCollection.CollectionName)
+            .Where(i => i.AccountId == accountId)
+            .ToList();
+
+        return new InfractionHistory(accountId, infractions);
     }
 
     private static void LoadSharedBank(IDocumentSession session, ulong accountId, AccountSharedBank sharedBank) {
@@ -341,6 +345,47 @@ public static class AccountCollection {
         return account is null
             ? null
             : LoadAccountDetails(session, account, characterListOnly: true);
+    }
+
+    /// <summary>
+    /// Gets an account from the database with its infractions but without its characters or shared bank, for
+    /// checks that need only the account: its auth level, lock and mutes.
+    /// </summary>
+    /// <param name="id"></param>
+    /// <returns></returns>
+    internal static Account GetAccountWithoutCharacters(ulong id) {
+        using var session = s_store.OpenSession();
+
+        var account = session.Query<Account>(collectionName: CollectionName)
+            .FirstOrDefault(a => a.AccountId == id);
+        if (account is not null) {
+            account.InfractionHistory = QueryInfractionHistory(session, id);
+        }
+
+        return account;
+    }
+
+    /// <summary>
+    /// Gets an account by its username with its infractions but without its characters or shared bank.
+    /// </summary>
+    /// <param name="username"></param>
+    /// <param name="waitForIndex">Waits for the username index to include recent writes, such as an account
+    /// created a moment ago.</param>
+    /// <returns></returns>
+    internal static Account GetAccountWithoutCharacters(string username, bool waitForIndex = false) {
+        using var session = s_store.OpenSession();
+
+        var query = session.Query<Account>(collectionName: CollectionName);
+        if (waitForIndex) {
+            query = query.Customize(options => options.WaitForNonStaleResults());
+        }
+
+        var account = query.FirstOrDefault(a => a.Username == username);
+        if (account is not null) {
+            account.InfractionHistory = QueryInfractionHistory(session, account.AccountId);
+        }
+
+        return account;
     }
 
     /// <summary>

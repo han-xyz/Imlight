@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -50,8 +50,10 @@ using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
+using Imcodec.ObjectProperty.TypeCache;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Misc;
+using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Commands;
 
@@ -99,6 +101,26 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
 
     public static Props Props()
         => Akka.Actor.Props.Create(() => new CommandDispatcher());
+
+    /// <summary>
+    /// Builds the message that runs a command as the player of a session: typed in chat, or picked in the admin
+    /// panel. Replies go to that player.
+    /// </summary>
+    internal static SERVER_100_PROTOCOL.MSG_COMMAND CreateCommand(string commandText, SessionActor session,
+                                                                  CoreObject characterObject, Wizard wizard,
+                                                                  Account account, Wizard selectedWizard = null,
+                                                                  Account selectedAccount = null)
+        => new() {
+            CommandText = commandText,
+            ActorRef = session.ActorRef,
+            CoreObject = characterObject,
+            Wizard = wizard,
+            Account = account,
+            ZoneActor = session.GetZoneActor(),
+            ServerActor = session.ServerRef,
+            SelectedWizard = selectedWizard,
+            SelectedAccount = selectedAccount
+        };
 
     private static Dictionary<string, CommandProtocol> BuildProtocolTable() {
         var protocols = new Dictionary<string, CommandProtocol>();
@@ -199,7 +221,8 @@ internal class CommandDispatcher : ReceiveProtocolDispatcher {
             ZoneActor = message.ZoneActor,
             ServerActor = message.ServerActor,
             SelectedCharacter = message.SelectedWizard,
-            SelectedAccount = message.SelectedAccount
+            SelectedAccount = message.SelectedAccount,
+            Actors = Context
         };
 
         var loggedCommandText = RedactPasswords(message.CommandText.ToString());

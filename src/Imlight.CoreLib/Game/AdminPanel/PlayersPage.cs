@@ -88,7 +88,7 @@ internal static class PlayersPage {
 
         var result = AccountAdministration.AdjustCrowns(actor, character, username, amount, adjustOnline, out var balance);
         if (result.Succeeded) {
-            SendPlayer(AccountCollection.GetAccount(username.Trim(), waitForIndex: true), reply, balance.After);
+            SendPlayer(AccountCollection.GetAccountWithoutCharacters(username.Trim(), waitForIndex: true), reply, balance.After);
         }
 
         reply(["status", result.Succeeded ? "ok" : "error", result.Message]);
@@ -96,7 +96,7 @@ internal static class PlayersPage {
 
     // An online player's balance is saved as it changes, so the stored one is current; after a change the
     // balance the change produced is shown, in case the stored one is read before the write lands.
-    private static void SendPlayer(Account account, Action<string[]> reply, int? crowns = null) {
+    internal static void SendPlayer(Account account, Action<string[]> reply, int? crowns = null) {
         var online = OnlinePlayerCollection.GetOnlinePlayers().FirstOrDefault(player => player.AccountId == account.AccountId);
         var presence = online is null ? "offline" : $"online in {online.CurrentZone}";
         var summary = $"{account.Username}: {account.AuthLevel}, {presence}";

@@ -432,6 +432,13 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
         /// The quest name, or empty for the only active quest.
         /// </summary>
         public string QuestName;
+
+        /// <summary>
+        /// Where the replies go, as <see cref="ADMIN_112_PROTOCOL.MSG_ADMINACTIONREPLY"/>; null sends them to the
+        /// player.
+        /// </summary>
+        public IActorRef ReplyTo;
+        public uint RequestId;
     }
   
     /// <summary>
@@ -524,6 +531,13 @@ public class CHARACTER_103_PROTOCOL : IServerProtocol {
         /// The amount added to the counter; only used by progress.
         /// </summary>
         public ulong Amount;
+
+        /// <summary>
+        /// Where the replies go, as <see cref="ADMIN_112_PROTOCOL.MSG_ADMINACTIONREPLY"/>; null sends them to the
+        /// player.
+        /// </summary>
+        public IActorRef ReplyTo;
+        public uint RequestId;
 
     }
 

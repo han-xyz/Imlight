@@ -16,12 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-using System;
-using System.Text;
-using Imlight.CoreLib.Auth;
-using Imlight.CoreLib.Shared.Packets;
-using Imlight.CoreLib.WizardData.Collections;
-using Imlight.CoreLib.WizardData.Models.Misc;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Commands.Protocols;
@@ -33,119 +28,22 @@ internal class CommandBanProtocol : CommandProtocol {
     [Command("account")]
     [AuthRequired(AuthLevel.HallMonitor)]
     [Alias("user", "username")]
-    private void BanAccountCommand(string username, string time, [Remainder] string reason) {
-        var account = AccountCollection.GetAccount(username);
-        if (account == null) {
-            InformSenderClient("Account not found");
-
-            return;
-        }
-
-        var authorityReason = $"{Context.Account.Username} wants to ban account {username}.";
-        if (!AuthorityRequester.RequestAuthorityOver(account, Context.Account, authorityReason)) {
-            InformSenderClient("You cannot ban an account with a higher auth level than you.");
-
-            return;
-        }
-
-        if (account.InfractionHistory.IsCurrentlyBanned) {
-            InformSenderClient("Account is already banned");
-
-            return;
-        }
-
-        // The time will be in the format of 1d2h3m4s. Parse it into a TimeSpan.
-        if (!CommandUtilities.TryParseDuration(time, out var timeSpan)) {
-            InformSenderClient("Invalid time format");
-
-            return;
-        }
-
-        // Now with the timespan, get a DateTime for when the ban will expire.
-        var banExpiration = DateTime.UtcNow + timeSpan;
-
-        var source = Context.Account.Username;
-        account.AddInfraction(InfractionType.Ban, reason, source, banExpiration);
-
-        // Kick the player from the game.
-        var kickMsg = new SERVER_100_PROTOCOL.MSG_KICKPLAYER {
-            AccountID = account.AccountId
-        };
-        Context.ServerActor.Tell(kickMsg, Context.SessionActor);
-
-        InformSenderClient($"Account {account.Username} has been banned until {banExpiration}", true);
-    }
+    private void BanAccountCommand(string username, string time, [Remainder] string reason)
+        => Inform(AccountModeration.Ban(Context.Account, Context.Character, Context.Actors, username, time, reason), true);
 
     [Command("machine")]
     [AuthRequired(AuthLevel.HallMonitor)]
     [Alias("pc", "computer")]
-    private void BanMachineCommand(string machineId, string time, [Remainder] string reason) {
-        if (!ulong.TryParse(machineId, out var machineIdLong)) {
-            InformSenderClient("Invalid machine ID");
-
-            return;
-        }
-
-        if (InfractionCollection.IsMachineBanned(machineIdLong)) {
-            InformSenderClient("Machine is already banned");
-
-            return;
-        }
-
-        // The time will be in the format of 1d2h3m4s. Parse it into a TimeSpan.
-        if (!CommandUtilities.TryParseDuration(time, out var timeSpan)) {
-            InformSenderClient("Invalid time format");
-
-            return;
-        }
-
-        // Now with the timespan, get a DateTime for when the ban will expire.
-        var banExpiration = DateTime.UtcNow + timeSpan;
-        InfractionCollection.AddMachineBan(machineIdLong, banExpiration);
-        InformSenderClient($"Machine {machineIdLong} has been banned until {banExpiration}");
-    }
+    private void BanMachineCommand(string machineId, string time, [Remainder] string reason)
+        => Inform(AccountModeration.BanMachine(Context.Account, Context.Character, machineId, time, reason));
 
     [Command("ip")]
     [AuthRequired(AuthLevel.HallMonitor)]
-    private void BanIpCommand(string ip, string time, [Remainder] string reason) {
-        if (InfractionCollection.IsIpBanned(ip)) {
-            InformSenderClient("IP is already banned");
-            return;
-        }
-
-        // The time will be in the format of 1d2h3m4s. Parse it into a TimeSpan.
-        if (!CommandUtilities.TryParseDuration(time, out var timeSpan)) {
-            InformSenderClient("Invalid time format");
-            return;
-        }
-
-        // Now with the timespan, get a DateTime for when the ban will expire.
-        var banExpiration = DateTime.UtcNow + timeSpan;
-
-        InfractionCollection.AddIpBan(ip, banExpiration);
-
-        InformSenderClient($"IP {ip} has been banned until {banExpiration}");
-    }
+    private void BanIpCommand(string ip, string time, [Remainder] string reason)
+        => Inform(AccountModeration.BanIp(Context.Account, Context.Character, ip, time, reason));
 
     [Command("info")]
     [AuthRequired(AuthLevel.HallMonitor)]
-    private void BanInfoCommand(string username) {
-        var account = AccountCollection.GetAccount(username);
-        if (account == null) {
-            InformSenderClient("Account not found");
-
-            return;
-        }
-
-        var sb = new StringBuilder()
-            .AppendLine($"Account: {account.Username}")
-            .AppendLine($"Banned: {account.InfractionHistory.IsCurrentlyBanned}")
-            .AppendLine($"Ban ends at: {account.InfractionHistory.BanEndsAt}")
-            .AppendLine($"Muted: {account.InfractionHistory.IsCurrentlyMuted}")
-            .AppendLine($"Mute ends at: {account.InfractionHistory.MuteEndsAt}")
-            .AppendLine($"Last infraction: {account.InfractionHistory.LastInfractionTime}");
-
-        InformSenderClient(sb.ToString(), true);
-    }
+    private void BanInfoCommand(string username) => Inform(AccountModeration.BanInfo(Context.Account, username), true);
 
 }

@@ -46,6 +46,7 @@ using Imcodec.Cryptography;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.PvP;
 using Imlight.CoreLib.Game.PvP.Data;
 using Imlight.CoreLib.Game.PvP.Matchmaking;
@@ -68,6 +69,9 @@ internal class PvPRatingService(SessionActor sessionActor) : MessageService(sess
     }
 
     private ulong _eloRequestGlobalId;
+
+    // Set while a rating command from the admin panel runs.
+    private AdminReplyChannel _commandReplies;
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new PvPRatingService(parentActor));
@@ -127,6 +131,16 @@ internal class PvPRatingService(SessionActor sessionActor) : MessageService(sess
 
     [MessageHandler(typeof(PVP_111_PROTOCOL.MSG_RATINGCOMMAND))]
     private void ReceiveRatingCommand(PVP_111_PROTOCOL.MSG_RATINGCOMMAND message) {
+        _commandReplies = message.ReplyTo is null ? null : new(message.ReplyTo, message.RequestId);
+        try {
+            RunRatingCommand(message);
+        }
+        finally {
+            _commandReplies = null;
+        }
+    }
+
+    private void RunRatingCommand(PVP_111_PROTOCOL.MSG_RATINGCOMMAND message) {
         var wizard = GetActiveWizard();
         if (wizard is null) {
             return;
@@ -319,7 +333,15 @@ internal class PvPRatingService(SessionActor sessionActor) : MessageService(sess
         }
     }
 
-    private void Reply(string text)
-        => SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    // A command from the admin panel answers the staff member who sent it rather than the player.
+    private void Reply(string text) {
+        if (_commandReplies is not null) {
+            _commandReplies.Send(text);
+
+            return;
+        }
+
+        SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    }
 
 }

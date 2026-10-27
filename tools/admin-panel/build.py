@@ -5,8 +5,8 @@ files to Data/GameData/Root.wad. Existing entries keep their exact bytes; the la
 offsets, and the new files' data is appended to the end. The untouched original is kept at
 Data/Root.wad.adminpanel-original, and reinstalling always starts from it.
 
-The GUI files are derived at build time from the installed client's own settings and login windows, so no
-KingsIsle content is stored in this repository.
+The GUI files are derived at build time from the installed client's own settings, login, trade and banking
+windows, so no KingsIsle content is stored in this repository.
 
 Usage (close the game client first):
   python -I build.py --client <Client dir> [--install | --uninstall]
@@ -118,10 +118,18 @@ def add_to_wad(original, output, files):
     return shift
 
 
-def gui_templates(client, path, names):
-    """Returns the named controls of one of the client's GUI files, read from the untouched archive."""
-    root_wad, original = paths(client)
-    source = read_wad_entry(original if os.path.exists(original) else root_wad, path)
+def gui_templates(client, path, names, shared=False):
+    """Returns the named controls of one of the client's GUI files.
+
+    Root.wad is read from the untouched original; _Shared-WorldData.wad, which holds most of the game's windows, is
+    never changed, so it is read where it is.
+    """
+    if shared:
+        archive = shared_wad(client)
+    else:
+        root_wad, original = paths(client)
+        archive = original if os.path.exists(original) else root_wad
+    source = read_wad_entry(archive, path)
     found = {element.findtext('m_sName'): element for element in ET.fromstring(source).iter('Class')
              if element.findtext('m_sName') in names}
     missing = set(names) - set(found)
@@ -171,6 +179,24 @@ def attach(window, children):
     return window
 
 
+def plain_window(name, window, flags='VISIBLE'):
+    """A bare window that only groups and places its children."""
+    element = ET.Element('Class', Name='class Window')
+    for tag, value in (('m_sName', name), ('m_Style', 'HAS_NO_BORDER'), ('m_Flags', flags), ('m_Window', window),
+                       ('m_fTargetAlpha', '1'), ('m_fAlpha', '1'), ('m_Offset', '0,0'), ('m_Scale', '1,1'),
+                       ('m_ParentOffset', '0,0,0,0')):
+        ET.SubElement(element, tag).text = value
+    return element
+
+
+def set_texture(element, filename):
+    """Points every texture of a copied control at another file."""
+    for texture in element.iter('m_sFilename'):
+        if texture.text and texture.text.startswith('GUI/'):
+            texture.text = filename
+    return element
+
+
 def gui_file(window, children):
     attach(window, children)
     root = ET.Element('Objects')
@@ -185,11 +211,7 @@ def build_settings_button(client):
     left, top, right, bottom = (int(value) for value in quit_button.findtext('m_Window').split(','))
     width, height = right - left, bottom - top
 
-    window = ET.Element('Class', Name='class Window')
-    for tag, value in (('m_sName', 'adminpanel_open_window'), ('m_Style', 'HAS_NO_BORDER'), ('m_Flags', 'VISIBLE'),
-                       ('m_Window', rect(left, top - height - 6, width, height)), ('m_fTargetAlpha', '1'),
-                       ('m_fAlpha', '1'), ('m_Offset', '0,0'), ('m_Scale', '1,1'), ('m_ParentOffset', '0,0,0,0')):
-        ET.SubElement(window, tag).text = value
+    window = plain_window('adminpanel_open_window', rect(left, top - height - 6, width, height))
     button = control(quit_button, m_sName='adminpanel_open', m_Window=rect(0, 0, width, height), m_sLabel='Admin',
                      m_sTip='Open the admin panel')
     return gui_file(window, [button])
@@ -198,23 +220,49 @@ def build_settings_button(client):
 # The settings book's background draws seven outlined rows; these are their tops within a page.
 ROW_TOPS = [10, 58, 106, 152, 198, 244, 291]
 
+# The panel: a trade window side panel with the account's characters, then the settings book.
+PANEL_WIDTH = 960
+SIDE_WIDTH = 245
+BOOK_LEFT = 240
+BOOK_WIDTH = PANEL_WIDTH - BOOK_LEFT
+
+# The side panel's character rows, in its parchment below the name scroll.
+HEAD_SLOTS = 6
+HEAD_TOP = 200
+HEAD_HEIGHT = 42
+
+# The tabs above the book's page, left to right: (id, label). Client.lua lists the same ids.
+TABS = [('account', 'Account'), ('crowns', 'Crowns'), ('moderation', 'Moderation'), ('character', 'Character'),
+        ('items', 'Items'), ('pets', 'Pets'), ('spells', 'Spells'), ('quests', 'Quests'), ('progress', 'Progress'),
+        ('dynamods', 'Dynamods'), ('tools', 'Tools')]
+TAB_LEFT = 22
+TAB_WIDTH = 63
+TAB_TOP = 66
+TAB_HEIGHT = 44
+
+# The action page's argument rows; Client.lua shows as many as the chosen action takes.
+ARGUMENT_ROWS = 3
+
 
 def build_panel(client):
-    """The admin panel, laid out like a page of the settings window and built from its parts.
+    """The admin panel, built from the parts of the client's settings, trade, banking and login windows.
 
-    One page per section, each with its own row of buttons; a tab above the book switches between them. Rows
-    hold a label and a text field or an arrow selector; the last rows hold the looked-up account's details and
-    the result of the last request. Window names must match the ones Client.lua uses.
+    The side panel shows the looked-up account's characters as heads, the selected one large at the top. The book
+    holds the username bar, the tabs and three pages: the Account and Crowns forms, and an action page that every
+    other tab fills with its actions. Rows hold a label and a text field or an arrow selector; the last rows hold
+    details and the result of the last request. Window names must match the ones Client.lua uses.
     """
     parts = gui_templates(client, 'GUI/Settings.gui', [
-        'SettingPage', 'Background', 'TabWindow', 'VideoTab', 'PrivacyButton', 'CreditsButton', 'TitleWindow',
-        'VideoOptionsText',
-        'VideoOptions', 'OptionResolution', 'OptionText', 'OptionControl', 'OptionValue', 'ButtonBackground',
-        'QuitButton', 'IdleButton', 'HelpButton', 'OkButton'])
+        'SettingPage', 'Background', 'VideoOptions', 'OptionResolution', 'OptionText', 'OptionControl',
+        'OptionValue', 'OptionButtonLeft', 'OptionButtonRight', 'ButtonBackground', 'QuitButton', 'IdleButton',
+        'HelpButton', 'OkButton'])
     edits = gui_templates(client, 'GUI/GameLoginWindow.gui', ['loginName', 'loginPassword'])
+    trade = gui_templates(client, 'GUI/TradeWindow.gui', [
+        'LocalPlayerWindow', 'LocalNameText', 'StatusText', 'LocalStaticPortrait', 'bg_mid'], shared=True)
+    banking = gui_templates(client, 'GUI/BankingWindow.gui', ['bankTab'], shared=True)
     value_style = parts['OptionValue'].find('m_pWindowStyle')
 
-    def text_field(name, template):
+    def text_field(name, template, left=336, top=12, max_length=40):
         # A settings value box with a borderless login text field inset in it, so typed text clears the box's
         # frame. The settings font draws small capitals, which would hide the case of usernames, so fields use
         # the normal font.
@@ -222,7 +270,7 @@ def build_panel(client):
         box = control(parts['OptionValue'], m_sName=name + '_box', m_Window=rect(0, 0, width, height),
                       m_Flags='VISIBLE', m_sText='')
         edit = control(edits[template], m_sName=name, m_Style='HAS_NO_BORDER', m_Flags='VISIBLE',
-                       m_Window=rect(inset, 1, width - 2 * inset, height - 2), m_nMaxLength='40')
+                       m_Window=rect(inset, 1, width - 2 * inset, height - 2), m_nMaxLength=str(max_length))
         edit.remove(edit.find('m_pWindowStyle'))
         style = ET.fromstring(ET.tostring(value_style))
         for font in style.iter('m_sFilename'):
@@ -230,94 +278,170 @@ def build_panel(client):
                 font.text = 'WizardNormal.xml'
         edit.append(style)
         field = control(parts['OptionControl'], m_sName=name + '_field', m_Flags='VISIBLE',
-                        m_Window=rect(336, 12, width, height))
+                        m_Window=rect(left, top, width, height))
         return attach(field, [box, edit])
 
-    def selector(prefix):
+    def selector(prefix, **values):
         return subtree(parts['OptionControl'], {'OptionButtonLeft': prefix + '_prev', 'OptionValue': prefix + '_value',
-                                                'OptionButtonRight': prefix + '_next'}, m_sName=prefix)
+                                                'OptionButtonRight': prefix + '_next'}, m_sName=prefix, **values)
 
     def row(page, index, label, value):
         top = ROW_TOPS[index]
         window = control(parts['OptionResolution'], m_sName=f'{page}_row{index}', m_Window=rect(0, top, 580, 54))
         return attach(window, [control(parts['OptionText'], m_sName=f'{page}_row{index}_label', m_sText=label), value])
 
-    def line(page, name, index):
+    def line(page, name, index, width=524):
         # A row-wide line of smaller text, for details and results.
         top = ROW_TOPS[index]
         window = control(parts['OptionResolution'], m_sName=f'{page}_row{index}', m_Window=rect(0, top, 580, 54))
-        return attach(window, [control(parts['OptionText'], m_sName=name, m_Window='36,6,560,48', m_sText='')])
+        return attach(window, [control(parts['OptionText'], m_sName=name, m_Window=rect(36, 6, width, 42), m_sText='')])
 
     def page(name, visible, rows):
         flags = 'VISIBLE|NOCLIP' if visible else 'NOCLIP'
         return attach(control(parts['VideoOptions'], m_sName=name, m_Flags=flags), rows)
 
+    def arrow(template, name, window, tip):
+        return control(parts[template], m_sName=name, m_Window=window, m_Flags='VISIBLE', m_sTip=tip)
+
+    def hidden_button(name, window, tip):
+        # The settings window's button with no art or label: a click target over other controls. Without art the
+        # client fills a button with its color, so the color is transparent, as in the quest helper's button.
+        button = control(parts['QuitButton'], m_sName=name, m_Window=window, m_sLabel='', m_sTip=tip, m_fMaxScale='1',
+                         m_Color='00FFFFFF')
+        for material in button.findall('m_pButton'):
+            for child in list(material):
+                material.remove(child)
+        return button
+
     def buttons(name, visible, specs):
-        # A page's row of buttons, in the slots of the settings window's Quit, Idle, Help and OK buttons.
+        # A page's row of buttons, in the slots of the settings window's Quit, Idle, Help and OK buttons. A None
+        # spec leaves its slot empty.
         slots = [parts[template] for template in ('QuitButton', 'IdleButton', 'HelpButton', 'OkButton')]
         left, top, _, bottom = (int(value) for value in slots[0].findtext('m_Window').split(','))
         right = int(slots[-1].findtext('m_Window').split(',')[2])
         group = control(parts['OptionControl'], m_sName=name, m_Flags='VISIBLE' if visible else 'NOCLIP',
                         m_Window=f'{left},{top},{right},{bottom}')
         children = []
-        for slot, (button_name, label, tip) in zip(slots, specs):
+        for slot, spec in zip(slots, specs):
+            if spec is None:
+                continue
+            button_name, label, tip = spec
             x1, y1, x2, y2 = (int(value) for value in slot.findtext('m_Window').split(','))
             children.append(control(slot, m_sName=button_name, m_sLabel=label, m_sTip=tip,
                                     m_Window=f'{x1 - left},{y1 - top},{x2 - left},{y2 - top}'))
         return attach(group, children)
 
-    def tab(index, icon, name, tip):
-        # The settings window's tabs: a tab shape with an icon button on it, 67 apart.
-        left = 14 + 67 * index
-        return [control(parts['VideoTab'], m_sName=name + '_back', m_Window=rect(left, 19, 66, 72)),
-                control(parts[icon], m_sName=name, m_Window=rect(left + 8, 27, 50, 50), m_sTip=tip)]
+    def tab(index, tab_id, label):
+        # The banking window's tabs: checkboxes in one group, so checking one clears the others.
+        checkbox = control(banking['bankTab'], m_sName='ap_tab_' + tab_id, m_sLabel=label, m_sTip=label,
+                           m_Window=rect(TAB_LEFT + TAB_WIDTH * index, TAB_TOP, TAB_WIDTH, TAB_HEIGHT),
+                           m_bChecked='1' if index == 0 else '0')
+        for scale in checkbox.iter('m_fScale'):
+            scale.text = '0.42'
+        return checkbox
 
-    accounts = page('ap_page_accounts', True, [
-        row('ap', 0, 'Username', text_field('ap_edit_username', 'loginName')),
-        row('ap', 1, 'Auth Level', selector('ap_level')),
-        row('ap', 2, 'Locked', selector('ap_locked')),
-        row('ap', 3, 'New Password', text_field('ap_edit_password', 'loginPassword')),
+    def head(index):
+        # One character: a small portrait, a ring that marks the selected one, its name and level, and a click
+        # target over the row. Client.lua fills and shows the rows.
+        width = SIDE_WIDTH - 44
+        window = plain_window(f'ap_head{index}', rect(22, HEAD_TOP + HEAD_HEIGHT * index, width, HEAD_HEIGHT - 2),
+                              flags='NOCLIP')
+        face = control(trade['LocalStaticPortrait'], m_sName=f'ap_head{index}_face', m_Flags='VISIBLE',
+                       m_Window=rect(4, 2, 36, 36))
+        ring = set_texture(control(trade['LocalStaticPortrait'], m_sName=f'ap_head{index}_ring', m_Flags='NOCLIP',
+                                   m_Window=rect(0, -2, 44, 44)), 'GUI/Art/Art_Friend_List_Portrait_Frame.dds')
+        text = control(trade['LocalNameText'], m_sName=f'ap_head{index}_text', m_Flags='VISIBLE',
+                       m_Window=rect(48, 0, width - 48, HEAD_HEIGHT - 2), m_sText='')
+        return attach(window, [face, ring, text,
+                               hidden_button(f'ap_head{index}_btn', rect(0, 0, width, HEAD_HEIGHT - 2),
+                                             'Select this character')])
+
+    portrait = attach(plain_window('ap_portrait_slot', '59,23,187,151'), [
+        control(trade['LocalStaticPortrait'], m_sName='ap_portrait'),
+        control(trade['bg_mid'], m_sName='ap_portrait_frame'),
+    ])
+    side = attach(control(trade['LocalPlayerWindow'], m_sName='ap_side', m_Flags='VISIBLE',
+                          m_Window=rect(0, 0, SIDE_WIDTH, 600)), [
+        portrait,
+        control(trade['LocalNameText'], m_sName='ap_char_name', m_sText=''),
+        *[head(index) for index in range(HEAD_SLOTS)],
+        selector('ap_heads', m_Flags='NOCLIP', m_Window=rect(0, HEAD_TOP + HEAD_HEIGHT * HEAD_SLOTS + 2, 244, 54)),
+        control(trade['StatusText'], m_sName='ap_side_status', m_sText=''),
+    ])
+
+    username_bar = [
+        control(parts['OptionText'], m_sName='ap_username_label', m_Flags='VISIBLE', m_Window=rect(70, 14, 130, 40),
+                m_sText='Username'),
+        text_field('ap_edit_username', 'loginName', left=200, top=19),
+        control(parts['QuitButton'], m_sName='ap_btn_lookup', m_sLabel='Look Up', m_Window=rect(462, 16, 133, 36),
+                m_sTip='Load the account named in Username, with its characters'),
+    ]
+    tabs = [tab(index, tab_id, label) for index, (tab_id, label) in enumerate(TABS)]
+
+    account = page('ap_page_account', True, [
+        row('ap', 0, 'Auth Level', selector('ap_level')),
+        row('ap', 1, 'Locked', selector('ap_locked')),
+        row('ap', 2, 'New Password', text_field('ap_edit_password', 'loginPassword')),
         line('ap', 'ap_summary', 4),
         line('ap', 'ap_details', 5),
         line('ap', 'ap_status', 6),
     ])
-    players = page('ap_page_players', False, [
-        row('ap_p', 0, 'Username', text_field('ap_p_edit_username', 'loginName')),
-        row('ap_p', 1, 'Crowns', text_field('ap_p_edit_crowns', 'loginName')),
-        row('ap_p', 2, 'Give Crowns', text_field('ap_p_edit_give', 'loginName')),
+    crowns = page('ap_page_crowns', False, [
+        row('ap_p', 0, 'Crowns', text_field('ap_p_edit_crowns', 'loginName')),
+        row('ap_p', 1, 'Give Crowns', text_field('ap_p_edit_give', 'loginName')),
         line('ap_p', 'ap_p_summary', 4),
         line('ap_p', 'ap_p_details', 5),
         line('ap_p', 'ap_p_status', 6),
     ])
 
-    tabs = attach(control(parts['TabWindow'], m_sName='ap_tabs'),
-                  tab(0, 'PrivacyButton', 'ap_tab_accounts', 'Accounts') +
-                  tab(1, 'CreditsButton', 'ap_tab_players', 'Players'))
-    title = attach(control(parts['TitleWindow'], m_sName='ap_title_window'), [
-        control(parts['VideoOptionsText'], m_sName='ap_title', m_sText='<center>Accounts</center>'),
+    # The status row ends in arrows that page through the output rows above it.
+    status_row = line('ap_a', 'ap_a_status', 6, width=410)
+    attach(status_row, [
+        arrow('OptionButtonLeft', 'ap_out_prev', rect(452, 6, 42, 42), 'Earlier lines'),
+        control(parts['OptionText'], m_sName='ap_out_page', m_Flags='VISIBLE', m_Window=rect(494, 6, 44, 42),
+                m_sText=''),
+        arrow('OptionButtonRight', 'ap_out_next', rect(538, 6, 42, 42), 'Later lines'),
+    ])
+    actions = page('ap_page_action', False, [
+        row('ap_a', 0, 'Action', selector('ap_act')),
+        *[row('ap_a', index, '', text_field(f'ap_arg{index}', 'loginName', max_length=120))
+          for index in range(1, ARGUMENT_ROWS + 1)],
+        line('ap_a', 'ap_out1', 4),
+        line('ap_a', 'ap_out2', 5),
+        status_row,
     ])
 
-    window = control(parts['SettingPage'], m_sName='ap_window', m_Flags='VISIBLE|HCENTER|VCENTER')
-    return gui_file(window, [
+    book = attach(plain_window('ap_book', rect(BOOK_LEFT, 0, BOOK_WIDTH, 600)), [
         control(parts['Background'], m_sName='ap_background'),
-        tabs,
-        title,
-        accounts,
-        players,
+        *username_bar,
+        *tabs,
+        account,
+        crowns,
+        actions,
         control(parts['ButtonBackground'], m_sName='ap_button_background'),
-        buttons('ap_buttons_accounts', True, [
-            ('ap_btn_lookup', 'Look Up', 'Load the account named in Username'),
+        buttons('ap_buttons_account', True, [
             ('ap_btn_create', 'Create', 'Create a new account with this name, password, level and lock'),
             ('ap_btn_save', 'Save', 'Save your changes to the loaded account'),
+            ('ap_btn_delete', 'Delete', 'Delete the loaded account and its characters; press twice'),
             ('ap_btn_close', 'Close', 'Close the panel'),
         ]),
-        buttons('ap_buttons_players', False, [
-            ('ap_p_btn_lookup', 'Look Up', 'Load the Crowns of the account named in Username'),
+        buttons('ap_buttons_crowns', False, [
             ('ap_p_btn_give', 'Give', 'Add the Give Crowns amount; a negative amount takes Crowns away'),
             ('ap_p_btn_save', 'Save', 'Set the Crowns to the amount in the Crowns row'),
+            None,
             ('ap_p_btn_close', 'Close', 'Close the panel'),
         ]),
+        buttons('ap_buttons_action', False, [
+            ('ap_a_btn_run', 'Run', 'Run the chosen action'),
+            ('ap_a_btn_refresh', 'Refresh', 'Load the account and character again'),
+            ('ap_a_btn_clear', 'Clear', 'Clear the fields and the output'),
+            ('ap_a_btn_close', 'Close', 'Close the panel'),
+        ]),
     ])
+
+    window = control(parts['SettingPage'], m_sName='ap_window', m_Flags='VISIBLE|HCENTER|VCENTER',
+                     m_Window=rect(0, 0, PANEL_WIDTH, 600))
+    return gui_file(window, [side, book])
 
 
 def build(client):
@@ -343,6 +467,10 @@ def build(client):
 def paths(client):
     game_data = os.path.join(client, 'Data', 'GameData')
     return os.path.join(game_data, 'Root.wad'), os.path.join(client, 'Data', 'Root.wad.adminpanel-original')
+
+
+def shared_wad(client):
+    return os.path.join(client, 'Data', 'GameData', '_Shared-WorldData.wad')
 
 
 def remove_obsolete(client):

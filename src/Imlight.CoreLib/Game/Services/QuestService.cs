@@ -44,6 +44,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Game.Madlibs;
@@ -98,6 +99,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
     private readonly List<QuestTemplate> _cachedQuestTemplates = [];
     private readonly ObjectSerializer _goalSerializer = new(false);
+
+    // Set while a quest command from the admin panel runs.
+    private AdminReplyChannel _commandReplies;
 
     /// <summary>
     /// A persona goal whose completion dialog is on the player's screen. Live completes a persona goal only
@@ -721,6 +725,16 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND))]
     private void ReceiveQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
+        _commandReplies = message.ReplyTo is null ? null : new(message.ReplyTo, message.RequestId);
+        try {
+            RunQuestCommand(message);
+        }
+        finally {
+            _commandReplies = null;
+        }
+    }
+
+    private void RunQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
         var wizard = GetActiveWizard();
         var questName = message.QuestName?.Trim() ?? string.Empty;
 
@@ -766,8 +780,16 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
     }
 
-    private void CommandReply(string text)
-        => SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    // A command from the admin panel answers the staff member who sent it rather than the player.
+    private void CommandReply(string text) {
+        if (_commandReplies is not null) {
+            _commandReplies.Send(text);
+
+            return;
+        }
+
+        SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    }
 
     private QuestTemplate GetQuestTemplate(string questName) {
         var template = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == questName)

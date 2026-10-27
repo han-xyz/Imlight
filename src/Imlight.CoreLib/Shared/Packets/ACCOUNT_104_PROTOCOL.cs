@@ -68,4 +68,15 @@ public sealed class ACCOUNT_104_PROTOCOL : IServerProtocol {
 
     }
 
+    /// <summary>
+    /// Tells an online player's session that staff changed the stored account, so the session reloads what it
+    /// checks while the player plays: infractions (mutes), the auth level and the lock.
+    /// </summary>
+    public class MSG_ACCOUNTCHANGED : IServerMessage {
+
+        public byte MessageOrder { get; } = 4;
+        public byte ServiceID { get; } = 104;
+
+    }
+
 }

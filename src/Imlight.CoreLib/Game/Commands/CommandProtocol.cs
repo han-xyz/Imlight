@@ -25,6 +25,7 @@ using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
 using Imlight.CoreLib.Auth;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Commands;
@@ -142,6 +143,32 @@ internal abstract class CommandProtocol {
             Message = reason,
             Modal = (byte) (isImportant ? 1 : 0)
         });
+
+    /// <summary>
+    /// The issuer's own character, for the actions shared with the admin panel.
+    /// </summary>
+    protected CharacterTarget OwnCharacter
+        => CharacterTarget.Live(Context.Character, Context.CharacterObject, Context.SessionActor);
+
+    /// <summary>
+    /// Tells the issuer what a shared action did, with any listing it produced. An action a session service
+    /// carries out is answered by that service.
+    /// </summary>
+    protected void Inform(AdminActionResult result, bool isImportant = false) {
+        if (result.Deferred) {
+            return;
+        }
+
+        var lines = new List<string>();
+        if (!string.IsNullOrEmpty(result.Message)) {
+            lines.Add(result.Message);
+        }
+
+        lines.AddRange(result.Lines ?? []);
+        if (lines.Count > 0) {
+            InformSenderClient(string.Join("\n", lines), isImportant || lines.Count > 1);
+        }
+    }
 
     private void LogMissingAuthRequiredOnce(MethodInfo method) {
         var protocolName = GetType().Name;

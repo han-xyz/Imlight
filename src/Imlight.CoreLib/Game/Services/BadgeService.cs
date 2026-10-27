@@ -33,7 +33,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -45,6 +45,7 @@ using Imcodec.Cryptography;
 using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.Badges;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
@@ -68,6 +69,9 @@ internal class BadgeService(SessionActor sessionActor) : MessageService(sessionA
     private static readonly uint s_badgeNotComplete = StringHash.Compute("BadgeNotComplete");
 
     private readonly HashSet<uint> _warnedUnknownBadges = [];
+
+    // Set while a badge command from the admin panel runs.
+    private AdminReplyChannel _commandReplies;
 
     protected static Props Props(SessionActor parentActor)
         => Akka.Actor.Props.Create(() => new BadgeService(parentActor));
@@ -221,6 +225,16 @@ internal class BadgeService(SessionActor sessionActor) : MessageService(sessionA
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_BADGECOMMAND))]
     private void ReceiveBadgeCommand(CHARACTER_103_PROTOCOL.MSG_BADGECOMMAND message) {
+        _commandReplies = message.ReplyTo is null ? null : new(message.ReplyTo, message.RequestId);
+        try {
+            RunBadgeCommand(message);
+        }
+        finally {
+            _commandReplies = null;
+        }
+    }
+
+    private void RunBadgeCommand(CHARACTER_103_PROTOCOL.MSG_BADGECOMMAND message) {
         var wizard = GetActiveWizard();
         if (wizard is null) {
             return;
@@ -329,8 +343,16 @@ internal class BadgeService(SessionActor sessionActor) : MessageService(sessionA
         }, isSelfless: false);
     }
 
-    private void CommandReply(string text)
-        => SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    // A command from the admin panel answers the staff member who sent it rather than the player.
+    private void CommandReply(string text) {
+        if (_commandReplies is not null) {
+            _commandReplies.Send(text);
+
+            return;
+        }
+
+        SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    }
 
     private void CommandGrant(Wizard wizard, BadgeCatalog catalog, string idOrName) {
         if (!TryFindBadge(catalog, idOrName, out var definition)) {

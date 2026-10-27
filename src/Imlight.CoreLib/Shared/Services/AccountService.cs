@@ -19,6 +19,7 @@
 using Akka.Actor;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
+using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Shared.Services;
@@ -41,6 +42,23 @@ internal class AccountService(SessionActor parentActor) : MessageService(parentA
         Sender.Tell(new ACCOUNT_104_PROTOCOL.MSG_ACCOUNT() {
             Account = this.Account
         }, Context.Self);
+    }
+
+    // Staff changed the stored account: take over what the session checks while the player plays.
+    [InternalMessageHandler(typeof(ACCOUNT_104_PROTOCOL.MSG_ACCOUNTCHANGED))]
+    private void InternalReceiveAccountChanged(ACCOUNT_104_PROTOCOL.MSG_ACCOUNTCHANGED message) {
+        if (this.Account is null) {
+            return;
+        }
+
+        var stored = AccountCollection.GetAccountWithoutCharacters(this.Account.AccountId);
+        if (stored is null) {
+            return;
+        }
+
+        this.Account.InfractionHistory = stored.InfractionHistory;
+        this.Account.AuthLevel = stored.AuthLevel;
+        this.Account.IsLocked = stored.IsLocked;
     }
 
 }
