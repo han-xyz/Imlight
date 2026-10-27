@@ -28,8 +28,8 @@
  * if (BankConfig.IsEnabled) { ... }
  *
  * NOTE:
- * The capacities have no default. While [Character] MaxBankItems or MaxSharedBankItems is unset or 0 or less,
- * IsEnabled is false and nothing offers the bank.
+ * An unset, empty or 0-or-less [Character] MaxBankItems or MaxSharedBankItems is the retail capacity of 100 and
+ * logs a warning once, so a stray empty key never switches the bank off.
  *
  * TODO:
  *
@@ -57,17 +57,20 @@ internal static class BankConfig {
     private const string EXPAND_ELIXIR_AMOUNT_KEY = "Bank.ExpandElixirAmount";
     private const string MAX_BANK_LIMIT_KEY = "Bank.MaxBankItems";
 
-    private static int s_warnedDisabled;
+    private const int RETAIL_CAPACITY = 100;
+
+    private static int s_warnedBank;
+    private static int s_warnedShared;
 
     /// <summary>
-    /// The default capacity of a character's bank. Zero when the key is unset or not a positive number.
+    /// The default capacity of a character's bank. The retail 100 when the key is unset, empty or not a positive number.
     /// </summary>
-    internal static int MaxBankItems => Math.Max(0, ConfigurationManager.GetValue(MAX_BANK_ITEMS_KEY, 0));
+    internal static int MaxBankItems => Capacity(MAX_BANK_ITEMS_KEY, ref s_warnedBank);
 
     /// <summary>
-    /// The default capacity of an account's shared bank. Zero when the key is unset or not a positive number.
+    /// The default capacity of an account's shared bank. The retail 100 when the key is unset, empty or not a positive number.
     /// </summary>
-    internal static int MaxSharedBankItems => Math.Max(0, ConfigurationManager.GetValue(MAX_SHARED_BANK_ITEMS_KEY, 0));
+    internal static int MaxSharedBankItems => Capacity(MAX_SHARED_BANK_ITEMS_KEY, ref s_warnedShared);
 
     /// <summary>
     /// The most jewels the shared bank holds. Zero when the key is unset, which keeps jewels out of the shared bank.
@@ -100,23 +103,22 @@ internal static class BankConfig {
     }
 
     /// <summary>
-    /// Whether the bank is on: both default capacities are set above 0.
+    /// Whether the bank is on: both default capacities are above 0.
     /// </summary>
-    internal static bool IsEnabled {
-        get {
-            var maxBankItems = MaxBankItems;
-            var maxSharedBankItems = MaxSharedBankItems;
-            if (maxBankItems > 0 && maxSharedBankItems > 0) {
-                return true;
-            }
+    internal static bool IsEnabled => MaxBankItems > 0 && MaxSharedBankItems > 0;
 
-            if (Interlocked.Exchange(ref s_warnedDisabled, 1) == 0) {
-                Logger.Warning("[Character] MaxBankItems and MaxSharedBankItems must both be set above 0, so the bank is not offered. MaxBankItems={Bank}, MaxSharedBankItems={Shared}.",
-                    Logger.Args(maxBankItems, maxSharedBankItems));
-            }
-
-            return false;
+    private static int Capacity(string key, ref int warned) {
+        var configured = ConfigurationManager.GetValue(key, 0);
+        if (configured > 0) {
+            return configured;
         }
+
+        if (Interlocked.Exchange(ref warned, 1) == 0) {
+            Logger.Warning("[Character] {Key} is unset, empty or 0 or less, so the retail capacity {Capacity} is used.",
+                Logger.Args(key, RETAIL_CAPACITY));
+        }
+
+        return RETAIL_CAPACITY;
     }
 
 }
