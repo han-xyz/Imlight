@@ -154,6 +154,27 @@ public sealed class ResultHandlerTests : IDisposable {
     }
 
     [Fact]
+    public void ResStartStagedCinematic_TellsThePlayerToPlayIt() {
+        var success = Execute<ResStartStagedCinematicHandler>(new ResStartStagedCinematic {
+            m_cinematicName = "Cinematic_GrandmotherRaven",
+            m_stageName = "Stage1",
+        });
+
+        Assert.True(success);
+        var start = Assert.IsType<GAME_5_PROTOCOL.MSG_STARTSTAGEDCINEMATIC>(_player.Receive(s_timeout));
+        Assert.Equal("Cinematic_GrandmotherRaven", start.CinematicName.ToString());
+        Assert.Equal("Stage1", start.InitialStageName.ToString());
+    }
+
+    [Fact]
+    public void ResStartStagedCinematic_WithoutName_Fails() {
+        var success = Execute<ResStartStagedCinematicHandler>(new ResStartStagedCinematic());
+
+        Assert.False(success);
+        Assert.Throws<TimeoutException>(() => _player.Receive(TimeSpan.FromMilliseconds(200)));
+    }
+
+    [Fact]
     public void ResPlaySound_UnknownName_WarnsAndSucceeds() {
         var success = Execute<ResPlaySoundHandler>(new ResPlaySound { m_soundName = "No Such Sound" });
 
