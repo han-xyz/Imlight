@@ -32,7 +32,7 @@
  * 
  * Created by: valiantmeraki
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using Akka.Actor;
@@ -75,14 +75,30 @@ internal class PotionService(SessionActor sessionActor) : MessageService(session
         var baseMana = wizard.GameStats.m_baseMana;
         var currentMana = wizard.GameStats.m_currentMana;
 
-        if (currentHealth >= baseHealth && currentMana >= baseMana) { // If health and mana are full, no need to heal.
-            return;
-        }
-
         // Values before effects are applied.
         var clientGameStats = wizard.GameStats.GetClientTypeAlternative();
         var msgBaseHealth = clientGameStats.m_baseHitpoints;
         var msgBaseMana = clientGameStats.m_baseMana;
+
+        Logger.Debug("Potion for {CharId}: charge {Charge}/{Max}, health {Health}/{BaseHealth}, mana {Mana}/{BaseMana}.",
+            Logger.Args(wizard.CharId, potionCharge, potionMax, currentHealth, baseHealth, currentMana, baseMana));
+
+        if (currentHealth >= baseHealth && currentMana >= baseMana) {
+            // Nothing to heal. The client asked, so it believed otherwise: tell it the values the server holds.
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEHEALTH() {
+                CharacterID = wizard.GameObjectID,
+                NewHealth = currentHealth,
+                NewHealthMax = msgBaseHealth,
+                DisplayDiff = 0
+            });
+            SendToSocket(new WIZARD_12_PROTOCOL.MSG_UPDATEMANA() {
+                Mana = currentMana,
+                MaxMana = msgBaseMana,
+                DisplayDiff = 0
+            });
+
+            return;
+        }
 
         if (currentHealth < baseHealth) { // If health is full, no need to heal.
             // Inform the player's game client that their health has been updated.

@@ -38,7 +38,7 @@
  * 
  * Created by: Jooty, Joji
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using Akka.Actor;
@@ -125,11 +125,12 @@ internal class WizardService(SessionActor sessionActor) : MessageService(session
         var magicSchool = _activeWizard.MagicSchoolBehavior.MagicSchool;
         var baseStats = MagicLevelsConfig.GetPlayerLevelInfo(magicSchool, message.NewLevel);
 
-        // Update health — heal to full and sync server state with what the client was told.
+        // Update health: heal to full. The current value is the server's, with gear; the max is the level base the
+        // client adds its own gear bonuses to.
         _activeWizard.UpdateHealth(_activeWizard.GameStats.m_baseHitpoints);
         var healthMessage = new WIZARD_12_PROTOCOL.MSG_UPDATEHEALTH() {
             CharacterID = _activeWizardGameObject.m_globalID,
-            NewHealth = baseStats.m_hitpoints,
+            NewHealth = _activeWizard.GameStats.m_baseHitpoints,
             NewHealthMax = baseStats.m_hitpoints,
             DisplayDiff = 1,
         };
@@ -138,7 +139,7 @@ internal class WizardService(SessionActor sessionActor) : MessageService(session
         // Update mana.
         _activeWizard.UpdateMana(_activeWizard.GameStats.m_baseMana);
         var manaMessage = new WIZARD_12_PROTOCOL.MSG_UPDATEMANA() {
-            Mana = baseStats.m_mana,
+            Mana = _activeWizard.GameStats.m_baseMana,
             MaxMana = baseStats.m_mana,
             DisplayDiff = 1,
         };
@@ -185,7 +186,7 @@ internal class WizardService(SessionActor sessionActor) : MessageService(session
             _activeWizard.UpdateHealth(_activeWizard.GameStats.m_baseHitpoints);
             var healthMessage = new WIZARD_12_PROTOCOL.MSG_UPDATEHEALTH() {
                 CharacterID = _activeWizardGameObject.m_globalID,
-                NewHealth = baseStats.m_hitpoints,
+                NewHealth = _activeWizard.GameStats.m_baseHitpoints,
                 NewHealthMax = baseStats.m_hitpoints,
                 DisplayDiff = 1,
             };
@@ -193,7 +194,7 @@ internal class WizardService(SessionActor sessionActor) : MessageService(session
 
             _activeWizard.UpdateMana(_activeWizard.GameStats.m_baseMana);
             var manaMessage = new WIZARD_12_PROTOCOL.MSG_UPDATEMANA() {
-                Mana = baseStats.m_mana,
+                Mana = _activeWizard.GameStats.m_baseMana,
                 MaxMana = baseStats.m_mana,
                 DisplayDiff = 1,
             };
