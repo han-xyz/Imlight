@@ -105,7 +105,10 @@ public class PetFactory : RootDirectoryResourceSingleton<PetFactory>, IMemoryStr
             ]
         };
 
-        return CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        CoreObjectFactory.ArrangeBehaviorsByTemplate(pet);
+        TrySetPetName(pet, WizardNameBank.CreateRandomPetName(Random.Shared));
+
+        return pet;
     }
 
     /// <summary>

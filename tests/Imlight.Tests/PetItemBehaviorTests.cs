@@ -151,6 +151,18 @@ public sealed class PetItemBehaviorTests {
     }
 
     [RootWadFact]
+    public void CreatedPet_HasRandomNameFromNameBank() {
+        LoadGameData();
+
+        var pet = PetFactory.CreateHatchedPet(OwnerId, ZappyGlowbugTemplateId);
+
+        var nameKeys = Assert.IsType<ClientPetNameBehavior>(pet.m_inactiveBehaviors[0]).m_nameKeys;
+        Assert.NotEqual(0u, nameKeys);
+        Assert.True(WizardNameBank.IsValidPetName(nameKeys));
+        Assert.Equal(WizardNameBank.GetNameParts(nameKeys), (PetItemOf(pet).m_firstName, PetItemOf(pet).m_middleName, PetItemOf(pet).m_lastName));
+    }
+
+    [RootWadFact]
     public void HatchedEgg_KeepsBehaviorsInTemplateSlots() {
         LoadGameData();
         var egg = PetFactory.CreatePet(OwnerId, ZappyGlowbugTemplateId);
@@ -215,12 +227,13 @@ public sealed class PetItemBehaviorTests {
 
     private static void LoadGameData() {
         InitializeQuietLogging();
-        RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml"]));
+        RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml", "CharacterNames.xml"]));
+        _ = WizardNameBank.Instance;
         _ = CoreObjectFactory.Instance;
         var templateFile = CoreObjectFactory.TemplateManifest.m_serializedTemplates
             .First(location => location is not null && location.m_id == ZappyGlowbugTemplateId).m_filename.ToString();
 
-        RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml", "ObjectData/Pets/", templateFile]));
+        RootArchiveLoader.UseRootWad(ArchiveOf(s_rootWadDirectory!, ["TemplateManifest.xml", "CharacterNames.xml", "ObjectData/Pets/", templateFile]));
         _ = PetFactory.Instance;
     }
 
