@@ -110,4 +110,14 @@ public sealed class PlayAsPetTests {
         Assert.False(PetOnlyGoals.IsPetOnlyQuest(new QuestTemplate()));
     }
 
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    public void NeedsPet_PetOnlyGoal_OnlyWhilePlayingAsWizard(bool petOnlyGoal, bool playingAsPet, bool expected) {
+        var goal = new ScavengeGoalTemplate { m_petOnlyQuest = petOnlyGoal };
+
+        Assert.Equal(expected, PetOnlyGoals.NeedsPet(goal, new ServerPetOwnerBehavior { PlayingAsPet = playingAsPet }));
+    }
+
 }

@@ -50,6 +50,7 @@ using Imlight.CoreLib.Game.Madlibs;
 using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Game.Results;
+using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
@@ -416,6 +417,10 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
             return;
         }
 
+        if (RefusePetOnlyGoal(wizard, gTemplate)) {
+            return;
+        }
+
         wizard.IncrementQuestGoal(qInstance.QuestName, gTemplate.m_goalName);
 
         if (HasReachedGoalTotal(gTemplate, gInstance)) {
@@ -432,11 +437,22 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         // A volume component matched one of this player's active proximity goals to the
         // volume they walked into; complete the goal it named.
         var wizard = GetActiveWizard();
-        if (!TryResolveActiveGoal(wizard, message.QuestID, message.GoalID, GOAL_TYPE.GOAL_TYPE_WAYPOINT, out var qInstance, out var gInstance, out var gTemplate)) {
+        if (!TryResolveActiveGoal(wizard, message.QuestID, message.GoalID, GOAL_TYPE.GOAL_TYPE_WAYPOINT, out var qInstance, out var gInstance, out var gTemplate)
+            || RefusePetOnlyGoal(wizard, gTemplate)) {
             return;
         }
 
         CompleteGoal(qInstance, gTemplate);
+    }
+
+    private bool RefusePetOnlyGoal(Wizard wizard, GoalTemplate gTemplate) {
+        if (!PetOnlyGoals.NeedsPet(gTemplate, wizard.PetOwnerBehavior)) {
+            return false;
+        }
+
+        SendToSocket(new WIZARD2_53_PROTOCOL.MSG_DISPLAYPETONLYMESSAGE());
+
+        return true;
     }
 
     [MessageHandler(typeof(ZONE_102_PROTOCOL.MSG_ZONEEVENTFORQUESTS))]
@@ -2262,6 +2278,9 @@ internal static class PetOnlyGoals {
 
     public static bool IsPetOnlyQuest(QuestTemplate quest)
         => quest.m_playAsYourPetNPC || quest.m_goals?.Any(goal => goal is { m_petOnlyQuest: true }) == true;
+
+    public static bool NeedsPet(GoalTemplate goal, ServerPetOwnerBehavior petOwner)
+        => goal.m_petOnlyQuest && !petOwner.PlayingAsPet;
 
 }
 
