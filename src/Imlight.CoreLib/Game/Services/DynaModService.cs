@@ -30,11 +30,14 @@
  * NOTE:
  * - Manages addition and removal of dynamic modifications
  * 
+ * A result with m_dynaModRemove takes the mod away and respawns the object for the player; one with m_bShowsObject
+ * is stored as the spawn state "On".
+ *
  * TODO:
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Collections.Generic;
@@ -59,6 +62,8 @@ internal class DynaModService(SessionActor sessionActor) : MessageService(sessio
 
     // Live opens the full list with an empty mod at index 1, then numbers the mods after it.
     private const int SENTINEL_INDEX = 1;
+    // The state the render component takes as "spawn this object for the player".
+    private const string SPAWN_STATE_NAME = "On";
 
     private int _addIndex = 1;
 
@@ -116,6 +121,18 @@ internal class DynaModService(SessionActor sessionActor) : MessageService(sessio
         var dynaModClientTag = message.DynaMod.m_dynaModClientTag;
         var dynaModState = message.DynaMod.m_dynaModState;
 
+        // A result flagged as a removal takes the mod away again; quests use it to show an object they hid.
+        if (message.DynaMod.m_dynaModRemove) {
+            RemoveDynamodAndShow(wizard, dynaModClientTag);
+
+            return;
+        }
+
+        // A result that shows its object is the spawn state, whatever state name it carries.
+        if (message.DynaMod.m_bShowsObject) {
+            dynaModState = SPAWN_STATE_NAME;
+        }
+
         wizard.AddDynamod(zoneName, dynaModClientTag, dynaModState);
 
         // A mod added by a quest result (not echoed from the client) must reach the client as well: mods on
@@ -155,11 +172,29 @@ internal class DynaModService(SessionActor sessionActor) : MessageService(sessio
     }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_REMOVEDYNAMOD))]
-    private void ReceiveRemoveDynaMod(CHARACTER_103_PROTOCOL.MSG_REMOVEDYNAMOD message) {
-        var wizard = GetActiveWizard();
-        var dynaModClientTag = message.DynaMod.m_dynaModClientTag;
+    private void ReceiveRemoveDynaMod(CHARACTER_103_PROTOCOL.MSG_REMOVEDYNAMOD message)
+        => RemoveDynamodAndShow(GetActiveWizard(), message.DynaMod.m_dynaModClientTag);
 
-        wizard.RemoveDynamod(dynaModClientTag);
+    /// <summary>
+    /// Takes a mod away from the wizard and shows the object it hid: the zone respawns the object for this player
+    /// and the client gets the mod list as it is now.
+    /// </summary>
+    private void RemoveDynamodAndShow(Wizard wizard, string dynaModClientTag) {
+        if (!wizard.RemoveDynamod(dynaModClientTag)) {
+            return;
+        }
+
+        var updateMsg = BuildUpdateAll(GetActiveGameObject().m_globalID.Full, wizard.DynamodSet?.Dynamods ?? []);
+        if (updateMsg is not null) {
+            SendToSocket(updateMsg);
+        }
+
+        ZoneBroadcastNoPlayers(new ZONE_102_PROTOCOL.MSG_ENTERSTATE {
+            ObjectName = dynaModClientTag,
+            StateName = SPAWN_STATE_NAME,
+            ExclusiveToSender = true,
+            Sender = SessionActor.ActorRef
+        });
     }
 
     private static DynaMod ToWireMod(Dynamod mod, int index) {
