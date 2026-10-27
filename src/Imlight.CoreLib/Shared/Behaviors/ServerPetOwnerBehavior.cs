@@ -256,6 +256,28 @@ public class ServerPetOwnerBehavior : IClientBehaviorProvider<ClientPetOwnerBeha
     }
 
     /// <summary>
+    /// Enters or leaves the client's play-as-pet mode (MSG_SWITCHTOPET).
+    /// </summary>
+    /// <param name="status">1 when the player switches to their pet, 0 when they switch back.</param>
+    /// <param name="petTemplateId">The template of the pet the player switches to.</param>
+    /// <returns>False when the player asked to enter the mode with a pet they do not have equipped.</returns>
+    public bool SwitchToPet(byte status, uint petTemplateId) {
+        if (status == 0) {
+            PlayingAsPet = false;
+
+            return true;
+        }
+
+        if (EquippedPetTemplateId == 0 || EquippedPetTemplateId != petTemplateId) {
+            return false;
+        }
+
+        PlayingAsPet = true;
+
+        return true;
+    }
+
+    /// <summary>
     /// Returns the client-facing behavior. m_morphingSlots is always set to null —
     /// the client learns about eggs via MSG_PETEGGMORPHED / MSG_PETMORPHINGSLOT
     /// network messages, not from the serialized behavior blob.

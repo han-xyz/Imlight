@@ -1210,6 +1210,8 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
                 Logger.Args(ZONE_REMOVAL_WAIT_TIME_IN_SECONDS, ex));
         }
 
+        GetActiveWizard().PetOwnerBehavior.PlayingAsPet = false;
+
         // Defer the server transfer so the client can finish tearing down zone objects.
         Timers.StartSingleTimer("zone-transfer-delay", new SERVICE_101_PROTOCOL.MSG_ZONETRANSFER_DELAY(),
                                 TimeSpan.FromMilliseconds(ZoneTransferDelayMs));

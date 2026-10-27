@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -173,6 +173,27 @@ internal class PetService(SessionActor sessionActor) : MessageService(sessionAct
 
         // The client takes this as the pet's happiness, so a refused feed answers with it unchanged.
         SendToSocket(new WIZARD2_53_PROTOCOL.MSG_PETFEEDHAPPINESS { Happiness = behavior.m_happiness });
+    }
+
+    [MessageHandler(typeof(WIZARD2_53_PROTOCOL.MSG_SWITCHTOPET))]
+    private void ReceiveSwitchToPet(WIZARD2_53_PROTOCOL.MSG_SWITCHTOPET message) {
+        var wizard = GetActiveWizard();
+        var petOwnerBehavior = wizard.PetOwnerBehavior;
+        Logger.Debug("MSG_SWITCHTOPET with status {Status} and pet template {PetTemplate}.",
+            Logger.Args(message.Status, message.PetTemplate));
+
+        if (!petOwnerBehavior.SwitchToPet(message.Status, message.PetTemplate)) {
+            Logger.Debug("{Wizard} asked to play as pet template {PetTemplate}, but has pet template {EquippedTemplate} equipped.",
+                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), message.PetTemplate, petOwnerBehavior.EquippedPetTemplateId));
+
+            return;
+        }
+
+        ZoneBroadcast(new WIZARD2_53_PROTOCOL.MSG_SWITCHTOPET {
+            GlobalID = GetActiveGameObject().m_globalID,
+            Status = message.Status,
+            PetTemplate = message.PetTemplate
+        });
     }
 
     private void InitializeEggs(Wizard wizard) {
