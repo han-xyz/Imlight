@@ -237,6 +237,53 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         // Exiting the previous zone may have triggered waypoint goals for quests.
         CheckForWaypointGoalZoneExit(wizard);
+
+        ReapplyGoalReveals(wizard);
+    }
+
+    /// <summary>
+    /// Gives the wizard again every "shows object" dynamod that one of their active goals grants on activation
+    /// and that they do not hold: a goal that went active before its quest carried the reveal (older pack data)
+    /// would otherwise leave its NPC hidden for good.
+    /// </summary>
+    private void ReapplyGoalReveals(Wizard wizard) {
+        var activeGoals = wizard.QuestBehavior.CurrentQuestInstances
+            .Where(q => q is not null)
+            .SelectMany(q => GetQuestTemplate(q.QuestName) is { m_goals: not null } qTemplate
+                ? ActiveGoals(q, qTemplate)
+                : []);
+        foreach (var reveal in MissingReveals(activeGoals, wizard.DynamodSet?.Dynamods ?? [])) {
+            SessionActor.ActorRef.Tell(new CHARACTER_103_PROTOCOL.MSG_ADDDYNAMOD {
+                DynaMod = reveal,
+                ContextActor = SessionActor.ActorRef
+            });
+        }
+    }
+
+    /// <summary>
+    /// The "shows object" dynamods among the goals' activation results that the mods do not hold yet, one per
+    /// tag and zone.
+    /// </summary>
+    internal static List<ResAddDynaMod> MissingReveals(IEnumerable<GoalTemplate> activeGoals, IEnumerable<Dynamod> mods) {
+        var held = mods
+            .Where(m => string.Equals(m.ModState, "On", StringComparison.OrdinalIgnoreCase))
+            .Select(m => (Tag: m.ClientTag ?? "", Zone: m.ZoneName ?? ""))
+            .ToHashSet();
+        var missing = new List<ResAddDynaMod>();
+        foreach (var goal in activeGoals) {
+            foreach (var reveal in (goal.m_activateResults?.m_results ?? []).OfType<ResAddDynaMod>()) {
+                if (!reveal.m_bShowsObject || reveal.m_dynaModRemove) {
+                    continue;
+                }
+
+                var key = (Tag: reveal.m_dynaModClientTag.ToString() ?? "", Zone: reveal.m_zoneName.ToString() ?? "");
+                if (key.Tag.Length > 0 && held.Add(key)) {
+                    missing.Add(reveal);
+                }
+            }
+        }
+
+        return missing;
     }
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_SENDQUESTOFFERCACHEOPTION))]
