@@ -27,7 +27,16 @@ public enum AdminAuditAction {
     PasswordChanged,
     AccountLocked,
     AccountUnlocked,
-    CrownsChanged
+    CrownsChanged,
+    AccountDeleted,
+    InfractionAdded,
+    InfractionRemoved,
+    BanAdded,
+    BanRemoved,
+    MuteAdded,
+    MuteRemoved,
+    PlayerKicked,
+    CharacterChanged
 
 }
 

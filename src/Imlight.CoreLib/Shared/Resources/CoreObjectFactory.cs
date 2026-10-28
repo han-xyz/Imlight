@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -202,6 +202,11 @@ public class CoreObjectFactory : RootSingleResourceSingleton<CoreObjectFactory>,
     public static CoreTemplate GetCoreTemplate(ulong id) {
         if (s_templateCache.TryGetValue(id, out var cachedTemplate)) {
             return cachedTemplate;
+        }
+
+        // Nothing is known, or cached as missing, before Root.wad's manifest is read.
+        if (TemplateManifest is null) {
+            return null;
         }
 
         // Slow path: load from disk.

@@ -22,9 +22,11 @@
  * PURPOSE:
  * Resolves the persona named by a dialog line to its NPC template, so a line shows
  * that NPC's name and portrait, and a quest is offered by the NPC who speaks it.
+ * Leaves out the lines a wizard does not meet the requirements of, such as a line
+ * only one school's wizards hear.
  *
  * USAGE EXAMPLE:
- * Serialize DialogSpeakers.ForClient(dialog) instead of the template's own dialog.
+ * Serialize DialogSpeakers.ForClient(dialog, wizard) instead of the template's own dialog.
  *
  * NOTE:
  * Quest data names the speaker only by persona; live fills the name and portrait
@@ -35,7 +37,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/23/2026
+ * Last Updated: 10/28/2026
  */
 
 using System;
@@ -45,7 +47,10 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Imcodec.ObjectProperty.TypeCache;
+using Imlight.CoreLib.Game.Requirements;
+using Imlight.CoreLib.Game.Requirements.Contexts;
 using Imlight.CoreLib.Shared.Resources;
+using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Madlibs;
 
@@ -58,9 +63,11 @@ internal static class DialogSpeakers {
 
     /// <summary>
     /// The dialog as the client must get it: a persona line that names no speaker gets the
-    /// persona NPC's name and, when it has none, its portrait. The template is left untouched.
+    /// persona NPC's name and, when it has none, its portrait. Given the wizard, a line whose
+    /// requirements the wizard does not meet is left out. The template is left untouched.
     /// </summary>
-    public static ActorDialog ForClient(ActorDialog dialog) {
+    public static ActorDialog ForClient(ActorDialog dialog, Wizard wizard = null) {
+        dialog = HeardBy(dialog, wizard);
         if (dialog?.m_dialogEntries is null || !dialog.m_dialogEntries.Any(NamesNoSpeaker)) {
             return dialog;
         }
@@ -83,6 +90,21 @@ internal static class DialogSpeakers {
 
         return entry.m_actorTemplateID == npc.m_templateID;
     }
+
+    private static ActorDialog HeardBy(ActorDialog dialog, Wizard wizard) {
+        if (wizard is null || dialog?.m_dialogEntries is null || !dialog.m_dialogEntries.Any(HasRequirements)) {
+            return dialog;
+        }
+
+        return dialog with { m_dialogEntries = [.. dialog.m_dialogEntries.Where(entry => IsHeardBy(entry, wizard))] };
+    }
+
+    private static bool HasRequirements(ActorDialogEntry entry)
+        => entry?.m_requirements?.m_requirements is { Count: > 0 };
+
+    private static bool IsHeardBy(ActorDialogEntry entry, Wizard wizard)
+        => !HasRequirements(entry) || RequirementDispatcher.EvaluateRequirements(entry.m_requirements,
+            new GenericRequirementContext(entry.m_requirements, null, null, wizard));
 
     private static bool NamesNoSpeaker(ActorDialogEntry entry)
         => entry is NPCDialogEntry npcEntry

@@ -1,5 +1,5 @@
 # Commands
-A number of commands are available for game masters.
+A number of commands are available for game masters. Each is also on a tab of the in-game admin panel, which can run the character commands on any character, online or offline (see `tools/admin-panel/README.md`).
 
 Security tiers:
 * `0` - Normal Player

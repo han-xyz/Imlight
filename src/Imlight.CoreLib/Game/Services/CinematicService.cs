@@ -30,7 +30,9 @@
  * The template (CinematicActorFactory, by m_cinematicName) names the actor's state set, the player's game state
  * during the scene, a dialog per state (tagged with the state name) whose m_dialogEvents fire when the
  * client closes it, and the state changes those events cause. States move on by those events or by
- * the state set's auto transitions. One scene plays at a time; a zone change ends it.
+ * the state set's auto transitions. One scene plays at a time; a zone change ends it. The events also
+ * reach the triggering player's quests: Introduction to Life's GoalSummonSeraph completes on the
+ * Seraph scene's last one.
  *
  * Live shows the actor and the state changes (the actor's and the triggering player's) to everyone in the
  * zone, and the dialogs only to the triggering player.
@@ -41,7 +43,7 @@
  *
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/28/2026
  */
 
 using System;
@@ -301,6 +303,11 @@ internal class CinematicService(SessionActor sessionActor) : MessageService(sess
         var events = run.PendingDialogEvents;
         run.PendingDialogEvents = [];
         Timers.Cancel($"cinematic-dialog-{run.RunId}");
+
+        // The player's own quests hear the events too: a goal that lists one in its generic events completes.
+        foreach (var dialogEvent in events) {
+            SessionActor.ActorRef.Tell(new ZONE_102_PROTOCOL.MSG_ZONEEVENTFORQUESTS { EventName = dialogEvent });
+        }
 
         foreach (var dialogEvent in events) {
             var change = run.Template.m_stateChangeEvents?.FirstOrDefault(c =>

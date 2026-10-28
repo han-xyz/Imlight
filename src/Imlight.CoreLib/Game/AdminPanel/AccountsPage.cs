@@ -18,19 +18,21 @@
 
 using System;
 using System.Collections.Generic;
+using Akka.Actor;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.AdminPanel;
 
 /// <summary>
-/// Answers the admin panel's Accounts page: look an account up, then save changes to it, or create one.
+/// Answers the admin panel's Account tab: save changes to the looked-up account, create one, or delete it.
 /// </summary>
 /// <remarks>
 /// Requests (fields after the action; an empty field means "unchanged"):
 ///   lookup NAME
 ///   create NAME PASSWORD LEVEL LOCKED
 ///   save   NAME LEVEL LOCKED PASSWORD
+///   delete NAME
 /// Replies:
 ///   status KIND MESSAGE                         KIND is ok, error or info; a successful lookup sends none
 ///   account NAME LEVEL LOCKED SUMMARY DETAILS   sent after every request that finds or changes an account
@@ -40,7 +42,7 @@ internal static class AccountsPage {
     internal const string Prefix = "accounts.";
 
     internal static void Handle(Account actor, Wizard character, string request, string[] fields,
-                                Action<string[]> reply) {
+                                Action<string[]> reply, IActorRefFactory actors) {
         string Field(int index) => index < fields.Length ? fields[index] : "";
 
         switch (request) {
@@ -52,6 +54,10 @@ internal static class AccountsPage {
                 break;
             case "save":
                 Save(actor, character, Field(0), Field(1), Field(2), Field(3), reply);
+                break;
+            case "delete":
+                var deleted = AccountModeration.DeleteAccount(actor, character, actors, Field(0));
+                reply(["status", deleted.Succeeded ? "ok" : "error", deleted.Message]);
                 break;
             default:
                 reply(["status", "error", $"Unknown request '{request}'."]);
@@ -137,7 +143,7 @@ internal static class AccountsPage {
 
     // Sends the account as it is now stored, then what happened. A partial save says what was and wasn't done.
     private static void Finish(string username, List<string> done, string failure, Action<string[]> reply) {
-        var account = AccountCollection.GetAccount(username?.Trim() ?? "", waitForIndex: true);
+        var account = AccountCollection.GetAccountWithoutCharacters(username?.Trim() ?? "", waitForIndex: true);
         if (account is not null) {
             SendAccount(account, reply);
         }
@@ -153,7 +159,7 @@ internal static class AccountsPage {
         }
     }
 
-    private static void SendAccount(Account account, Action<string[]> reply) {
+    internal static void SendAccount(Account account, Action<string[]> reply) {
         var history = account.InfractionHistory;
         // Login times are stored in UTC; staff read them in the server's time zone.
         var lastLogin = account.LastLoginTime == default

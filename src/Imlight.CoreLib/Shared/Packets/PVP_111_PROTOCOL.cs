@@ -36,7 +36,7 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/18/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Collections.Generic;
@@ -347,6 +347,13 @@ public sealed class PVP_111_PROTOCOL : IServerProtocol {
         /// The league type name; empty means the first rated league the player may use.
         /// </summary>
         public string League;
+
+        /// <summary>
+        /// Where the replies go, as <see cref="ADMIN_112_PROTOCOL.MSG_ADMINACTIONREPLY"/>; null sends them to the
+        /// player.
+        /// </summary>
+        public IActorRef ReplyTo;
+        public uint RequestId;
 
     }
 

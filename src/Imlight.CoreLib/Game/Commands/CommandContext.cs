@@ -33,4 +33,9 @@ internal class CommandContext {
     public Wizard SelectedCharacter { get; init; }
     public Account SelectedAccount { get; init; }
 
+    /// <summary>
+    /// The dispatcher's actor context, for reaching other players' sessions while the command runs.
+    /// </summary>
+    public IActorRefFactory Actors { get; init; }
+
 }

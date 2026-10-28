@@ -447,17 +447,8 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
     private void SendChatCommand(string input, CoreObject charObj, Wizard wizard) {
         var account = GetActiveAccount();
 
-        _dispatcherRef.Tell(new SERVER_100_PROTOCOL.MSG_COMMAND() {
-            CommandText = input[COMMAND_PREFIX.Length..],
-            ActorRef = SessionActor.ActorRef,
-            CoreObject = charObj,
-            Wizard = wizard,
-            Account = account,
-            ZoneActor = SessionActor.GetZoneActor(),
-            ServerActor = SessionActor.ServerRef,
-            SelectedWizard = _selectedCharacter,
-            SelectedAccount = _selectedAccount
-        });
+        _dispatcherRef.Tell(CommandDispatcher.CreateCommand(input[COMMAND_PREFIX.Length..], SessionActor, charObj,
+            wizard, account, _selectedCharacter, _selectedAccount));
     }
 
 }

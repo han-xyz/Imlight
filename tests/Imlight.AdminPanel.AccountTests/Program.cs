@@ -30,7 +30,7 @@
  * NOTE:
  * Only http://127.0.0.1:18080 and AdminPanelTests databases are used.
  *
- * Created by: BobFromIHT with Claude
+ * Created by: BobFromIHT
  * Version: KALI 1.0
  * Last Updated: 10/26/2026
  */
@@ -188,7 +188,7 @@ var page = typeof(Account).Assembly.GetType("Imlight.CoreLib.Game.AdminPanel.Acc
 List<string[]> Page(Account actor, string request, params string[] fields) {
     var replies = new List<string[]>();
     page.GetMethod("Handle", BindingFlags.Static | BindingFlags.NonPublic)!
-        .Invoke(null, [actor, null, request, fields, (Action<string[]>) replies.Add]);
+        .Invoke(null, [actor, null, request, fields, (Action<string[]>) replies.Add, null]);
     return replies;
 }
 string[] Status(List<string[]> replies) => replies.Last(reply => reply[0] == "status");

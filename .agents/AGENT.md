@@ -246,6 +246,10 @@ truly needs it. No paragraphs on self-evident lines, ever.
 
 - Conventional commits: `feat:`, `fix:`, `ref:`, `chore:`, `docs:` (per README
   contributing notes).
+- **Never show an agent as a co-author.** No `Co-Authored-By:` trailer for an
+  agent or model, no "Generated with" line, and no agent named in a commit
+  message, PR description or file header (§6). Commits carry only the human
+  author. AI assistance is disclosed in the PR template's field, nowhere else.
 - Feature branches merge into `quality-assurance` (merge style: `` `Branch` ->
   `quality-assurance` (#NN) ``).
 - Milestone commits use the KALI scheme: `KALI 26Q2.14c | Feature (#NN)`.

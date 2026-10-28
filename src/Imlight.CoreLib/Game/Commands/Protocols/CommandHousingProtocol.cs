@@ -33,12 +33,10 @@
  * 
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/27/2026
  */
 
-using System.Globalization;
-using Imlight.CoreLib.Game.Housing.Houses;
-using Imlight.CoreLib.Shared.Items;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Commands.Protocols;
@@ -49,30 +47,6 @@ internal class CommandHousing : CommandProtocol {
 
     [Command("housegrant")]
     [AuthRequired(AuthLevel.QualityAssurance)]
-    private void HouseGrantCommand(string templateId) {
-        if (!uint.TryParse(templateId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || !HouseTemplates.TryGet(id, out var template)) {
-            InformSenderClient($"Template {templateId} is not a house.");
-
-            return;
-        }
-
-        var wizard = Context.Character;
-        var grant = HouseDeeds.Issue(wizard, id);
-        foreach (var item in grant.Created) {
-            ItemSync.SendAdded(Context.SessionActor, wizard, item);
-        }
-
-        if (!grant.Succeeded) {
-            InformSenderClient(grant.Failure == HouseGrantFailure.BackpackFull
-                ? "Your backpack is too full for that house."
-                : $"Could not give you house {id}.");
-
-            return;
-        }
-
-        InformSenderClient(grant.Created.Count == 0
-            ? $"You already have house {id}, zone {template.LotZone}."
-            : $"Gave you {grant.Created.Count} house item(s) for zone {template.LotZone}.");
-    }
+    private void HouseGrantCommand(string templateId) => Inform(CharacterActions.GrantHouse(OwnCharacter, templateId));
 
 }

@@ -20,8 +20,8 @@
  * ========================================================================
  *
  * PURPOSE:
- * Behaviour tests for a persona goal whose Completion dialog has no lines:
- * it is completed without a dialog and its quest log text still names the NPC.
+ * Behaviour tests for a persona goal whose Completion dialog has no lines: it plays its Hyperlink lines
+ * when it has some, else it completes without a dialog, and its quest log text still names the NPC.
  *
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj --filter EmptyGoalDialogTests
@@ -89,6 +89,31 @@ public sealed class EmptyGoalDialogTests {
         Assert.True(GoalCompletionDialog.HasContent(dialog));
     }
 
+    [Fact]
+    public void Find_CompletionWithLines_IsTheCompletionDialog() {
+        var completion = DialogWithLine("Completion", "QuestDialog_1");
+        var goal = PersonaGoalWith(completion, DialogWithLine("Hyperlink", "QuestDialog_2"));
+
+        Assert.Same(completion, GoalCompletionDialog.Find(goal));
+    }
+
+    [Fact]
+    public void Find_LinesOnlyUnderHyperlink_IsTheHyperlinkDialog() {
+        var hyperlink = DialogWithLine("Hyperlink", "QuestDialog_2");
+        var goal = PersonaGoalWith(new ActorDialog { m_dialogTag = "Completion", m_dialogEntries = [] }, hyperlink);
+
+        Assert.Same(hyperlink, GoalCompletionDialog.Find(goal));
+    }
+
+    [Fact]
+    public void Find_NoLinesAnywhere_IsTheEmptyCompletionDialog() {
+        var completion = new ActorDialog { m_dialogTag = "Completion", m_dialogEntries = [] };
+        var goal = PersonaGoalWith(completion, new ActorDialog { m_dialogTag = "Hyperlink" });
+
+        Assert.Same(completion, GoalCompletionDialog.Find(goal));
+        Assert.False(GoalCompletionDialog.HasContent(GoalCompletionDialog.Find(goal)));
+    }
+
     [GameDataFact]
     public void PersonaGoal_WithoutCompletionMadlibs_NamesThePersonaNpc() {
         LoadGameData();
@@ -106,6 +131,16 @@ public sealed class EmptyGoalDialogTests {
             .ToDictionary(arg => arg.m_madlibToken, arg => arg.m_madlibArgument);
         Assert.False(string.IsNullOrEmpty(names["FIRSTNAME"]));
     }
+
+    private static ActorDialog DialogWithLine(string tag, string line)
+        => new() { m_dialogTag = tag, m_dialogEntries = [new NPCDialogEntry { m_dialog = line }] };
+
+    private static PersonaGoalTemplate PersonaGoalWith(params ActorDialog[] dialogs)
+        => new() {
+            m_goalName = "Goal",
+            m_goalType = GOAL_TYPE.GOAL_TYPE_PERSONA,
+            m_dialogList = new ActorDialogList { m_dialogs = [.. dialogs] },
+        };
 
     private static void LoadGameData() {
         InitializeQuietLogging();

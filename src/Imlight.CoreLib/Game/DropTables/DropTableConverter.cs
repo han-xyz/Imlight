@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
+using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.World;
 
 namespace Imlight.CoreLib.Game.DropTables;
@@ -71,11 +72,7 @@ public static class DropTableConverter {
         foreach (var itemResult in dropResult.Items) {
             if (!string.IsNullOrEmpty(itemResult.ItemId)) {
                 if (TryParseItemId(itemResult.ItemId, out var itemGid)) {
-                    lootItems.Add(new ItemLootInfo {
-                        m_lootType = LOOT_TYPE.LOOT_TYPE_ITEM,
-                        m_itemID = itemGid,
-                        m_numItems = itemResult.Quantity
-                    });
+                    lootItems.Add(ToItemLootInfo(itemGid, itemResult.Quantity, CoreObjectFactory.GetCoreTemplate(itemGid)));
                 }
             }
         }
@@ -101,6 +98,31 @@ public static class DropTableConverter {
         
         return lootList;
     }
+
+    /// <summary>
+    /// The loot entry for an item reward. The client builds a stats card for a plain item entry, which it cannot do
+    /// for a reagent or a pet snack.
+    /// </summary>
+    /// <param name="itemId">The item's template id.</param>
+    /// <param name="quantity">How many were granted.</param>
+    /// <param name="template">The item's template, or null when it is unknown.</param>
+    internal static ItemLootInfo ToItemLootInfo(GID itemId, int quantity, CoreTemplate template) => template switch {
+        ReagentItemTemplate => new ReagentLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_REAGENT,
+            m_itemID = itemId,
+            m_numItems = quantity
+        },
+        PetSnackItemTemplate => new PetSnackLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_PETSNACK,
+            m_itemID = itemId,
+            m_numItems = quantity
+        },
+        _ => new ItemLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_ITEM,
+            m_itemID = itemId,
+            m_numItems = quantity
+        }
+    };
 
     /// <summary>
     /// Creates an empty LootInfoList for cases where no rewards are given

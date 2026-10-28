@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/28/2026
  */
 
 using System;
@@ -291,12 +291,12 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
 
     private void HandleQuestOffer(IActorRef playerActor, QuestTemplate quest, Wizard playerCharacter) {
         SendInteractAvailableQuest(playerActor, quest);
-        ShowQuestInfoDialog(playerActor, quest);
+        ShowQuestInfoDialog(playerActor, quest, playerCharacter);
         SendQuestOfferDialog(playerActor, quest, playerCharacter);
         SendQuestOfferCacheOption(playerActor, quest);
     }
 
-    private void ShowQuestInfoDialog(IActorRef playerActor, QuestTemplate quest) {
+    private void ShowQuestInfoDialog(IActorRef playerActor, QuestTemplate quest, Wizard wizard) {
         var dialogList = quest.m_dialogList as ActorDialogList;
         var prepDialogList = dialogList?.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Prep");
 
@@ -307,12 +307,13 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
             return;
         }
 
-        SendActorDialog(playerActor, prepDialogList, "QuestInfo");
+        SendActorDialog(playerActor, prepDialogList, "QuestInfo", wizard);
     }
 
-    private void SendActorDialog(IActorRef playerActor, ActorDialog dialogEntry, string completionType, ulong questId = 0, ulong goalId = 0) {
+    private void SendActorDialog(IActorRef playerActor, ActorDialog dialogEntry, string completionType, Wizard wizard,
+        ulong questId = 0, ulong goalId = 0) {
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry), 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry, wizard), 16, out var serializedData)) {
             Logger.Error("Failed to serialize '{0}' dialog.",
                 Logger.Args(completionType));
 
@@ -353,7 +354,7 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
                 m_goalDestinationZone = goal.m_destinationZone,
                 m_goalImage1 = goal.m_displayImage1,
                 m_goalImage2 = goal.m_displayImage2,
-                m_goalNameID = goal.m_goalNameID,
+                m_goalNameID = GoalNameIds.Of(goal),
                 m_goalMadlibs = QuestMadlibs.GetAppropriateMadlibBlockForGoal(goal, null)
             })]
         };

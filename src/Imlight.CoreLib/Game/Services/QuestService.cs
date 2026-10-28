@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/28/2026
  */
 
 using Akka.Actor;
@@ -44,6 +44,7 @@ using Imcodec.MessageLayer.Generated;
 using Imcodec.ObjectProperty;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.AdminPanel;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Groups;
 using Imlight.CoreLib.Game.Madlibs;
@@ -69,7 +70,6 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private const float DEFAULT_KILL_COLLECT_CHANCE = 0.5f;
     private const string QUEST_COMPLETED_ENTRY = "Complete";
     private const string GOAL_COMPLETE_EVENT_PREFIX = "GoalComplete_";
-    private const string GOAL_COMPLETION_DIALOG_TAG = "Completion";
     private const string DIALOG_ENTRY_EVENT_COMPLETION = "ENTRY";
     private const string QuestStartDialogTag = "Start";
 
@@ -98,6 +98,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
     private readonly List<QuestTemplate> _cachedQuestOffers = [];
     private readonly List<QuestTemplate> _cachedQuestTemplates = [];
     private readonly ObjectSerializer _goalSerializer = new(false);
+
+    // Set while a quest command from the admin panel runs.
+    private AdminReplyChannel _commandReplies;
 
     /// <summary>
     /// A persona goal whose completion dialog is on the player's screen. Live completes a persona goal only
@@ -318,7 +321,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
         // Live sends a persona goal's completion dialog first and completes the goal only when the client
         // reports the dialog closed (MSG_COMPLETEDIALOG). Show it now and finish the goal from there.
-        var completionDialog = FindDialogue(gTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG);
+        var completionDialog = GoalCompletionDialog.Find(gTemplate);
         if (completionDialog is not null && !GoalCompletionDialog.HasContent(completionDialog)) {
             Logger.Debug("Goal '{Goal}' of quest '{Quest}' has a completion dialog with no lines; completing it without one.",
                 Logger.Args(gTemplate.m_goalName, qInstance.QuestName));
@@ -706,7 +709,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
 
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(DialogSpeakers.ForClient(dialog), 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialog, wizard), 16, out var serializedData)) {
             Logger.Error("The start dialog of quest '{Quest}' could not be serialized, so it is not shown.",
                 Logger.Args(qInstance.QuestName));
 
@@ -721,6 +724,16 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     [MessageHandler(typeof(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND))]
     private void ReceiveQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
+        _commandReplies = message.ReplyTo is null ? null : new(message.ReplyTo, message.RequestId);
+        try {
+            RunQuestCommand(message);
+        }
+        finally {
+            _commandReplies = null;
+        }
+    }
+
+    private void RunQuestCommand(CHARACTER_103_PROTOCOL.MSG_QUESTCOMMAND message) {
         var wizard = GetActiveWizard();
         var questName = message.QuestName?.Trim() ?? string.Empty;
 
@@ -766,8 +779,16 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         }
     }
 
-    private void CommandReply(string text)
-        => SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    // A command from the admin panel answers the staff member who sent it rather than the player.
+    private void CommandReply(string text) {
+        if (_commandReplies is not null) {
+            _commandReplies.Send(text);
+
+            return;
+        }
+
+        SendToSocket(new EXTENDEDBASE_2_PROTOCOL.MSG_SERVERMESSAGE { Message = text, Modal = 0 });
+    }
 
     private QuestTemplate GetQuestTemplate(string questName) {
         var template = _cachedQuestTemplates.FirstOrDefault(q => q.m_questName == questName)
@@ -1562,7 +1583,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         var packet = new QUEST_MESSAGES_52_PROTOCOL.MSG_SENDGOAL {
             QuestID = qInstance.ID,
             GoalID = gInstance.ID,
-            GoalNameID = gTemplate.m_goalNameID,
+            GoalNameID = GoalNameIds.Of(gTemplate),
             GoalTitle = gTemplate.m_goalTitle,
             GoalLocation = gTemplate.m_locationName,
             GoalDestinationZone = (sendType == 2) ? "" : destZone,
@@ -1961,8 +1982,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         => ShowDialogue(goalTemplate.m_dialogList, "Prep", "QuestStart", questId, goalId);
 
     private void ShowGoalCompletionDialogue(GoalTemplate goalTemplate, ulong questId, ulong goalId) {
-        if (GoalCompletionDialog.HasContent(FindDialogue(goalTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG))) {
-            ShowDialogue(goalTemplate.m_dialogList, GOAL_COMPLETION_DIALOG_TAG, "Completion", questId, goalId);
+        var dialog = GoalCompletionDialog.Find(goalTemplate);
+        if (GoalCompletionDialog.HasContent(dialog)) {
+            SendActorDialog(dialog, "Completion", questId, goalId);
         }
     }
 
@@ -1970,8 +1992,9 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
         => ShowDialogue(questTemplate.m_dialogList, "Complete", "QuestComplete");
 
     private void ShowDialogue(ActorDialogListBase dialogListBase, string dialogTag, string completionType, ulong questId = 0, ulong goalId = 0) {
+        // The pack keeps some dialog tags with no entries; the client is sent only a dialog it can play.
         var dialog = FindDialogue(dialogListBase, dialogTag);
-        if (dialog != null) {
+        if (dialog?.m_dialogEntries is { Count: > 0 }) {
             SendActorDialog(dialog, completionType, questId, goalId);
         }
     }
@@ -1983,7 +2006,7 @@ internal class QuestService(SessionActor sessionActor) : MessageService(sessionA
 
     private void SendActorDialog(ActorDialog dialogEntry, string completionType, ulong questId = 0, ulong goalId = 0) {
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry), 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry, GetActiveWizard()), 16, out var serializedData)) {
             Logger.Error("The '{DialogType}' dialog could not be serialized, so it is not shown.",
                 Logger.Args(completionType));
 
@@ -2355,8 +2378,37 @@ internal static class PetOnlyGoals {
 
 internal static class GoalCompletionDialog {
 
+    private const string CompletionTag = "Completion";
+    private const string HyperlinkTag = "Hyperlink";
+
     public static bool HasContent(ActorDialog dialog)
         => dialog?.m_dialogEntries is { Count: > 0 } entries
            && (dialog.m_madlibs is { Count: > 0 } || entries.Any(entry => !string.IsNullOrEmpty(entry?.m_dialog)));
+
+    /// <summary>
+    /// The dialog the goal's NPC speaks when the goal completes: its Completion dialog, else its Hyperlink dialog
+    /// when only that one has lines (pack quests not imported from a capture keep a persona's lines there).
+    /// </summary>
+    public static ActorDialog Find(GoalTemplate goal) {
+        var dialogs = (goal?.m_dialogList as ActorDialogList)?.m_dialogs;
+        var completion = dialogs?.FirstOrDefault(dialog => dialog.m_dialogTag == CompletionTag);
+        if (HasContent(completion)) {
+            return completion;
+        }
+
+        var hyperlink = dialogs?.FirstOrDefault(dialog => dialog.m_dialogTag == HyperlinkTag);
+
+        return HasContent(hyperlink) ? hyperlink : completion;
+    }
+
+}
+
+internal static class GoalNameIds {
+
+    /// <summary>
+    /// The goal's name id as live sends it, the hash of the goal's name, when the pack stores none.
+    /// </summary>
+    public static uint Of(GoalTemplate goal)
+        => goal.m_goalNameID != 0 ? goal.m_goalNameID : StringHash.Compute(goal.m_goalName);
 
 }

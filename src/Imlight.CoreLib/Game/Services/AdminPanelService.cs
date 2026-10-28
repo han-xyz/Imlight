@@ -17,10 +17,13 @@
  */
 
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
 using Imlight.CoreLib.Game.AdminPanel;
+using Imlight.CoreLib.Game.Commands;
 using Imlight.CoreLib.Game.Minigames;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
@@ -35,7 +38,10 @@ namespace Imlight.CoreLib.Game.Services;
 /// The script adds an Admin button to the settings window. Each action needs the account's own auth level, and
 /// every change is audited. Requests and replies are tab-separated fields in a raw text message:
 /// the client accepts process messages only from protocols it has loaded, which excludes the script debugger's.
-/// Each page of the panel has its own handler, chosen by the request's prefix (for example "accounts.lookup").
+/// Each part of the panel has its own handler, chosen by the request (for example "accounts.save"). When the script
+/// starts it gets the staff member's account and the catalog of actions their level allows (see
+/// <see cref="PanelActions"/>). An action on an online character is sent to that character's session, which
+/// answers later; a session that does not answer in time is reported.
 /// </remarks>
 internal class AdminPanelService(SessionActor sessionActor) : MessageService(sessionActor) {
 
@@ -43,8 +49,14 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
     private const uint FirstJobId = 0xAD000000;
     private const string ClientScript = "AdminPanel/Client.lua";
 
+    // How long the session of an online character has to answer an action.
+    private static readonly TimeSpan s_sessionAnswerTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly HashSet<uint> _pendingRequests = [];
+
     private uint? _jobId;
     private uint _nextJobId = FirstJobId;
+    private uint _nextRequestId;
 
     internal static bool IsAdminPanelJob(uint jobId) => jobId >= FirstJobId;
 
@@ -104,10 +116,31 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
 
         switch (action) {
             // The script reports these steps; they need no answer.
-            case "started" or "open" or "close":
+            case "open" or "close":
+                break;
+            case "started":
+                Reply(["self", account.Username, account.AuthLevel.ToString(),
+                       wizard.CharId.ToString(CultureInfo.InvariantCulture)]);
+                foreach (var line in PanelActions.Describe(account)) {
+                    Reply(line);
+                }
+
+                break;
+            case "lookup":
+                CharactersPage.Lookup(account, fields.Length > 1 ? fields[1] : "", Reply);
+                break;
+            case ModerationPage.Request:
+                ModerationPage.Handle(account, wizard, Context, fields[1..], Reply);
+                break;
+            case "tools.run":
+                RunTool(account, wizard, fields[1..]);
+                break;
+            case not null when action.StartsWith(CharactersPage.Prefix):
+                CharactersPage.Handle(account, wizard, action[CharactersPage.Prefix.Length..], fields[1..], Reply,
+                    SendToSession);
                 break;
             case not null when action.StartsWith(AccountsPage.Prefix):
-                AccountsPage.Handle(account, wizard, action[AccountsPage.Prefix.Length..], fields[1..], Reply);
+                AccountsPage.Handle(account, wizard, action[AccountsPage.Prefix.Length..], fields[1..], Reply, Context);
                 break;
             case not null when action.StartsWith(PlayersPage.Prefix):
                 PlayersPage.Handle(account, wizard, action[PlayersPage.Prefix.Length..], fields[1..], Reply,
@@ -127,6 +160,68 @@ internal class AdminPanelService(SessionActor sessionActor) : MessageService(ses
 
         _jobId = null;
         Logger.Information("Admin panel: the client ended the script (job {0:X8}).", Logger.Args(message.JobID));
+    }
+
+    // The outcome of an action an online character's session ran, or a reply of one of its services.
+    [MessageHandler(typeof(ADMIN_112_PROTOCOL.MSG_ADMINACTIONREPLY))]
+    private void ReceiveActionReply(ADMIN_112_PROTOCOL.MSG_ADMINACTIONREPLY message) {
+        if (_pendingRequests.Remove(message.RequestId)) {
+            Timers.Cancel(RequestTimerKey(message.RequestId));
+        }
+
+        if (!message.Final) {
+            Reply(["output", "add", message.Message ?? ""]);
+            Reply(["status", "info", message.Message ?? ""]);
+
+            return;
+        }
+
+        // A null message means the session handed the action to a service, whose replies follow.
+        if (message.Message is not null) {
+            CharactersPage.SendResult(new AdminActionResult(message.Succeeded, message.Message, message.Lines), Reply);
+        }
+    }
+
+    [MessageHandler(typeof(ADMIN_112_PROTOCOL.MSG_ADMINREQUESTTIMEOUT))]
+    private void ReceiveRequestTimeout(ADMIN_112_PROTOCOL.MSG_ADMINREQUESTTIMEOUT message) {
+        if (_pendingRequests.Remove(message.RequestId)) {
+            Reply(["status", "error",
+                   "The character's session did not answer, so the change may not have applied. Refresh before retrying."]);
+        }
+    }
+
+    private void SendToSession(string actorPath, ADMIN_112_PROTOCOL.MSG_ADMINCHARACTERACTION request) {
+        request.RequestId = ++_nextRequestId;
+        request.ReplyTo = SessionActor.ActorRef;
+        _pendingRequests.Add(request.RequestId);
+        Timers.StartSingleTimer(RequestTimerKey(request.RequestId),
+            new ADMIN_112_PROTOCOL.MSG_ADMINREQUESTTIMEOUT { RequestId = request.RequestId }, s_sessionAnswerTimeout);
+
+        Context.ActorSelection(actorPath).Tell(request);
+    }
+
+    private static string RequestTimerKey(uint requestId) => $"admin-request-{requestId}";
+
+    // The Tools tab runs the chat command itself, on the staff member's own character; its reply is in chat.
+    private void RunTool(Account actor, Wizard wizard, string[] fields) {
+        var action = PanelActions.Find(fields.Length > 0 ? fields[0] : null);
+        if (action?.Command is null) {
+            Reply(["status", "error", "Unknown tool."]);
+
+            return;
+        }
+
+        if (!AccountAdministration.CanAct(actor, action.Level, out var refusal)
+            || !PanelActions.TryReadArguments(action, fields.Length > 1 ? fields[1..] : [], out var arguments, out refusal)) {
+            Reply(["status", "error", refusal.Message]);
+
+            return;
+        }
+
+        CommandDispatcher.Instance.Tell(CommandDispatcher.CreateCommand(PanelActions.BuildCommand(action, arguments),
+            SessionActor, GetActiveGameObject(), wizard, actor));
+        Reply(["output", "set"]);
+        Reply(["status", "info", $"Ran {action.Label}. The reply is in chat."]);
     }
 
     // Tabs separate the fields, so any inside a value become spaces.
