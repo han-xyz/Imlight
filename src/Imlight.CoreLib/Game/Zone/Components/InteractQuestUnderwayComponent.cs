@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/28/2026
  */
 
 using System;
@@ -153,11 +153,16 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
 
             var prepDialogEntry = dialogList.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Prep");
 
-            if (DialogSpeakers.IsSpokenBy(prepDialogEntry?.m_dialogEntries?.FirstOrDefault(), Entity.Template)) {
+            if (DialogSpeakers.IsSpokenBy(prepDialogEntry?.m_dialogEntries?.FirstOrDefault(), Entity.Template)
+                && HasUnderwayDialog(questTemplate)) {
                 _givesQuests.Add(questTemplate);
             }
         }
     }
+
+    internal static bool HasUnderwayDialog(QuestTemplate quest)
+        => (quest.m_dialogList as ActorDialogList)?.m_dialogs?
+            .FirstOrDefault(de => de.m_dialogTag == "Underway")?.m_dialogEntries is { Count: > 0 };
 
     public override void OnPlayerJoin(CoreObject playerObj, IActorRef playerActor, Wizard playerWizard) {
         if (_givesQuests.Count <= 0) {
@@ -207,7 +212,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
             return;
         }
 
-        ShowQuestUnderwayDialog(playerActor, quest);
+        ShowQuestUnderwayDialog(playerActor, quest, playerCharacter);
     }
 
     internal static QuestTemplate FindClickedQuest(ServiceOptionBase sentOption, IEnumerable<QuestTemplate> underwayQuests)
@@ -235,7 +240,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
         return state;
     }
 
-    private void ShowQuestUnderwayDialog(IActorRef playerActor, QuestTemplate quest) {
+    private void ShowQuestUnderwayDialog(IActorRef playerActor, QuestTemplate quest, Wizard wizard) {
         var dialogList = quest.m_dialogList as ActorDialogList;
         var underwayDialogList = dialogList?.m_dialogs.FirstOrDefault(de => de.m_dialogTag == "Underway");
 
@@ -246,12 +251,13 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
             return;
         }
 
-        SendActorDialog(playerActor, underwayDialogList, "QuestInfo");
+        SendActorDialog(playerActor, underwayDialogList, "QuestInfo", wizard);
     }
 
-    private void SendActorDialog(IActorRef playerActor, ActorDialog dialogEntry, string completionType, ulong questId = 0, ulong goalId = 0) {
+    private void SendActorDialog(IActorRef playerActor, ActorDialog dialogEntry, string completionType, Wizard wizard,
+        ulong questId = 0, ulong goalId = 0) {
         var serializer = new ObjectSerializer(Versionable: false);
-        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry), 16, out var serializedData)) {
+        if (!serializer.Serialize(DialogSpeakers.ForClient(dialogEntry, wizard), 16, out var serializedData)) {
             Logger.Error("Failed to serialize '{0}' dialog.",
                 Logger.Args(completionType));
 

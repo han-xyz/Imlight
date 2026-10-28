@@ -33,7 +33,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System.Collections.Generic;
@@ -436,6 +436,20 @@ public sealed class QuestServiceTests {
         Assert.Equal(2ul, QuestService.PickQuestFinderQuest(held, activeQuestId: 2, hasGoalInPlayerZone: _ => false).ID);
         Assert.Equal(1ul, QuestService.PickQuestFinderQuest(held, activeQuestId: 0, hasGoalInPlayerZone: _ => false).ID);
         Assert.Null(QuestService.PickQuestFinderQuest([], activeQuestId: 0, hasGoalInPlayerZone: _ => true));
+    }
+
+    [Theory]
+    [InlineData("Goal", 2559431u)]
+    [InlineData("Goal 1", 572984775u)]
+    public void GoalNameId_PackStoresNone_IsTheHashLiveSends(string goalName, uint liveId) {
+        Assert.Equal(liveId, GoalNameIds.Of(new PersonaGoalTemplate { m_goalName = goalName }));
+    }
+
+    [Fact]
+    public void GoalNameId_PackStoresOne_IsKept() {
+        var goal = new PersonaGoalTemplate { m_goalName = "1_WizardQuestGoals_TalkNPC", m_goalNameID = 572984775u };
+
+        Assert.Equal(572984775u, GoalNameIds.Of(goal));
     }
 
     private static QuestInstance HeldQuest(string name, ulong questId, ulong goalId)

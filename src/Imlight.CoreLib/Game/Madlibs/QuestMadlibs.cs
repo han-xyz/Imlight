@@ -32,7 +32,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using Imcodec.ObjectProperty.TypeCache;
@@ -102,8 +102,7 @@ internal static class QuestMadlibs {
         string nickname = string.Empty;
         string nameFormat = null;
 
-        var completionDialogEntry = (gTemplate.m_dialogList as ActorDialogList)?.m_dialogs
-            ?.FirstOrDefault(de => de.m_dialogTag == "Completion");
+        var completionDialogEntry = GoalCompletionDialog.Find(gTemplate);
 
         // Retail sends the Completion dialog's own NPC madlib block keys;
         // the blocks are ordered to match the entries.

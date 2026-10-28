@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/27/2026
  */
 
 using System;
@@ -250,6 +250,22 @@ public sealed class NpcInteractionTests {
         var quest = new QuestTemplate { m_questName = "Old", m_isHidden = hidden, m_outdated = outdated };
 
         Assert.Empty(InteractQuestOfferComponent.FindAvailableQuests([quest], NewWizard(), QuestOfferGate.Open));
+    }
+
+    [Fact]
+    public void QuestUnderway_QuestWithoutUnderwayLines_HasNoUnderwayDialog() {
+        var noTag = new QuestTemplate { m_dialogList = new ActorDialogList { m_dialogs = [new ActorDialog { m_dialogTag = "Prep" }] } };
+        var emptyTag = new QuestTemplate { m_dialogList = new ActorDialogList { m_dialogs = [new ActorDialog { m_dialogTag = "Underway", m_dialogEntries = [] }] } };
+        var withLines = new QuestTemplate {
+            m_dialogList = new ActorDialogList {
+                m_dialogs = [new ActorDialog { m_dialogTag = "Underway", m_dialogEntries = [new NPCDialogEntry { m_dialog = "QuestDialog_1" }] }]
+            }
+        };
+
+        Assert.False(InteractQuestUnderwayComponent.HasUnderwayDialog(new QuestTemplate()));
+        Assert.False(InteractQuestUnderwayComponent.HasUnderwayDialog(noTag));
+        Assert.False(InteractQuestUnderwayComponent.HasUnderwayDialog(emptyTag));
+        Assert.True(InteractQuestUnderwayComponent.HasUnderwayDialog(withLines));
     }
 
     [Fact]

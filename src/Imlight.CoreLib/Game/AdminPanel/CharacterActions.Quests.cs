@@ -24,6 +24,7 @@ using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Madlibs;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.WizardData.Collections;
 
@@ -120,7 +121,7 @@ internal static partial class CharacterActions {
                 m_goalDestinationZone = goal.m_destinationZone,
                 m_goalImage1 = goal.m_displayImage1,
                 m_goalImage2 = goal.m_displayImage2,
-                m_goalNameID = goal.m_goalNameID,
+                m_goalNameID = GoalNameIds.Of(goal),
                 m_goalMadlibs = QuestMadlibs.GetAppropriateMadlibBlockForGoal(goal, null)
             })]
         };
