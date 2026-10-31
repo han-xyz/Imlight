@@ -140,7 +140,8 @@ internal static class ResourceManager {
         var wad = ArchiveParser.Parse(stream);
         LocalWadCache.CacheWad(wadName, wad);
 
-        return wad;
+        // The download is held in memory; the cached copy is read from disk.
+        return LocalWadCache.GetCachedWad(wadName) ?? wad;
     }
 
 }

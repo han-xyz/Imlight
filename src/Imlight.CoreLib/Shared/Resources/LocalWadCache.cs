@@ -31,19 +31,22 @@
  * LocalWadCache.CacheWad(fileName, wadArchive);
  * 
  * NOTE:
- * 
+ * An archive reads its entries from a plain copy of the cached file, in the folder named like
+ * LocalWadCachePath without its extension plus "-files".
+ *
  * TODO:
  * - Implement functional CRC32 hash calculation
- * 
+ *
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using LiteDB;
 using Imcodec.Wad;
 using Imlight.Common;
@@ -67,6 +70,8 @@ internal class FileDefinition {
 internal static class LocalWadCache {
 
     private static readonly string s_path = ConfigurationManager.Settings["Patch Server.LocalWadCachePath"];
+    private static readonly string s_filesDirectory = Path.ChangeExtension(s_path, null) + "-files";
+    private static readonly Lock s_extractLock = new();
     private static bool s_hasInitialized;
 
     static LocalWadCache() => Initialize();
@@ -95,28 +100,47 @@ internal static class LocalWadCache {
 
     internal static Archive GetCachedWad(string wadName) {
         wadName = SanitizeWadName(wadName);
-        using var db = new LiteDatabase(s_path);
-        var fs = db.GetStorage<FileDefinition>();
+        var filePath = Path.Combine(s_filesDirectory, wadName + ".wad");
 
-        var file = fs.Find(f => f.Filename == wadName)
-            .FirstOrDefault();
+        using (var db = new LiteDatabase(s_path)) {
+            var fs = db.GetStorage<FileDefinition>();
 
-        if (file is null) {
-            Logger.Debug("Game file {FileName} is not in the local cache yet.", Logger.Args(wadName));
+            var file = fs.Find(f => f.Filename == wadName)
+                .FirstOrDefault();
 
-            return null;
+            if (file is null) {
+                Logger.Debug("Game file {FileName} is not in the local cache yet.", Logger.Args(wadName));
+
+                return null;
+            }
+
+            ExtractIfStale(fs, file, filePath);
         }
 
-        // The LiteDB stream is file IO and very slow.
-        // Instead, copy the stream to a memory stream.
-        var liteDbStream = fs.OpenRead(file.Id);
-        var fileStream = new MemoryStream();
-        liteDbStream.CopyTo(fileStream);
-        fileStream.Seek(0, SeekOrigin.Begin);
+        // The LiteDB stream is file IO and very slow, and a world's data archive is hundreds of MB, so the
+        // archive reads its entries from a plain copy on disk as it needs them.
+        var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
 
-        return file is null 
-            ? null 
-            : ArchiveParser.Parse(fileStream);
+        return ArchiveParser.Parse(fileStream);
+    }
+
+    private static void ExtractIfStale(ILiteStorage<FileDefinition> fs, LiteFileInfo<FileDefinition> file, string filePath) {
+        lock (s_extractLock) {
+            if (File.Exists(filePath) && new FileInfo(filePath).Length == file.Length) {
+                return;
+            }
+
+            Directory.CreateDirectory(s_filesDirectory);
+            var partPath = filePath + ".part";
+            using (var source = fs.OpenRead(file.Id))
+            using (var target = File.Create(partPath)) {
+                source.CopyTo(target);
+            }
+
+            File.Move(partPath, filePath, overwrite: true);
+            Logger.Debug("Game file {FileName} copied out of the local cache to {FilePath}.",
+                Logger.Args(file.Filename, filePath));
+        }
     }
 
     internal static List<FileDefinition> GetAllCachedFiles() {
@@ -164,12 +188,26 @@ internal static class LocalWadCache {
 
         if (file is not null) {
             fs.Delete(file.Id);
+            DeleteExtractedCopy(fileName);
 
             return;
         }
 
         Logger.Debug("Game file {FileName} was not in the local cache, so there was nothing to delete.",
             Logger.Args(fileName));
+    }
+
+    private static void DeleteExtractedCopy(string fileName) {
+        lock (s_extractLock) {
+            try {
+                File.Delete(Path.Combine(s_filesDirectory, fileName + ".wad"));
+            }
+            catch (IOException ex) {
+                // A copy still in use is replaced at its next read, because its size no longer matches.
+                Logger.Debug("Game file {FileName} keeps its copy on disk for now: {Reason}",
+                    Logger.Args(fileName, ex.Message));
+            }
+        }
     }
 
     private static void UpdateCache() {
