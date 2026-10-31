@@ -28,12 +28,14 @@
  * 
  * NOTE:
  * Keeps track of any components of type `IServiceComponent` attached to the entity.
+ * The wizbang is re-evaluated every second but sent to a player only twice per value and then on change
+ * (WizBangSendLog); sending every evaluation streamed hundreds of MSG_WIZBANG a second into a street.
  * 
  * TODO:
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -90,6 +92,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     private readonly float _interactionRadius = 300.0f;
     private readonly Dictionary<ulong, IActorRef> _playersInInteractionRange = [];
     private readonly Dictionary<ulong, IActorRef> _playersInRenderRange = [];
+    private readonly WizBangSendLog _wizBangsSent = new();
     private List<IServiceComponent> _serviceComponents = [];
     private readonly ServiceOptionTable _optionTable = new();
     private MadlibBlock _madlibBlock;
@@ -320,6 +323,7 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
     }
 
     private void DropPlayer(IActorRef playerActor) {
+        _wizBangsSent.Forget(playerActor);
         foreach (var key in _playersInInteractionRange.Where(x => x.Value == playerActor).Select(x => x.Key).ToArray()) {
             _playersInInteractionRange.Remove(key);
         }
@@ -476,8 +480,12 @@ internal sealed class InteractServiceMementoComponent(ZoneEntity entity)
         // Get highest priority wizbang for this player, or None to clear.
         var wizBang = WizBangPriority.GetHighestPriorityWizBang(activeWizBangs);
 
-        // Re-send every tick rather than once per change: a single send can be lost
-        // while the client is still building the scene, and retail re-pushes each update.
+        // Sent twice, then only when it changes: a single send can be lost while the client is still building
+        // the scene, but one every tick for every serviced object in range is a flicker on the client.
+        if (!_wizBangsSent.ShouldSend(playerActor, wizBang)) {
+            return;
+        }
+
         var wizBangMsg = new GAME_5_PROTOCOL.MSG_WIZBANG {
             WizBangID = (uint) wizBang,
             GameObjectID = Entity.ActiveGameObject.m_globalID.Full
