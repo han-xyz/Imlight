@@ -40,6 +40,7 @@ using System;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
 using Imlight.CoreLib.Game.Rentals;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.CrownShop;
@@ -66,11 +67,11 @@ internal static class CrownShopPurchaseRules {
         => RentalItems.WouldDuplicateType(buyer, template, count) ? CrownShopErrors.PriceLockMismatch : debit();
 
     /// <summary>
-    /// Refuses a gift no recipient could ever redeem, before the sender pays for it: the mail would stay unredeemable
-    /// with no refund. What the recipient already holds is not looked at, since that can change.
+    /// Refuses a gift no recipient could ever make use of, before the sender pays for it: the mail would stay
+    /// unredeemable or clear for a dud, with no refund. What the recipient already holds is not looked at, since that can change.
     /// </summary>
-    public static int ChargeGiftUnlessUnredeemable(CoreTemplate template, int count, Func<int> debit)
-        => template is TourneyTokensAmountTemplate || RentalItems.DuplicatesItself(template, count)
+    public static int ChargeGiftUnlessUnredeemable(Wizard sender, CoreTemplate template, ulong templateId, int count, Func<int> debit)
+        => !GiftingService.MaySendAsGift(sender, template, templateId) || RentalItems.DuplicatesItself(template, count)
             ? CrownShopErrors.PriceLockMismatch
             : debit();
 

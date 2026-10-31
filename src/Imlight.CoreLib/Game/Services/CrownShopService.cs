@@ -269,7 +269,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
 
         var error = GrantTransaction.Run(
             reserve: () => isGift
-                ? CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(itemTemplate, message.Count, () => TryDebit(wizard, message.Type, amountToPay))
+                ? CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(wizard, itemTemplate, message.Item, message.Count, () => TryDebit(wizard, message.Type, amountToPay))
                 : CrownShopPurchaseRules.ChargeUnlessDuplicateRental(wizard, itemTemplate, message.Count, () => TryDebit(wizard, message.Type, amountToPay)),
             release: () => Refund(wizard, message.Type, amountToPay),
             grant: transaction => isGift

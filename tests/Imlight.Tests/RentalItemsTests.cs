@@ -37,12 +37,14 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Rentals;
+using Imlight.CoreLib.Game.Services;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -57,6 +59,16 @@ public sealed class RentalItemsTests {
     private const ulong OtherMountRentalId = 917_002;
     private const ulong PetRentalId = 917_003;
     private const ulong PlainItemId = 917_004;
+    private const ulong GoldId = 917_005;
+    private const ulong LunariId = 917_006;
+    private const ulong TokensId = 917_007;
+    private const ulong SpellId = 917_008;
+    private const ulong NoTemplateId = 917_009;
+    private const ulong PackId = 917_010;
+    private const ulong ReagentId = 917_011;
+    private const ulong SnackId = 917_012;
+    private const ulong InnerBundleId = 917_013;
+    private const ulong AnyGiftId = 917_099;
 
     private static readonly WizItemTemplate s_mountRental = Rental("Mount");
     private static readonly WizItemTemplate s_otherMountRental = Rental("Mount");
@@ -71,6 +83,14 @@ public sealed class RentalItemsTests {
         cache[OtherMountRentalId] = s_otherMountRental;
         cache[PetRentalId] = s_petRental;
         cache[PlainItemId] = s_plainItem;
+        cache[GoldId] = new GoldAmountTemplate { m_behaviors = [] };
+        cache[LunariId] = new LunariAmountTemplate { m_behaviors = [] };
+        cache[TokensId] = new TourneyTokensAmountTemplate { m_behaviors = [] };
+        cache[SpellId] = new SpellTemplate();
+        cache[PackId] = new BoosterPackTemplate();
+        cache[ReagentId] = new ReagentItemTemplate();
+        cache[SnackId] = new PetSnackItemTemplate();
+        cache[InnerBundleId] = BundleOf(PlainItemId);
     }
 
     [Fact]
@@ -143,11 +163,11 @@ public sealed class RentalItemsTests {
     }
 
     [Theory]
-    [MemberData(nameof(NeverRedeemableGifts))]
-    public void GiftCharge_NeverRedeemable_RefusesAndChargesNothing(CoreTemplate template, int count) {
+    [MemberData(nameof(GiftsThatYieldADudOrNothing))]
+    public void GiftCharge_DudOrNothing_RefusesAndChargesNothing(CoreTemplate template, ulong templateId, int count) {
         var charges = 0;
 
-        var error = CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(template, count, () => {
+        var error = CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(Sender(), template, templateId, count, () => {
             charges++;
             return 0;
         });
@@ -156,18 +176,67 @@ public sealed class RentalItemsTests {
         Assert.Equal(0, charges);
     }
 
-    public static TheoryData<CoreTemplate, int> NeverRedeemableGifts() => new() {
-        { s_mountRental, 2 },
-        { new ItemBundleTemplate { m_bundleItems = [(uint) MountRentalId, (uint) OtherMountRentalId] }, 1 },
-        { new TourneyTokensAmountTemplate(), 1 },
+    public static TheoryData<CoreTemplate, ulong, int> GiftsThatYieldADudOrNothing() => new() {
+        { s_mountRental, MountRentalId, 2 },
+        { BundleOf(MountRentalId, OtherMountRentalId), AnyGiftId, 1 },
+        { new TourneyTokensAmountTemplate(), TokensId, 1 },
+        { new SpellTemplate(), SpellId, 1 },
+        { null, NoTemplateId, 1 },
+        { BundleOf(PlainItemId, GoldId), AnyGiftId, 1 },
+        { BundleOf(PlainItemId, LunariId), AnyGiftId, 1 },
+        { BundleOf(PlainItemId, TokensId), AnyGiftId, 1 },
+        { BundleOf(PlainItemId, SpellId), AnyGiftId, 1 },
+        { BundleOf(PlainItemId, NoTemplateId), AnyGiftId, 1 },
+        { BundleOf(PlainItemId, InnerBundleId), AnyGiftId, 1 },
+        { BundleOf(), AnyGiftId, 1 },
     };
 
-    [Fact]
-    public void GiftCharge_RedeemableOnce_ReturnsTheDebitResult() {
+    [Theory]
+    [MemberData(nameof(NormalGifts))]
+    public void GiftCharge_NormalGift_ReturnsTheDebitResult(CoreTemplate template, ulong templateId, int count) {
         const int NotEnoughCrowns = 9;
 
-        Assert.Equal(NotEnoughCrowns, CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(s_mountRental, 1, () => NotEnoughCrowns));
+        Assert.Equal(NotEnoughCrowns, CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(Sender(), template, templateId, count, () => NotEnoughCrowns));
     }
+
+    public static TheoryData<CoreTemplate, ulong, int> NormalGifts() => new() {
+        { s_plainItem, PlainItemId, 2 },
+        { s_mountRental, MountRentalId, 1 },
+        { new GoldAmountTemplate(), GoldId, 1 },
+        { new LunariAmountTemplate(), LunariId, 1 },
+        { new BoosterPackTemplate(), PackId, 1 },
+        { new ReagentItemTemplate(), ReagentId, 1 },
+        { new PetSnackItemTemplate(), SnackId, 1 },
+        { BundleOf(PlainItemId, MountRentalId, PackId, ReagentId, SnackId), AnyGiftId, 1 },
+    };
+
+    [Theory]
+    [MemberData(nameof(GiftsRedemptionStillClears))]
+    public void Redemption_BundleThatYieldsADud_IsStillGranted(CoreTemplate bundle) {
+        Assert.True(GiftingService.CanGrantGift(Sender(), bundle, AnyGiftId));
+    }
+
+    public static TheoryData<CoreTemplate> GiftsRedemptionStillClears() => new() {
+        BundleOf(PlainItemId, GoldId),
+        BundleOf(PlainItemId, LunariId),
+        BundleOf(PlainItemId, TokensId),
+        BundleOf(PlainItemId, InnerBundleId),
+        BundleOf(),
+    };
+
+    [Theory]
+    [MemberData(nameof(GiftsRedemptionAlwaysFails))]
+    public void Redemption_NonItemOrTopLevelTokens_IsNeverGranted(CoreTemplate template, ulong templateId) {
+        Assert.False(GiftingService.CanGrantGift(Sender(), template, templateId));
+    }
+
+    public static TheoryData<CoreTemplate, ulong> GiftsRedemptionAlwaysFails() => new() {
+        { new TourneyTokensAmountTemplate(), TokensId },
+        { new SpellTemplate(), SpellId },
+        { null, NoTemplateId },
+        { BundleOf(PlainItemId, SpellId), AnyGiftId },
+        { BundleOf(PlainItemId, NoTemplateId), AnyGiftId },
+    };
 
     [Fact]
     public void PackSlot_RollDuplicatesOwnedRental_IsRerolled() {
@@ -218,6 +287,12 @@ public sealed class RentalItemsTests {
 
         return () => [new DropItemResult { ItemId = next.Dequeue().ToString() }];
     }
+
+    private static ItemBundleTemplate BundleOf(params ulong[] templateIds)
+        => new() { m_behaviors = [], m_bundleItems = [.. templateIds.Select(id => (uint) id)] };
+
+    private static Wizard Sender()
+        => new() { PlayerNameBehavior = new ServerWizPlayerNameBehavior { NameOverride = "Sender" } };
 
     private static WizItemTemplate Rental(string type)
         => new() { m_behaviors = [new RentalBehaviorTemplate { m_typeList = [type] }] };
