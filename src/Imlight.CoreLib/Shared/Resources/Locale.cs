@@ -39,7 +39,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 09/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using Imcodec.Wad;
@@ -144,7 +144,10 @@ internal class Locale : RootDirectoryResourceSingleton<Locale>, IMemoryStreamDis
     /// Retrieves the first and last name keys for a full name entry.
     /// </summary>
     /// <param name="fullNameKey">The full key (e.g., "WC-NPCs_00000024") of the full name entry.</param>
-    /// <returns>A tuple containing the first name key and last name key, or empty strings if no mapping exists.</returns>
+    /// <returns>
+    /// A tuple containing the first name key and last name key. A name with no separate entries for its parts
+    /// ("Dorothy Gale", or a kiosk's name in another table) is the whole key as the first name and no last name.
+    /// </returns>
     public static (string firstNameKey, string lastNameKey) GetEnglishNameKeys(string fullNameKey) {
         if (string.IsNullOrEmpty(fullNameKey)) {
             return ("", "");
@@ -154,7 +157,7 @@ internal class Locale : RootDirectoryResourceSingleton<Locale>, IMemoryStreamDis
             return nameParts;
         }
 
-        return ("", "");
+        return (fullNameKey, "");
     }
 
     public void DisposeStream()
