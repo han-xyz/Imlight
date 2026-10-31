@@ -84,6 +84,8 @@ public sealed class ZonePath : ZoneEntity {
     // Where each living creature of the path started, so a "random unique" spawn takes a free node.
     private readonly Dictionary<ulong, NodeObject> _startNodes = [];
     private readonly Random _rng = new();
+    // [Zone] WispSpawnCap: the most wisps a spawner keeps out at once, below its own maximum; 0 keeps the data's.
+    private static readonly int s_wispSpawnCap = Math.Max(0, ConfigurationManager.GetValue("Zone.WispSpawnCap", 0));
     private readonly Dictionary<IActorRef, (SpawnObject Spawner, GID ObjectId, string Name)> _loadingCreatures = [];
     private readonly HashSet<SpawnObject> _defeatedInInstance = new(ReferenceEqualityComparer.Instance);
     // Spawners a ResSpawn switched off (m_activate false).
@@ -367,6 +369,11 @@ public sealed class ZonePath : ZoneEntity {
             return false;
         }
 
+        // A street's wisp spawners keep dozens of glowing orbs out at once; the cap thins them.
+        if (s_wispSpawnCap > 0 && count >= s_wispSpawnCap && SpawnsWisps(spawnObject)) {
+            return false;
+        }
+
         var currentCount = CreatureCount(spawnObject);
         var spawnsAvailable = spawnObject.m_maxNumberOfSpawns - currentCount;
         if (spawnsAvailable <= 0) {
@@ -375,6 +382,11 @@ public sealed class ZonePath : ZoneEntity {
 
         return true;
     }
+
+    private static bool SpawnsWisps(SpawnObject spawnObject)
+        => spawnObject.m_spawnList?.Any(item => item.m_objectInfo is not null
+            && CoreObjectFactory.GetCoreTemplate(item.m_objectInfo.m_templateID) is GameObjectTemplate template
+            && template.m_objectName.ToString().Contains("Wisp", StringComparison.OrdinalIgnoreCase)) == true;
 
     private static SpawnItem PickRandomSpawnObject(List<SpawnItem> spawnItems) {
         var rng = new Random();
