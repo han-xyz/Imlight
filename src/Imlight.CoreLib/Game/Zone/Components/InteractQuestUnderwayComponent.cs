@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/28/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -64,7 +64,8 @@ internal class PlayerQuestUnderwayState {
 internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
     : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory {
 
-    private const string PREP_NPC_ICON = "Prep";
+    // The menu shows GUI/QuestButtons/Art_Quest_<key>.dds: Unfinished is the gray "?".
+    private const string UNDERWAY_ICON = "Unfinished";
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
 
     public string ServiceName => "QuestUnderwayService";
@@ -130,7 +131,7 @@ internal sealed class InteractQuestUnderwayComponent(ZoneEntity entity)
     internal PrepEntry ToUnderwayOption(QuestTemplate quest)
         => new() {
             m_displayKey = quest.m_questTitle,
-            m_iconKey = PREP_NPC_ICON,
+            m_iconKey = UNDERWAY_ICON,
             m_serviceName = ServiceName,
         };
 

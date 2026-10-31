@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -168,6 +168,24 @@ public sealed class NpcInteractionTests {
         Assert.Equal(["Title_Alpha", "Title_Beta"], options.Select(o => (string) ((PrepEntry) o).m_displayKey));
         Assert.Same(alpha, ClickOffer(table, offer, 0, [beta, alpha], wizard));
         Assert.Same(beta, ClickOffer(table, offer, 1, [beta, alpha], wizard));
+    }
+
+    [Fact]
+    public void QuestOffer_ShowsTheYellowStartIcon() {
+        var offer = new InteractQuestOfferComponent(null!);
+
+        var option = offer.ToOfferOption(new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" });
+
+        Assert.Equal("Start", (string) option.m_iconKey);
+    }
+
+    [Fact]
+    public void QuestUnderway_ShowsTheGrayUnfinishedIcon() {
+        var underway = new InteractQuestUnderwayComponent(null!);
+
+        var option = underway.ToUnderwayOption(new QuestTemplate { m_questName = "Alpha", m_questTitle = "Title_Alpha" });
+
+        Assert.Equal("Unfinished", (string) option.m_iconKey);
     }
 
     [Fact]

@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/28/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -66,7 +66,8 @@ internal class PlayerQuestOfferState {
 internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
     : ZoneEntityComponent(entity), IServiceComponent, IComponentFactory {
 
-    private const string PREP_NPC_ICON = "Prep";
+    // The menu shows GUI/QuestButtons/Art_Quest_<key>.dds: Start is the yellow "!", Prep a gray one.
+    private const string OFFER_ICON = "Start";
     private const double WIZBANG_UPDATE_INTERVAL_SECONDS = 1.0;
     private const string RequirePredecessorKey = "Quests.RequirePredecessor";
 
@@ -149,7 +150,7 @@ internal sealed partial class InteractQuestOfferComponent(ZoneEntity entity)
     internal PrepEntry ToOfferOption(QuestTemplate quest) {
         var option = new PrepEntry {
             m_displayKey = quest.m_questTitle,
-            m_iconKey = PREP_NPC_ICON,
+            m_iconKey = OFFER_ICON,
             m_serviceName = ServiceName,
         };
         _offeredQuests.AddOrUpdate(option, quest);
