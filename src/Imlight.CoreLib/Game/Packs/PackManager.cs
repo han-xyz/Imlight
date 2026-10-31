@@ -176,7 +176,8 @@ public static class PackManager {
         var tableNames = pack.m_lootTables ?? [];
         var packTables = tableNames.Select(tableName => tableOf(tableName)).OfType<DropTable>().ToList();
         if (packTables.Count == 0 || packTables.Count < tableNames.Count) {
-            Logger.Debug("Pack odds: {0} of {1} drop tables were found.", Logger.Args(packTables.Count, tableNames.Count));
+            Logger.Debug("Pack odds: {0} of {1} drop tables were found, missing [{2}].",
+                Logger.Args(packTables.Count, tableNames.Count, string.Join(",", tableNames.Where(tableName => tableOf(tableName) is null))));
         }
 
         var lootItems = new List<LootInfo>();
@@ -204,9 +205,9 @@ public static class PackManager {
 
     private static IEnumerable<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, double Chance)> ItemOdds(
         DropTable table, double tableChance, Func<ulong, CoreTemplate?> templateOf) {
-        var rollableItems = table.Items.Where(item => !string.IsNullOrEmpty(item.ItemId)).ToList();
+        var rollableItems = (table.Items ?? []).Where(item => !string.IsNullOrEmpty(item.ItemId)).ToList();
         foreach (var item in rollableItems) {
-            var chance = tableChance * DropTableRoller.PickChance(item, rollableItems) * (1.0 - table.NoneChance);
+            var chance = tableChance * DropTableRoller.PickChance(item, rollableItems);
             if (chance > 0 && uint.TryParse(item.ItemId, out var itemTemplateId) && templateOf(itemTemplateId) is { } itemTemplate) {
                 yield return (itemTemplateId, itemTemplate, table.Name, chance);
             }

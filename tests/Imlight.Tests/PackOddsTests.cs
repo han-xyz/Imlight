@@ -108,9 +108,23 @@ public sealed class PackOddsTests {
 
     [Fact]
     public void ListPackOdds_NoneChanceLowersTheOdds() {
-        var listing = List(Table("Set-A", noneChance: 0.25, items: Item(GearId)));
+        var listing = List(Table("Set-Rare", noneChance: 0.25, items: Item(CardId)), Table("Set-Common", items: Item(GearId)));
 
-        Assert.Equal(0.75f, Rarity(listing, GearId).m_expectedChance);
+        Assert.Equal(0.75f, Rarity(listing, CardId).m_expectedChance);
+    }
+
+    [Fact]
+    public void ListPackOdds_NoneChanceLeavesAnUngatedTableAlone() {
+        var listing = List(Table("Set-A", noneChance: 0.5, items: Item(GearId)));
+
+        Assert.Equal(1f, Rarity(listing, GearId).m_expectedChance);
+    }
+
+    [Fact]
+    public void ListPackOdds_ATableWithNullItemsGivesNothing() {
+        var listing = List(new DropTable { Name = "Set-A", Items = null! }, Table("Set-B", items: Item(GearId)));
+
+        Assert.Equal(100, Assert.Single(listing.m_lootRarityList.m_loot).m_odds);
     }
 
     [Fact]
