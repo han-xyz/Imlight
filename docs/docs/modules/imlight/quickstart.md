@@ -141,14 +141,14 @@ Player accounts and characters live in **RavenDB**. With `PlayerDatabaseUrl` emp
 PlayerDatabaseUrl =
 PlayerDatabaseName = Playerdata
 # Required for a remote database; resolved from the working directory
-PlayerDatabaseCertificatePath = ../playerdb-dev-1yr.pfx
+PlayerDatabaseCertificatePath =
 
 # Embedded database settings
 EmbeddedDatabaseDataDirectory = ../ImlightEmbeddedDatabase/
 EmbeddedDatabasePort = 8080
 ```
 
-For a remote database, set the URL and place the certificate at `PlayerDatabaseCertificatePath`.
+For a remote database, set the URL and point `PlayerDatabaseCertificatePath` at the certificate.
 
 ### World data (SpiralDB data pack)
 
