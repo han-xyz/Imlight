@@ -59,6 +59,7 @@ using Imlight.CoreLib.Shared.Items;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
+using Imlight.CoreLib.Shared.Utilities;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
 
@@ -1285,7 +1286,6 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
 
     private void DoTeleport(string location) {
         var coords = Util.GetVectorFromCompactString(location);
-        var compressedCoords = coords / 4;
 
         var directionYaw = coords.W % (2 * Math.PI);
         if (directionYaw < 0) {
@@ -1293,9 +1293,9 @@ internal class ZoneService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         var serverTele = new GAME_5_PROTOCOL.MSG_SERVERTELEPORT() {
-            LocationX = (ushort) compressedCoords.X,
-            LocationY = (ushort) compressedCoords.Y,
-            LocationZ = (ushort) compressedCoords.Z,
+            LocationX = WireCoordinate.Encode(coords.X),
+            LocationY = WireCoordinate.Encode(coords.Y),
+            LocationZ = WireCoordinate.Encode(coords.Z),
             Direction = (byte) Math.Round(directionYaw / (2 * Math.PI) * 250),
             MobileID = GetActiveGameObject().m_nMobileID,
         };

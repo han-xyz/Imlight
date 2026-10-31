@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/10/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -47,6 +47,7 @@ using Imlight.CoreLib.Game.World;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
+using Imlight.CoreLib.Shared.Utilities;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.Services;
@@ -226,14 +227,13 @@ internal class MoveService : MessageService {
 
         // If we are in the same zone as the marked location, teleport to it.
         if (wizard.MarkedZone == wizard.Zone) {
-            var deflatedPos = CompressLocation(wizard.MarkedLocation);
             var deflatedDir = CompressDirection(wizard.MarkedOrientation.Z);
 
             var serverTeleportRsp = new GAME_5_PROTOCOL.MSG_SERVERTELEPORT {
                 Direction = deflatedDir,
-                LocationX = (ushort) deflatedPos.X,
-                LocationY = (ushort) deflatedPos.Y,
-                LocationZ = (ushort) deflatedPos.Z,
+                LocationX = WireCoordinate.Encode(wizard.MarkedLocation.X),
+                LocationY = WireCoordinate.Encode(wizard.MarkedLocation.Y),
+                LocationZ = WireCoordinate.Encode(wizard.MarkedLocation.Z),
                 MobileID = wizard.GameObject.m_nMobileID,
             };
             var recallRsp = new GAME_5_PROTOCOL.MSG_MARK_LOCATION_RESPONSE {
@@ -305,12 +305,6 @@ internal class MoveService : MessageService {
 
         TellOtherServices(msg);
     }
-
-    private static Vector3 CompressLocation(Vector3 location) => new Vector3(
-            (float) Math.Round(location.X / 4),
-            (float) Math.Round(location.Y / 4),
-            (float) Math.Round(location.Z / 4)
-        );
 
     private static byte CompressDirection(float direction)
         => (byte) Math.Round(direction / Math.PI / 2 * 250);

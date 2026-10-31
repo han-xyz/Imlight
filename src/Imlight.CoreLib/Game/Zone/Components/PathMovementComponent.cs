@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 3/18/2025
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -47,6 +47,7 @@ using Imlight.Common;
 using Imlight.CoreLib.Game.Zone.Core;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
+using Imlight.CoreLib.Shared.Utilities;
 
 namespace Imlight.CoreLib.Game.Zone.Components;
 
@@ -68,7 +69,6 @@ internal sealed class PathMovementComponent(ZoneEntity entity) : ZoneEntityCompo
     private const sbyte MOVE_STATE_TRAVELLING = 1;
     private const float DIRECTION_UNITS_PER_RADIAN = 40.0f;
     private const int DIRECTION_UNITS_MAXIMUM = 251;
-    private const float COORDINATE_UNITS_PER_WIRE_UNIT = 4.0f;
 
     public bool Stopped { get; set; }
     public ITimerScheduler Timers { get; set; }
@@ -366,9 +366,9 @@ internal sealed class PathMovementComponent(ZoneEntity entity) : ZoneEntityCompo
     private GAME_5_PROTOCOL.MSG_SERVERMOVE CreateServerMoveMessage(Vector3 location)
         => new() {
             Direction = _segmentDirection,
-            LocationX = EncodeCoordinate(location.X),
-            LocationY = EncodeCoordinate(location.Y),
-            LocationZ = EncodeCoordinate(location.Z),
+            LocationX = WireCoordinate.Encode(location.X),
+            LocationY = WireCoordinate.Encode(location.Y),
+            LocationZ = WireCoordinate.Encode(location.Z),
             MobileID = Entity.MobileID
         };
 
@@ -382,9 +382,6 @@ internal sealed class PathMovementComponent(ZoneEntity entity) : ZoneEntityCompo
 
         return (byte) Math.Min(units, DIRECTION_UNITS_MAXIMUM);
     }
-
-    private static ushort EncodeCoordinate(float coordinate)
-        => unchecked((ushort) (short) MathF.Round(coordinate / COORDINATE_UNITS_PER_WIRE_UNIT));
 
     private Vector3 GetPosition() {
         if (_currentNode is null) {
