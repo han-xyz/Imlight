@@ -242,6 +242,15 @@ public static class DropTableRoller {
         return items.Count - 1;
     }
 
+    /// <summary>
+    /// The chance <see cref="PickWeighted"/> picks <paramref name="item"/> from <paramref name="items"/>.
+    /// </summary>
+    internal static double PickChance(DropItem item, IReadOnlyList<DropItem> items) {
+        var totalWeight = items.Sum(listed => Math.Max(listed.Weight, 0));
+
+        return totalWeight == 0 ? 1.0 / items.Count : (double) Math.Max(item.Weight, 0) / totalWeight;
+    }
+
     private static DropTableResult CreateEmptyResult(string dropTableId = "") 
         => new() {
             DropTableId = dropTableId,

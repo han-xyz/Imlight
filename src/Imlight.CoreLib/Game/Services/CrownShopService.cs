@@ -35,7 +35,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using Akka.Actor;
@@ -165,6 +165,19 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             Updates = string.Empty,
             UpdateID = nextUpdateId,
             Error = 0
+        });
+    }
+
+    // SourceID as the pack's template id is inferred, with no capture to confirm it, so each request logs what arrived.
+    [MessageHandler(typeof(WIZARD3_56_PROTOCOL.MSG_REQUESTPACKODDS))]
+    private void ReceiveRequestPackOdds(WIZARD3_56_PROTOCOL.MSG_REQUESTPACKODDS message) {
+        Logger.Debug("Received MSG_REQUESTPACKODDS with SourceID {0} and {1} bytes of Data.",
+            Logger.Args(message.SourceID, message.Data.Length));
+
+        SendToSocket(new WIZARD3_56_PROTOCOL.MSG_REQUESTPACKODDS {
+            SourceID = message.SourceID,
+            Data = PackManager.SerializePackOdds(message.SourceID, id => CrownShopHandler.TryGetCrownShopItem(id, out _),
+                PackTierChances.FromConfiguration())
         });
     }
 

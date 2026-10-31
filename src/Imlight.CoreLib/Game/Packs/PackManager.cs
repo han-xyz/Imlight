@@ -22,7 +22,8 @@
  * PURPOSE:
  * Handles rolling booster pack loot tables, granting the resulting items
  * (spells, reagents, pet snacks, equipment/housing items) to a wizard, and
- * dispatching the pack reward confirmation packet to the client.
+ * dispatching the pack reward confirmation packet to the client. Also lists what
+ * a pack can give for the crown shop's Preview window, without rolling.
  */
 
 using System;
@@ -137,6 +138,81 @@ public static class PackManager {
             && templateOf(itemTemplateId) is { } template
             && template is not (SpellTemplate or ReagentItemTemplate or PetSnackItemTemplate);
 
+    /// <summary>
+    /// The Preview listing a MSG_REQUESTPACKODDS reply carries: the serialized <see cref="ListPackOdds"/> of a template
+    /// the shop sells and that is a booster pack, and an empty listing for anything else. Nothing is rolled or granted.
+    /// </summary>
+    internal static ByteString SerializePackOdds(ulong templateId, Func<ulong, bool> isSold, PackTierChances chances,
+                                                 Func<string, DropTable?>? tableOf = null,
+                                                 Func<ulong, CoreTemplate?>? templateOf = null) {
+        templateOf ??= CoreObjectFactory.GetCoreTemplate;
+
+        LootInfoList listing;
+        if (isSold(templateId) && templateOf(templateId) is BoosterPackTemplate pack) {
+            listing = ListPackOdds(pack, chances, tableOf, templateOf);
+        } else {
+            Logger.Debug("Pack odds for template {0}: not a booster pack the shop sells, so the listing is empty.", Logger.Args(templateId));
+            listing = ToLootInfoList([], []);
+        }
+
+        if (!s_objectSerializer.Serialize(listing, PropertyFlags.Prop_Public, out var serializedListing)) {
+            Logger.Error("Failed to serialize the pack odds listing for template {0}.", Logger.Args(templateId));
+            return ByteString.Empty;
+        }
+
+        return serializedListing;
+    }
+
+    /// <summary>
+    /// One <see cref="LootInfo"/> and one <see cref="LootRarity"/> per distinct item the pack can give. An item's chance
+    /// is summed over the pack's slots and capped at 1; pity and an item's requirements do not change it.
+    /// </summary>
+    internal static LootInfoList ListPackOdds(BoosterPackTemplate pack, PackTierChances chances,
+                                              Func<string, DropTable?>? tableOf = null,
+                                              Func<ulong, CoreTemplate?>? templateOf = null) {
+        tableOf ??= DropTableCollection.GetDropTable;
+        templateOf ??= CoreObjectFactory.GetCoreTemplate;
+
+        var tableNames = pack.m_lootTables ?? [];
+        var packTables = tableNames.Select(tableName => tableOf(tableName)).OfType<DropTable>().ToList();
+        if (packTables.Count == 0 || packTables.Count < tableNames.Count) {
+            Logger.Debug("Pack odds: {0} of {1} drop tables were found.", Logger.Args(packTables.Count, tableNames.Count));
+        }
+
+        var lootItems = new List<LootInfo>();
+        var lootRarities = new List<LootRarity>();
+        var itemOdds = Enumerable.Range(0, packTables.Count)
+            .SelectMany(slotIndex => PackSlotOdds.TableChances(slotIndex, packTables, chances))
+            .SelectMany(slot => ItemOdds(slot.Table, slot.Chance, templateOf))
+            .GroupBy(odds => odds.ItemTemplateId);
+        foreach (var oddsOfItem in itemOdds) {
+            var (itemTemplateId, itemTemplate, tableName, _) = oddsOfItem.First();
+            var chance = Math.Min(oddsOfItem.Sum(odds => odds.Chance), 1.0);
+
+            lootItems.Add(ToLootInfo(itemTemplateId, itemTemplate));
+            lootRarities.Add(new LootRarity {
+                m_rarity = ResolveRarity(itemTemplate, tableName),
+                m_lootGid = (GID) itemTemplateId,
+                m_odds = Math.Max((int) Math.Round(chance * 100), 1),
+                m_expectedValue = 0f,
+                m_expectedChance = (float) chance
+            });
+        }
+
+        return ToLootInfoList(lootItems, lootRarities);
+    }
+
+    private static IEnumerable<(uint ItemTemplateId, CoreTemplate ItemTemplate, string TableName, double Chance)> ItemOdds(
+        DropTable table, double tableChance, Func<ulong, CoreTemplate?> templateOf) {
+        var rollableItems = table.Items.Where(item => !string.IsNullOrEmpty(item.ItemId)).ToList();
+        foreach (var item in rollableItems) {
+            var chance = tableChance * DropTableRoller.PickChance(item, rollableItems) * (1.0 - table.NoneChance);
+            if (chance > 0 && uint.TryParse(item.ItemId, out var itemTemplateId) && templateOf(itemTemplateId) is { } itemTemplate) {
+                yield return (itemTemplateId, itemTemplate, table.Name, chance);
+            }
+        }
+    }
+
     private static bool TryRollPacks(IActorRef sessionActorRef, Wizard wizard, ulong packTemplateId, int count,
                                      List<RolledPack> rolledPacks) {
         if (count < 1) {
@@ -201,29 +277,7 @@ public static class PackManager {
             var lootRarities = new List<LootRarity>(rolledDrops.Count);
 
             foreach (var (itemTemplateId, itemTemplate, tableName, _) in rolledDrops) {
-                LootInfo lootInfo = itemTemplate switch {
-                    SpellTemplate => new TreasureCardLootInfo {
-                        m_lootType = LOOT_TYPE.LOOT_TYPE_TREASURE_CARD,
-                        m_spellID = itemTemplateId,
-                        m_numItems = 1
-                    },
-                    PetSnackItemTemplate => new PetSnackLootInfo {
-                        m_lootType = LOOT_TYPE.LOOT_TYPE_PETSNACK,
-                        m_itemID = (GID) itemTemplateId,
-                        m_numItems = 1
-                    },
-                    ReagentItemTemplate => new ReagentLootInfo {
-                        m_lootType = LOOT_TYPE.LOOT_TYPE_REAGENT,
-                        m_itemID = (GID) itemTemplateId,
-                        m_numItems = 1
-                    },
-                    _ => new ItemLootInfo {
-                        m_lootType = LOOT_TYPE.LOOT_TYPE_ITEM,
-                        m_itemID = (GID) itemTemplateId,
-                        m_numItems = 1
-                    }
-                };
-                lootItems.Add(lootInfo);
+                lootItems.Add(ToLootInfo(itemTemplateId, itemTemplate));
 
                 lootRarities.Add(new LootRarity {
                     m_rarity = ResolveRarity(itemTemplate, tableName),
@@ -232,15 +286,7 @@ public static class PackManager {
                 });
             }
 
-            var lootInfoList = new LootInfoList {
-                m_loot = lootItems,
-                m_goldInfo = null,
-                m_lootRarityList = new LootRarityList {
-                    m_loot = lootRarities
-                }
-            };
-
-            if (!s_objectSerializer.Serialize(lootInfoList, PropertyFlags.Prop_Public, out var serializedLoot)) {
+            if (!s_objectSerializer.Serialize(ToLootInfoList(lootItems, lootRarities), PropertyFlags.Prop_Public, out var serializedLoot)) {
                 Logger.Error("Failed to serialize LootInfoList for booster pack {0}.", Logger.Args(packTemplateId));
                 return false;
             }
@@ -250,6 +296,37 @@ public static class PackManager {
 
         return true;
     }
+
+    private static LootInfo ToLootInfo(uint itemTemplateId, CoreTemplate itemTemplate) => itemTemplate switch {
+        SpellTemplate => new TreasureCardLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_TREASURE_CARD,
+            m_spellID = itemTemplateId,
+            m_numItems = 1
+        },
+        PetSnackItemTemplate => new PetSnackLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_PETSNACK,
+            m_itemID = (GID) itemTemplateId,
+            m_numItems = 1
+        },
+        ReagentItemTemplate => new ReagentLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_REAGENT,
+            m_itemID = (GID) itemTemplateId,
+            m_numItems = 1
+        },
+        _ => new ItemLootInfo {
+            m_lootType = LOOT_TYPE.LOOT_TYPE_ITEM,
+            m_itemID = (GID) itemTemplateId,
+            m_numItems = 1
+        }
+    };
+
+    private static LootInfoList ToLootInfoList(List<LootInfo> lootItems, List<LootRarity> lootRarities) => new() {
+        m_loot = lootItems,
+        m_goldInfo = null,
+        m_lootRarityList = new LootRarityList {
+            m_loot = lootRarities
+        }
+    };
 
     private sealed record RolledPack(
         ulong PackTemplateId,

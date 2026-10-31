@@ -35,7 +35,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -161,6 +161,31 @@ internal static class PackSlotOdds {
         => TierOf(packTables[slotIndex].Name) is { } slotTier
             ? [.. FallbackChain(slotIndex, packTables, slotTier).Select(candidate => candidate.Table)]
             : [packTables[slotIndex]];
+
+    /// <summary>
+    /// Every table of <see cref="PossibleTables"/> with the chance the slot rolls it in one opening, walking the gates
+    /// of <see cref="ResolveSlot"/>. Pity is not counted, because it differs per account.
+    /// </summary>
+    internal static IReadOnlyList<(DropTable Table, double Chance)> TableChances(int slotIndex, IReadOnlyList<DropTable> packTables,
+                                                                                 PackTierChances chances) {
+        var slotTable = packTables[slotIndex];
+        if (TierOf(slotTable.Name) is not { } slotTier) {
+            return [(slotTable, Math.Clamp(slotTable.RollChance, 0.0, 1.0))];
+        }
+
+        var candidates = FallbackChain(slotIndex, packTables, slotTier);
+        var tableChances = new List<(DropTable Table, double Chance)>(candidates.Count);
+        var chanceOfReaching = 1.0;
+        foreach (var (tier, table) in candidates.Take(candidates.Count - 1)) {
+            var gateChance = Math.Clamp(GateChance(tier, table, chances), 0.0, 1.0);
+            tableChances.Add((table, chanceOfReaching * gateChance));
+            chanceOfReaching *= 1.0 - gateChance;
+        }
+
+        tableChances.Add((candidates[^1].Table, chanceOfReaching));
+
+        return tableChances;
+    }
 
     private static List<(PackTier Tier, DropTable Table)> FallbackChain(int slotIndex, IReadOnlyList<DropTable> packTables,
                                                                        PackTier slotTier) {
