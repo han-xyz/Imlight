@@ -38,7 +38,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -64,6 +64,8 @@ using Imlight.CoreLib.WizardData.Models.Player;
 namespace Imlight.CoreLib.Shared.Networking;
 
 internal abstract class MessageService(SessionActor sessionActor) : ReceiveProtocolDispatcher, IWithTimers {
+
+    private static readonly TimeSpan ZoneEntityQueryTimeout = TimeSpan.FromSeconds(2);
 
     public ITimerScheduler Timers { get; set; }
 
@@ -223,7 +225,7 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
     /// <param name="message"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    protected T AskOtherService<T>(IServerMessage message)
+    protected T AskOtherService<T>(IServerMessage message, TimeSpan? timeout = null)
         where T : IServerMessage {
         if (SessionActor is null) {
             throw new ActorKilledException($"{this.GetType()} attempted to send message to undefined SessionActor.");
@@ -234,7 +236,7 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
                                 $"Do not do this. Use {nameof(SendToSocket)} instead.");
         }
 
-        var task = SessionActor.HandleInternalAsk<T>(message);
+        var task = SessionActor.HandleInternalAsk<T>(message, timeout);
 
         return task;
     }
@@ -359,7 +361,10 @@ internal abstract class MessageService(SessionActor sessionActor) : ReceiveProto
         var msg = new ZONE_102_PROTOCOL.MSG_QUERYZONEENTITY {
             GlobalID = globalId
         };
-        var response = AskOtherService<ZONE_102_PROTOCOL.MSG_QUERYZONEENTITYRSP>(msg);
+
+        // Only the matching entity answers, so an object that is gone (a reagent just picked) shows only as a timeout,
+        // and this service waits it out before it handles anything else.
+        var response = AskOtherService<ZONE_102_PROTOCOL.MSG_QUERYZONEENTITYRSP>(msg, ZoneEntityQueryTimeout);
         if (response is null) {
             return null;
         }

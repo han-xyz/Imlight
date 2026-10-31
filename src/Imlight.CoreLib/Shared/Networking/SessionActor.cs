@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -208,8 +208,9 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
     /// <param name="msg"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public T HandleInternalAsk<T>(IServerMessage msg)
+    public T HandleInternalAsk<T>(IServerMessage msg, TimeSpan? timeout = null)
         where T : IServerMessage {
+        var askTimeout = timeout ?? s_askTimeout;
         if (_dispatchTable.TryGetValue(msg.GetType(), out var handlers)) {
             foreach (var handler in handlers) {
                 if (handler == Sender) {
@@ -217,12 +218,12 @@ public sealed class SessionActor : ReceiveActor, IDisposable {
                 }
 
                 try {
-                    return handler.Ask<T>(msg, timeout: s_askTimeout).Result;
+                    return handler.Ask<T>(msg, timeout: askTimeout).Result;
                 }
                 catch (Exception ex) {
                     var serviceName = _services.TryGetValue(handler, out var service) ? service.GetType().Name : handler.Path.Name;
                     Logger.Error("Session {Id}: {Service} did not answer {Message} within {Timeout}s. {Reason}",
-                        Logger.Args(SessionID, serviceName, msg.GetType().Name, s_askTimeout.TotalSeconds,
+                        Logger.Args(SessionID, serviceName, msg.GetType().Name, askTimeout.TotalSeconds,
                             ex.InnerException?.Message ?? ex.Message));
                 }
             }
