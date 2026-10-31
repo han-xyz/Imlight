@@ -19,6 +19,7 @@
 using System;
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Operations;
 using Imlight.Common;
@@ -55,7 +56,20 @@ public abstract class RavenDatabaseSingleton<T> where T : RavenDatabaseSingleton
     // Create the store if it doesn't exist, otherwise return the existing store.
     // If no URL is specified, create an embedded store.
     protected IDocumentStore _store;
-    public IDocumentStore Store => _store ??= string.IsNullOrEmpty(Url) ? CreateEmbeddedStore() : CreateStore();
+    private readonly Lock _storeLock = new();
+
+    public IDocumentStore Store {
+        get {
+            if (_store is not null) {
+                return _store;
+            }
+
+            // The collections read the store from their static constructors, which can run at the same moment.
+            lock (_storeLock) {
+                return _store ??= string.IsNullOrEmpty(Url) ? CreateEmbeddedStore() : CreateStore();
+            }
+        }
+    }
     public bool IsEmbedded { get; protected set; }
 
     protected virtual IDocumentStore CreateStore() {
