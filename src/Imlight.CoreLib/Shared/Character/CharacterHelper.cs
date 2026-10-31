@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 3/18/2025
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -65,6 +65,9 @@ internal static class CharacterHelper {
         // Reset the base stats to the default values.
         wizard.GameStats.SetBaseStats();
         wizard.GameEffects = [];
+
+        // The equipped items give their cards again below; kept, each recalculation would add another copy.
+        wizard.SpellbookBehavior?.RemoveItemCards();
 
         // Iterate through the equipped items and apply their effects.
         foreach (var item in wizard.EquipmentBehavior.EquippedItems) {

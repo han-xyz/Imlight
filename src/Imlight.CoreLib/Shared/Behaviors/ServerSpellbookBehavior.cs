@@ -61,6 +61,9 @@ public class ServerSpellbookBehavior : IClientBehaviorProvider<ClientSpellbookBe
         }
     }
 
+    public void RemoveItemCards()
+        => TemporarySpells?.RemoveAll(spell => spell.m_itemCard);
+
     public void RemoveTemporarySpellFromBook(uint stringHash) {
         if (TemporarySpells is null) {
             return;
