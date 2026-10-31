@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -127,6 +127,28 @@ public sealed class GrantTransactionTests {
     private int Reserve() {
         _events.Add("debit");
         return 0;
+    }
+
+    [Fact]
+    public void Gift_MailNotSaved_RefundsTheSender() {
+        var error = GrantTransaction.Run(
+            reserve: Reserve,
+            release: () => _events.Add("refund"),
+            grant: _ => CrownShopPurchaseRules.SaveGiftMail(() => false));
+
+        Assert.Equal(CrownShopErrors.FailedToSendGift, error);
+        Assert.Equal(["debit", "refund"], _events);
+    }
+
+    [Fact]
+    public void Gift_MailSaved_KeepsTheCharge() {
+        var error = GrantTransaction.Run(
+            reserve: Reserve,
+            release: () => _events.Add("refund"),
+            grant: _ => CrownShopPurchaseRules.SaveGiftMail(() => true));
+
+        Assert.Equal(0, error);
+        Assert.Equal(["debit"], _events);
     }
 
     private void GrantUnit(GrantTransaction transaction, string what) {

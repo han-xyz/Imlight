@@ -32,7 +32,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -309,6 +309,19 @@ public sealed class CrownShopTests : IDisposable {
         var item = new CrownShopItem { m_crownsCost = int.MaxValue / 2 };
 
         Assert.False(CrownShopPrice.TryCompute(item, CrownShopPrice.CrownsCurrency, 3, out _));
+    }
+
+    [Theory]
+    [InlineData(CrownShopPrice.GoldCurrency, 1)]
+    [InlineData(2, 1)]
+    [InlineData(CrownShopPrice.CrownsCurrency, 3)]
+    public void TryPrice_NoPrice_IsRefusedAndAddsNoInfraction(int currency, int count) {
+        var account = new Account();
+        var wizard = new Wizard { Account = account, PlayerNameBehavior = new ServerWizPlayerNameBehavior { NameOverride = "Buyer" } };
+        var crownsOnly = new CrownShopItem { m_goldCost = 0, m_crownsCost = int.MaxValue / 2 };
+
+        Assert.False(CrownShopPurchaseRules.TryPrice(wizard, crownsOnly, CrownsOnlyItemId, currency, count, out _));
+        Assert.Empty(account.InfractionIds);
     }
 
     [Fact]

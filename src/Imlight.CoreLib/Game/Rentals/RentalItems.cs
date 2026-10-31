@@ -32,7 +32,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -147,6 +147,56 @@ internal static class RentalItems {
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks whether acquiring an item would leave the wizard holding two rentals of one type.
+    /// </summary>
+    /// <param name="wizard">The wizard that would hold the item.</param>
+    /// <param name="template">The item about to be acquired; a bundle counts as its contents.</param>
+    /// <param name="count">How many copies are acquired at once.</param>
+    /// <returns>True if a rental among them shares a type with an owned rental, or with another one among them.</returns>
+    internal static bool WouldDuplicateType(Wizard wizard, CoreTemplate template, int count = 1)
+        => RentalsIn(template).Any(rental => OwnsType(wizard, rental)) || DuplicatesItself(template, count);
+
+    /// <summary>
+    /// Checks whether an acquisition holds two rentals of one type on its own, so that no wizard could ever take all of it.
+    /// </summary>
+    /// <param name="template">The item about to be acquired; a bundle counts as its contents.</param>
+    /// <param name="count">How many copies are acquired at once.</param>
+    /// <returns>True if a rental among them shares a type with another one among them.</returns>
+    internal static bool DuplicatesItself(CoreTemplate template, int count) {
+        var types = RentalsIn(template).SelectMany(rental => (rental.m_typeList ?? []).Distinct()).ToList();
+
+        return count > 1 ? types.Count > 0 : types.Distinct().Count() < types.Count;
+    }
+
+    /// <summary>
+    /// Checks whether a rolled drop is a rental of a type the wizard owns or the same grant already rolled.
+    /// </summary>
+    /// <param name="wizard">The wizard that would hold the drop.</param>
+    /// <param name="drop">The rolled item.</param>
+    /// <param name="alreadyRolled">The items rolled earlier in the same grant, which the wizard does not hold yet.</param>
+    /// <returns>True if the drop must not be granted.</returns>
+    internal static bool DuplicatesDrop(Wizard wizard, CoreTemplate drop, IEnumerable<CoreTemplate> alreadyRolled) {
+        if (!TryGetRentalTemplate(drop as WizItemTemplate, out var rental) || rental.m_typeList is null) {
+            return false;
+        }
+
+        return OwnsType(wizard, rental)
+            || alreadyRolled.Any(rolled => TryGetRentalTemplate(rolled as WizItemTemplate, out var earlier)
+                && earlier.m_typeList?.Any(rental.m_typeList.Contains) == true);
+    }
+
+    private static List<RentalBehaviorTemplate> RentalsIn(CoreTemplate template) {
+        IEnumerable<CoreTemplate> contents = template is ItemBundleTemplate bundle
+            ? bundle.m_bundleItems.Select(templateId => CoreObjectFactory.GetCoreTemplate(templateId))
+            : [template];
+
+        return contents
+            .Select(content => TryGetRentalTemplate(content as WizItemTemplate, out var rental) ? rental : null)
+            .Where(rental => rental is not null)
+            .ToList();
     }
 
     private static IEnumerable<WizClientObjectItem> AllItems(Wizard wizard) {

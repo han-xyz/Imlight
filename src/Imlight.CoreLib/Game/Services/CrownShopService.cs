@@ -60,7 +60,6 @@ using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
-using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System;
 using System.Collections.Generic;
@@ -102,7 +101,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     private static readonly int s_errorCSDisabled = CrownShopErrors.Register("Error_CrownShopDisabled");
     private static readonly int s_errorPurchase = CrownShopErrors.PriceLockMismatch;
     private static readonly int s_errorNoGiftThisItem = CrownShopErrors.Register("Error_NoGiftThisItem");
-    private static readonly int s_errorFailedToSendGift = CrownShopErrors.Register("Error_FailedToSendGift");
+    private static readonly int s_errorFailedToSendGift = CrownShopErrors.FailedToSendGift;
     private static readonly int s_errorNoPriceForType = CrownShopErrors.Register("Error_PriceLockNoPriceForType");
 
     private const string HenchmanSummonTimeoutKey = "HenchmanSummonTimeout";
@@ -247,16 +246,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (!CrownShopPrice.TryCompute(catalogItem, message.Type, message.Count, out var amountToPay)) {
-            // The currency type and count come from the client, so a price the item does not have is never trusted.
-            var infractionText = $"Player tried to buy crown shop item {message.Item} "
-                + $"with currency type {message.Type} and count {message.Count}, which the item isn't sold for!";
-            GetActiveAccount().AddInfraction(InfractionType.SuspiciousBehavior, infractionText);
-
-            Logger.Warning("{Character} (ID {CharId}) tried to buy crown shop item {Template} "
-                + "with currency type {CurrencyType} (count {Count}), which the item isn't sold for. "
-                + "The purchase was refused, and this has been logged as suspicious behavior.",
-                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizard.CharId, message.Item, message.Type, message.Count));
+        if (!CrownShopPurchaseRules.TryPrice(wizard, catalogItem, message.Item, message.Type, message.Count, out var amountToPay)) {
             SendPurchaseError(s_errorNoPriceForType, message.Item, wizard.IsInDuel);
             return;
         }
@@ -278,7 +268,9 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         var error = GrantTransaction.Run(
-            reserve: () => TryDebit(wizard, message.Type, amountToPay),
+            reserve: () => isGift
+                ? CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(wizard, itemTemplate, message.Item, message.Count, () => TryDebit(wizard, message.Type, amountToPay))
+                : CrownShopPurchaseRules.ChargeUnlessDuplicateRental(wizard, itemTemplate, message.Count, () => TryDebit(wizard, message.Type, amountToPay)),
             release: () => Refund(wizard, message.Type, amountToPay),
             grant: transaction => isGift
                 ? TryDeliverGift(wizard, message)
@@ -746,7 +738,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             m_mailId = GenerateRandomUlong()
         };
 
-        targetAccount.AddMail(mail);
+        var saveError = CrownShopPurchaseRules.SaveGiftMail(() => targetAccount.AddMail(mail));
+        if (saveError != 0) {
+            Logger.Error("Could not save gift mail {0} for account {1}.", Logger.Args(mail.m_mailId, recipientAccountId));
+            return saveError;
+        }
 
         var itemTemplateId = (uint) message.Item;
         var removedFromWishlist = WishlistData.TryRemoveItem(targetCharacter.CrownShopWishlist, itemTemplateId, out var updatedWishlist);

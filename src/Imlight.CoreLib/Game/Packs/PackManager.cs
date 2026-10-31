@@ -42,6 +42,7 @@ using Imlight.Common;
 using Imlight.CoreLib.Game.DropTables;
 using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
 using Imlight.CoreLib.WizardData.Models.Player;
@@ -53,6 +54,7 @@ public static class PackManager {
 
     private static readonly CoreObjectSerializer s_coreObjectSerializer = new(behaviors: SerializerFlags.None);
     private static readonly ObjectSerializer s_objectSerializer = new(Versionable: false);
+    private const int MaxRentalRerolls = 20;
     private static readonly ConcurrentDictionary<(ulong AccountId, ulong PackTemplateId), PackPity> s_pity = new();
 
     /// <summary>
@@ -253,7 +255,10 @@ public static class PackManager {
                 }
 
                 var tableName = slotLoot.Name;
-                var droppedItems = DropTableRoller.RollTableItems(slotLoot, sessionActorRef, wizard.GameObject, wizard, Random.Shared);
+                var droppedItems = RollSlotWithoutDuplicateRentals(
+                    () => DropTableRoller.RollTableItems(slotLoot, sessionActorRef, wizard.GameObject, wizard, Random.Shared),
+                    wizard,
+                    rolledPacks.SelectMany(pack => pack.Drops).Concat(rolledDrops).Select(drop => drop.ItemTemplate));
                 foreach (var droppedItem in droppedItems) {
                     if (!uint.TryParse(droppedItem.ItemId, out var itemTemplateId)) {
                         continue;
@@ -329,6 +334,23 @@ public static class PackManager {
             m_loot = lootRarities
         }
     };
+
+    /// <summary>
+    /// Rolls one pack slot until its drops give no second rental of a type, as loot cannot be taken back once rolled.
+    /// A duplicate still there after <see cref="MaxRentalRerolls"/> rerolls is left out: its table may hold nothing else.
+    /// </summary>
+    internal static List<DropItemResult> RollSlotWithoutDuplicateRentals(Func<List<DropItemResult>> roll, Wizard wizard, IEnumerable<CoreTemplate> alreadyRolled) {
+        bool IsDuplicate(DropItemResult item)
+            => uint.TryParse(item.ItemId, out var templateId)
+                && RentalItems.DuplicatesDrop(wizard, CoreObjectFactory.GetCoreTemplate(templateId), alreadyRolled);
+
+        var dropped = roll();
+        for (var reroll = 0; reroll < MaxRentalRerolls && dropped.Any(IsDuplicate); reroll++) {
+            dropped = roll();
+        }
+
+        return dropped.Where(item => !IsDuplicate(item)).ToList();
+    }
 
     private sealed record RolledPack(
         ulong PackTemplateId,

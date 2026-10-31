@@ -34,7 +34,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 27.10.2026
+ * Last Updated: 10/31/2026
  */
 using Akka.Actor;
 using Imcodec.CoreObject;
@@ -46,6 +46,7 @@ using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
@@ -221,6 +222,14 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
             }
         }
 
+        if (RentalItems.WouldDuplicateType(wizard, itemTemplate, itemCount)) {
+            Logger.Warning("Player {0} tried to redeem gift {1}, which would give a second rental of one type.",
+                Logger.Args(wizard.CharId, message.MailId));
+            InformGameClient("You cannot hold another rental of this type. The gift stays in your mailbox.");
+            SendRedeemFailure(message.MailId);
+            return;
+        }
+
         var error = GrantTransaction.Run(
             reserve: () => ReserveMail(wizard.Account, selectedMail),
             release: () => RestoreMail(wizard.Account, selectedMail),
@@ -256,7 +265,40 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
         }
     }
 
+    /// <summary>
+    /// Checks whether GrantGift can ever grant a gift, whatever the recipient holds. GrantGift refuses what this refuses.
+    /// </summary>
+    internal static bool CanGrantGift(Wizard wizard, CoreTemplate template, ulong templateId)
+        => template switch {
+            TourneyTokensAmountTemplate => false,
+            BoosterPackTemplate or GoldAmountTemplate or LunariAmountTemplate or PetSnackItemTemplate or ReagentItemTemplate => true,
+            ItemBundleTemplate bundle => bundle.m_bundleItems.All(itemId => CanGrantBundleItem(wizard, itemId)),
+            _ => wizard.TryCreateItem(templateId, out _),
+        };
+
+    private static bool CanGrantBundleItem(Wizard wizard, ulong templateId)
+        => CoreObjectFactory.GetCoreTemplate(templateId) is BoosterPackTemplate or PetSnackItemTemplate or ReagentItemTemplate
+            || wizard.TryCreateItem(templateId, out _);
+
+    /// <summary>
+    /// Checks whether a gift may be bought. Stricter than CanGrantGift: GrantGift also clears a bundle that is empty, or
+    /// whose currency or inner bundle becomes a backpack object that gives nothing. Mail already holding one still redeems.
+    /// </summary>
+    internal static bool MaySendAsGift(Wizard wizard, CoreTemplate template, ulong templateId)
+        => CanGrantGift(wizard, template, templateId)
+            && (template is not ItemBundleTemplate bundle
+                || (bundle.m_bundleItems.Count > 0 && !bundle.m_bundleItems.Any(itemId => GrantsADudInBundle(itemId))));
+
+    private static bool GrantsADudInBundle(ulong templateId)
+        => CoreObjectFactory.GetCoreTemplate(templateId)
+            is GoldAmountTemplate or LunariAmountTemplate or TourneyTokensAmountTemplate or ItemBundleTemplate;
+
     private int GrantGift(GrantTransaction transaction, Wizard wizard, CrownShopGiftRedemption giftRedemption, CoreTemplate itemTemplate) {
+        if (!CanGrantGift(wizard, itemTemplate, giftRedemption.m_itemId)) {
+            Logger.Warning("Gift {0} can never be granted; it stays in the mailbox.", Logger.Args(giftRedemption.m_itemId));
+            return RedeemFailed;
+        }
+
         var count = (int) giftRedemption.m_itemCount;
         switch (itemTemplate) {
             // Pack loot is rolled and cannot be taken back, so packs are the whole grant.
@@ -282,10 +324,6 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                     MaxEventCurrency1 = wizard.GameStats.m_baseEventCurrency1Pouch
                 }));
                 return 0;
-
-            case TourneyTokensAmountTemplate:
-                Logger.Warning("Tourney tokens cannot be granted yet; gift {0} stays in the mailbox.", Logger.Args(giftRedemption.m_itemId));
-                return RedeemFailed;
 
             case PetSnackItemTemplate petSnackTemplate:
                 return TryGrantPetSnack(transaction, wizard, petSnackTemplate.m_templateID, count) ? 0 : RedeemFailed;

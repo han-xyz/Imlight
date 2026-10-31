@@ -33,7 +33,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System.Collections.Concurrent;
@@ -47,6 +47,7 @@ internal static class CrownShopErrors {
 
     public static readonly int NotInCombat = Register("Error_NotInCombat");
     public static readonly int PriceLockMismatch = Register("Error_PriceLockMismatch");
+    public static readonly int FailedToSendGift = Register("Error_FailedToSendGift");
 
     public static int Register(string name) {
         var code = (int) StringHash.Compute(name);
