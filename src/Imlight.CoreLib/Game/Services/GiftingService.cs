@@ -34,7 +34,7 @@
  * 
  * Created by: Phill030
  * Version: KALI 1.0
- * Last Updated: 27.10.2026
+ * Last Updated: 10/31/2026
  */
 using Akka.Actor;
 using Imcodec.CoreObject;
@@ -46,6 +46,7 @@ using Imlight.CoreLib.Game.CrownShop;
 using Imlight.CoreLib.Game.Inventory;
 using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Pet;
+using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
@@ -219,6 +220,14 @@ internal class GiftingService(SessionActor sessionActor) : MessageService(sessio
                 SendRedeemFailure(message.MailId);
                 return;
             }
+        }
+
+        if (RentalItems.WouldDuplicateType(wizard, itemTemplate, itemCount)) {
+            Logger.Warning("Player {0} tried to redeem gift {1}, which would give a second rental of one type.",
+                Logger.Args(wizard.CharId, message.MailId));
+            InformGameClient("You cannot hold another rental of this type. The gift stays in your mailbox.");
+            SendRedeemFailure(message.MailId);
+            return;
         }
 
         var error = GrantTransaction.Run(

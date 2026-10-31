@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty, Joji
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -124,7 +124,7 @@ internal class ShopService(SessionActor sessionActor) : MessageService(sessionAc
         }
 
         // The client refuses a second rental of one type; a forged or racing request gets the same answer.
-        if (RentalItems.TryGetRentalTemplate(template, out var rentalTemplate) && RentalItems.OwnsType(playerWizard, rentalTemplate)) {
+        if (RentalItems.WouldDuplicateType(playerWizard, template)) {
             Logger.Warning("{0} tried to buy rental {1} while owning a rental of the same type.",
                 Logger.Args(playerWizard.PlayerNameBehavior.GetWizardName(), itemTemplateID));
             SendShopDenyMessage();

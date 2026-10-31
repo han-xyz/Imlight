@@ -32,7 +32,7 @@
  *
  * Created by: Jay
  * Version: KALI 1.0
- * Last Updated: 10/14/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -147,6 +147,31 @@ internal static class RentalItems {
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks whether acquiring an item would leave the wizard holding two rentals of one type.
+    /// </summary>
+    /// <param name="wizard">The wizard that would hold the item.</param>
+    /// <param name="template">The item about to be acquired; a bundle counts as its contents.</param>
+    /// <param name="count">How many copies are acquired at once.</param>
+    /// <returns>True if a rental among them shares a type with an owned rental, or with another one among them.</returns>
+    internal static bool WouldDuplicateType(Wizard wizard, CoreTemplate template, int count = 1) {
+        IEnumerable<CoreTemplate> contents = template is ItemBundleTemplate bundle
+            ? bundle.m_bundleItems.Select(templateId => CoreObjectFactory.GetCoreTemplate(templateId))
+            : [template];
+
+        var rentals = contents
+            .Select(content => TryGetRentalTemplate(content as WizItemTemplate, out var rental) ? rental : null)
+            .Where(rental => rental is not null)
+            .ToList();
+        if (rentals.Any(rental => OwnsType(wizard, rental))) {
+            return true;
+        }
+
+        var types = rentals.SelectMany(rental => (rental.m_typeList ?? []).Distinct()).ToList();
+
+        return count > 1 ? types.Count > 0 : types.Distinct().Count() < types.Count;
     }
 
     private static IEnumerable<WizClientObjectItem> AllItems(Wizard wizard) {

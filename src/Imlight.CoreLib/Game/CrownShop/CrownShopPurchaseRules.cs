@@ -23,7 +23,8 @@
  * The decisions a crown shop purchase request goes through before any currency moves.
  * 
  * USAGE EXAMPLE:
- * CrownShopService.ReceivePurchaseRequest prices a request with TryPrice.
+ * CrownShopService.ReceivePurchaseRequest prices a request with TryPrice and charges a buyer's own purchase
+ * through ChargeUnlessDuplicateRental.
  * 
  * NOTE:
  * 
@@ -34,8 +35,10 @@
  * Last Updated: 10/31/2026
  */
 
+using System;
 using Imcodec.ObjectProperty.TypeCache;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.WizardData.Models.Player;
 
 namespace Imlight.CoreLib.Game.CrownShop;
@@ -57,5 +60,8 @@ internal static class CrownShopPurchaseRules {
             Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizard.CharId, itemId, currency, count));
         return false;
     }
+
+    public static int ChargeUnlessDuplicateRental(Wizard buyer, CoreTemplate template, int count, Func<int> debit)
+        => RentalItems.WouldDuplicateType(buyer, template, count) ? CrownShopErrors.PriceLockMismatch : debit();
 
 }
