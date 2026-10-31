@@ -60,7 +60,6 @@ using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
-using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System;
 using System.Collections.Generic;
@@ -102,7 +101,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
     private static readonly int s_errorCSDisabled = CrownShopErrors.Register("Error_CrownShopDisabled");
     private static readonly int s_errorPurchase = CrownShopErrors.PriceLockMismatch;
     private static readonly int s_errorNoGiftThisItem = CrownShopErrors.Register("Error_NoGiftThisItem");
-    private static readonly int s_errorFailedToSendGift = CrownShopErrors.Register("Error_FailedToSendGift");
+    private static readonly int s_errorFailedToSendGift = CrownShopErrors.FailedToSendGift;
     private static readonly int s_errorNoPriceForType = CrownShopErrors.Register("Error_PriceLockNoPriceForType");
 
     private const string HenchmanSummonTimeoutKey = "HenchmanSummonTimeout";
@@ -270,7 +269,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
 
         var error = GrantTransaction.Run(
             reserve: () => isGift
-                ? TryDebit(wizard, message.Type, amountToPay)
+                ? CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(itemTemplate, message.Count, () => TryDebit(wizard, message.Type, amountToPay))
                 : CrownShopPurchaseRules.ChargeUnlessDuplicateRental(wizard, itemTemplate, message.Count, () => TryDebit(wizard, message.Type, amountToPay)),
             release: () => Refund(wizard, message.Type, amountToPay),
             grant: transaction => isGift
@@ -739,7 +738,11 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             m_mailId = GenerateRandomUlong()
         };
 
-        targetAccount.AddMail(mail);
+        var saveError = CrownShopPurchaseRules.SaveGiftMail(() => targetAccount.AddMail(mail));
+        if (saveError != 0) {
+            Logger.Error("Could not save gift mail {0} for account {1}.", Logger.Args(mail.m_mailId, recipientAccountId));
+            return saveError;
+        }
 
         var itemTemplateId = (uint) message.Item;
         var removedFromWishlist = WishlistData.TryRemoveItem(targetCharacter.CrownShopWishlist, itemTemplateId, out var updatedWishlist);

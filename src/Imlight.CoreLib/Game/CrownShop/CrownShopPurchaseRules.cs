@@ -23,8 +23,9 @@
  * The decisions a crown shop purchase request goes through before any currency moves.
  * 
  * USAGE EXAMPLE:
- * CrownShopService.ReceivePurchaseRequest prices a request with TryPrice and charges a buyer's own purchase
- * through ChargeUnlessDuplicateRental.
+ * CrownShopService.ReceivePurchaseRequest prices a request with TryPrice, charges a buyer's own purchase
+ * through ChargeUnlessDuplicateRental and a gift through ChargeGiftUnlessUnredeemable, and turns a gift mail
+ * that was not saved into a refund with SaveGiftMail.
  * 
  * NOTE:
  * 
@@ -63,5 +64,17 @@ internal static class CrownShopPurchaseRules {
 
     public static int ChargeUnlessDuplicateRental(Wizard buyer, CoreTemplate template, int count, Func<int> debit)
         => RentalItems.WouldDuplicateType(buyer, template, count) ? CrownShopErrors.PriceLockMismatch : debit();
+
+    /// <summary>
+    /// Refuses a gift no recipient could ever redeem, before the sender pays for it: the mail would stay unredeemable
+    /// with no refund. What the recipient already holds is not looked at, since that can change.
+    /// </summary>
+    public static int ChargeGiftUnlessUnredeemable(CoreTemplate template, int count, Func<int> debit)
+        => template is TourneyTokensAmountTemplate || RentalItems.DuplicatesItself(template, count)
+            ? CrownShopErrors.PriceLockMismatch
+            : debit();
+
+    public static int SaveGiftMail(Func<bool> addMail)
+        => addMail() ? 0 : CrownShopErrors.FailedToSendGift;
 
 }

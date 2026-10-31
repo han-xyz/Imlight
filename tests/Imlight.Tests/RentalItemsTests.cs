@@ -34,16 +34,19 @@
  * Last Updated: 10/31/2026
  */
 
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using Imcodec.ObjectProperty.TypeCache;
 using Imcodec.Types;
 using Imlight.CoreLib.Game.CrownShop;
+using Imlight.CoreLib.Game.Packs;
 using Imlight.CoreLib.Game.Rentals;
 using Imlight.CoreLib.Shared.Behaviors;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Models.Player;
+using Imlight.CoreLib.WizardData.Models.World;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -124,6 +127,96 @@ public sealed class RentalItemsTests {
         const int NotEnoughCrowns = 9;
 
         Assert.Equal(NotEnoughCrowns, CrownShopPurchaseRules.ChargeUnlessDuplicateRental(Holding(), s_mountRental, 1, () => NotEnoughCrowns));
+    }
+
+    [Fact]
+    public void DuplicatesItself_ContentsSharingAType_IsTrue() {
+        Assert.True(RentalItems.DuplicatesItself(s_mountRental, 2));
+        Assert.True(RentalItems.DuplicatesItself(new ItemBundleTemplate { m_bundleItems = [(uint) MountRentalId, (uint) OtherMountRentalId] }, 1));
+    }
+
+    [Fact]
+    public void DuplicatesItself_NothingShared_IsFalse() {
+        Assert.False(RentalItems.DuplicatesItself(s_mountRental, 1));
+        Assert.False(RentalItems.DuplicatesItself(s_plainItem, 2));
+        Assert.False(RentalItems.DuplicatesItself(new ItemBundleTemplate { m_bundleItems = [(uint) MountRentalId, (uint) PetRentalId] }, 1));
+    }
+
+    [Theory]
+    [MemberData(nameof(NeverRedeemableGifts))]
+    public void GiftCharge_NeverRedeemable_RefusesAndChargesNothing(CoreTemplate template, int count) {
+        var charges = 0;
+
+        var error = CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(template, count, () => {
+            charges++;
+            return 0;
+        });
+
+        Assert.Equal(CrownShopErrors.PriceLockMismatch, error);
+        Assert.Equal(0, charges);
+    }
+
+    public static TheoryData<CoreTemplate, int> NeverRedeemableGifts() => new() {
+        { s_mountRental, 2 },
+        { new ItemBundleTemplate { m_bundleItems = [(uint) MountRentalId, (uint) OtherMountRentalId] }, 1 },
+        { new TourneyTokensAmountTemplate(), 1 },
+    };
+
+    [Fact]
+    public void GiftCharge_RedeemableOnce_ReturnsTheDebitResult() {
+        const int NotEnoughCrowns = 9;
+
+        Assert.Equal(NotEnoughCrowns, CrownShopPurchaseRules.ChargeGiftUnlessUnredeemable(s_mountRental, 1, () => NotEnoughCrowns));
+    }
+
+    [Fact]
+    public void PackSlot_RollDuplicatesOwnedRental_IsRerolled() {
+        var rolls = RollsOf(MountRentalId, PetRentalId);
+
+        var kept = PackManager.RollSlotWithoutDuplicateRentals(rolls, Holding(backpack: OtherMountRentalId), []);
+
+        Assert.Equal(PetRentalId.ToString(), Assert.Single(kept).ItemId);
+    }
+
+    [Fact]
+    public void PackSlot_RollDuplicatesEarlierDrop_IsRerolled() {
+        var rolls = RollsOf(MountRentalId, PlainItemId);
+
+        var kept = PackManager.RollSlotWithoutDuplicateRentals(rolls, Holding(), [s_otherMountRental]);
+
+        Assert.Equal(PlainItemId.ToString(), Assert.Single(kept).ItemId);
+    }
+
+    [Fact]
+    public void PackSlot_OnlyDuplicatesToRoll_KeepsNothing() {
+        var rolls = 0;
+
+        var kept = PackManager.RollSlotWithoutDuplicateRentals(() => {
+            rolls++;
+            return [new DropItemResult { ItemId = MountRentalId.ToString() }];
+        }, Holding(backpack: OtherMountRentalId), []);
+
+        Assert.Empty(kept);
+        Assert.InRange(rolls, 2, 100);
+    }
+
+    [Fact]
+    public void PackSlot_NoRental_KeepsTheFirstRoll() {
+        var rolls = 0;
+
+        var kept = PackManager.RollSlotWithoutDuplicateRentals(() => {
+            rolls++;
+            return [new DropItemResult { ItemId = PlainItemId.ToString() }];
+        }, Holding(backpack: MountRentalId), []);
+
+        Assert.Single(kept);
+        Assert.Equal(1, rolls);
+    }
+
+    private static Func<List<DropItemResult>> RollsOf(params ulong[] templateIds) {
+        var next = new Queue<ulong>(templateIds);
+
+        return () => [new DropItemResult { ItemId = next.Dequeue().ToString() }];
     }
 
     private static WizItemTemplate Rental(string type)
