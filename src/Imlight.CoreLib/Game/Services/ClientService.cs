@@ -33,14 +33,16 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Imcodec.MessageLayer.Generated;
 using Imlight.Common;
+using Imlight.CoreLib.Game.Requirements;
 using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 
@@ -48,7 +50,12 @@ namespace Imlight.CoreLib.Game.Services;
 
 internal class ClientService(SessionActor sessionActor) : MessageService(sessionActor) {
     
+    private const int RequirementCheckReportInterval = 100;
+
     private static readonly TimeSpan s_instanceQueryTimeout = TimeSpan.FromSeconds(2);
+
+    private readonly HashSet<string> _askedRequirements = new(StringComparer.Ordinal);
+    private int _requirementChecks;
 
     protected static Props Props(SessionActor parentActor) 
         => Akka.Actor.Props.Create(() => new ClientService(parentActor));
@@ -78,8 +85,22 @@ internal class ClientService(SessionActor sessionActor) : MessageService(session
 
     [MessageHandler(typeof(GAME_5_PROTOCOL.MSG_REQASKSERVER))]
     private void ReceiveReqServer(GAME_5_PROTOCOL.MSG_REQASKSERVER message) {
-        // TODO: Implement this message handler. This is here just so we don't get
-        // a ton of unhandled message exceptions in the logs.
+        // todo: answer these. What does the client expect in Response? Answering 1 for a met requirement, with or
+        // without m_applyNOT applied, showed new wizards the quest notifications of later worlds.
+        var serialized = (byte[]) message.Requirement ?? [];
+        _requirementChecks++;
+        if (_askedRequirements.Add(Convert.ToHexString(serialized))) {
+            var requirement = RequirementQuery.TryDecode(serialized, out var decoded)
+                ? decoded.ToString()
+                : $"an unreadable requirement ({serialized.Length}B)";
+            Logger.Debug("Session {SessionId} asked the server to check {Requirement}.",
+                Logger.Args(SessionActor.SessionID, requirement));
+        }
+
+        if (_requirementChecks % RequirementCheckReportInterval == 0) {
+            Logger.Debug("Session {SessionId} has asked for {Count} requirement checks, {Distinct} of them different.",
+                Logger.Args(SessionActor.SessionID, _requirementChecks, _askedRequirements.Count));
+        }
     }
 
     private static byte QueryIsInstance(IActorRef zoneActor, ushort sessionId) {

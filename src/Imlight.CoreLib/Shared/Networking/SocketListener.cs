@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -60,16 +60,21 @@ internal sealed class SocketListener : ReceiveActor, IDisposable {
     private const int DefaultTokenBucketMax = 1000;
     private const int DefaultTokenBucketPerSecond = 200;
     private const byte DefaultTokenBucketFailedAcquisitionLimit = 5;
+    private const int DefaultRequirementCheckBucketMax = 2000;
+    private const int DefaultRequirementCheckBucketPerSecond = 500;
 
     private readonly int _bufferSize = ConfigurationManager.Settings["Advanced.SessionActorBufferSize"].AsInt();
     private readonly bool _closeOnSocketException = ConfigurationManager.Settings["Advanced.SessionActorCloseOnException"].AsBool();
     private readonly int _tokenBucketMax = ConfigurationManager.GetValue("Advanced.SessionTokenBucketMax", DefaultTokenBucketMax);
     private readonly int _tokenBucketPerSecond = ConfigurationManager.GetValue("Advanced.SessionTokenBucketPerSecond", DefaultTokenBucketPerSecond);
     private readonly byte _tokenBucketFailedAcquisitionLimit = ConfigurationManager.GetValue("Advanced.SessionTokenBucketFailedAcquisitionLimit", DefaultTokenBucketFailedAcquisitionLimit);
+    private readonly int _requirementCheckBucketMax = ConfigurationManager.GetValue("Advanced.SessionRequirementCheckBucketMax", DefaultRequirementCheckBucketMax);
+    private readonly int _requirementCheckBucketPerSecond = ConfigurationManager.GetValue("Advanced.SessionRequirementCheckBucketPerSecond", DefaultRequirementCheckBucketPerSecond);
     private readonly IActorRef _sessionActorRef;
     private readonly Socket _socket;
     private readonly ushort _sessionid;
     private readonly TokenBucket _tokenBucket;
+    private readonly TokenBucket _requirementCheckBucket;
     private readonly MessageStreamDecoder _decoder;
     private readonly List<Type> _suppressedPackets = [
             typeof(GAME_5_PROTOCOL.MSG_CLIENTMOVE),
@@ -99,6 +104,7 @@ internal sealed class SocketListener : ReceiveActor, IDisposable {
         this._socket = socket;
         this._sessionid = sessionid;
         this._tokenBucket = new TokenBucket(_tokenBucketMax, _tokenBucketPerSecond);
+        this._requirementCheckBucket = new TokenBucket(_requirementCheckBucketMax, _requirementCheckBucketPerSecond);
         this._decoder = new MessageStreamDecoder(OnDecodeFailure);
 
         Receive<string>(x => x == "Close", x => Dispose());
@@ -206,6 +212,14 @@ internal sealed class SocketListener : ReceiveActor, IDisposable {
             foreach (var packet in packets) {
                 if (IsCriticalPacket(packet)) {
                     _tokenBucket.Spend();
+                } else if (packet is GAME_5_PROTOCOL.MSG_REQASKSERVER) {
+                    // The client asks hundreds of these at once when the player's quests change.
+                    if (!_requirementCheckBucket.TryAcquire()) {
+                        Logger.Debug("SessionActor {SessionId} is over its requirement check limit; dropped a MSG_REQASKSERVER.",
+                            Logger.Args(_sessionid));
+
+                        continue;
+                    }
                 } else if (!_tokenBucket.TryAcquire()) {
                     Logger.Debug("SessionActor {SessionId} is over its message rate limit; dropped {MessageName}.",
                         Logger.Args(_sessionid, GetScopedMessageName(packet)));
