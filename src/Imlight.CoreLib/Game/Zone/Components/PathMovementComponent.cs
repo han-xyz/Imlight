@@ -60,7 +60,10 @@ internal sealed class PathMovementComponent(ZoneEntity entity) : ZoneEntityCompo
     private const uint TRAVEL_TIME_CLAMP_MINIMUM_IN_MS = 1000;
     private const uint CREATURE_FISH_INTERVAL_IN_MS = 250;
     private const uint PATH_DETAILS_FAILURE_COUNT_MAXIMUM = 5;
-    private const uint TRAVEL_UPDATE_INTERVAL_IN_MS = 380;
+    // [Zone] CreatureTravelUpdateMs: how often a travelling creature's position is pushed between nodes; 0 sends
+    // only the node arrivals and departures and leaves the travel to the client's own path following.
+    private static readonly uint s_travelUpdateIntervalMs
+        = (uint) Math.Max(0, ConfigurationManager.GetValue("Zone.CreatureTravelUpdateMs", 380));
     private const sbyte MOVE_STATE_IDLE = 0;
     private const sbyte MOVE_STATE_TRAVELLING = 1;
     private const float DIRECTION_UNITS_PER_RADIAN = 40.0f;
@@ -282,7 +285,11 @@ internal sealed class PathMovementComponent(ZoneEntity entity) : ZoneEntityCompo
         BroadcastServerMove(_lastStartLocation);
         RestartMoveInterval(travelTimeInMilli);
 
-        var travelUpdateInterval = TimeSpan.FromMilliseconds(TRAVEL_UPDATE_INTERVAL_IN_MS);
+        if (s_travelUpdateIntervalMs == 0) {
+            return;
+        }
+
+        var travelUpdateInterval = TimeSpan.FromMilliseconds(s_travelUpdateIntervalMs);
         var travelUpdateMsg = new ZONE_102_PROTOCOL.MSG_CREATURETRAVELUPDATEINTERVAL();
         Timers.StartPeriodicTimer(CREATURE_TRAVEL_UPDATE_INTERVAL_LOCK, travelUpdateMsg, travelUpdateInterval);
     }
