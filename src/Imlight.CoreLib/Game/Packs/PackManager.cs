@@ -147,14 +147,15 @@ public static class PackManager {
                                                  Func<ulong, CoreTemplate?>? templateOf = null) {
         templateOf ??= CoreObjectFactory.GetCoreTemplate;
 
-        LootInfoList listing;
+        LootRarityList listing;
         if (isSold(templateId) && templateOf(templateId) is BoosterPackTemplate pack) {
-            listing = ListPackOdds(pack, chances, tableOf, templateOf);
+            listing = ListPackOdds(pack, chances, tableOf, templateOf).m_lootRarityList;
         } else {
             Logger.Debug("Pack odds for template {0}: not a booster pack the shop sells, so the listing is empty.", Logger.Args(templateId));
-            listing = ToLootInfoList([], []);
+            listing = new LootRarityList { m_loot = [] };
         }
 
+        // The client's own log rejected LootInfoList here ("DynamicCast failed to cast class LootInfoList").
         if (!s_objectSerializer.Serialize(listing, PropertyFlags.Prop_Public, out var serializedListing)) {
             Logger.Error("Failed to serialize the pack odds listing for template {0}.", Logger.Args(templateId));
             return ByteString.Empty;

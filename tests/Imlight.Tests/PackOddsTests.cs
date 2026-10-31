@@ -166,9 +166,7 @@ public sealed class PackOddsTests {
 
         var data = PackManager.SerializePackOdds(PackId, _ => true, s_evenGates, _ => table, TemplateWithPack);
 
-        var listing = Deserialize(data);
-        Assert.Single(listing.m_loot);
-        Assert.Equal(100, Assert.Single(listing.m_lootRarityList.m_loot).m_odds);
+        Assert.Equal(100, Assert.Single(Deserialize(data).m_loot).m_odds);
     }
 
     [Fact]
@@ -199,9 +197,9 @@ public sealed class PackOddsTests {
     private static CoreTemplate? TemplateWithPack(ulong id)
         => id == PackId ? new BoosterPackTemplate { m_lootTables = ["Set-A"] } : ItemTemplate(id);
 
-    private static LootInfoList Deserialize(Imcodec.IO.ByteString data) {
+    private static LootRarityList Deserialize(Imcodec.IO.ByteString data) {
         var serializer = new ObjectSerializer(Versionable: false);
-        Assert.True(serializer.Deserialize<LootInfoList>((byte[]) data, (uint) PropertyFlags.Prop_Public, out var listing));
+        Assert.True(serializer.Deserialize<LootRarityList>((byte[]) data, (uint) PropertyFlags.Prop_Public, out var listing));
 
         return listing;
     }
