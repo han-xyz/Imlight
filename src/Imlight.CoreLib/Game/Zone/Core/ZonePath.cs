@@ -81,6 +81,9 @@ public sealed class ZonePath : ZoneEntity {
     private readonly Dictionary<SpawnObject, byte> _creatureCount = new(ReferenceEqualityComparer.Instance);
     private readonly List<IActorRef> _creatureActors = [];
     private readonly Dictionary<ulong, SpawnObject> _spawnObjectInfo = [];
+    // Where each living creature of the path started, so a "random unique" spawn takes a free node.
+    private readonly Dictionary<ulong, NodeObject> _startNodes = [];
+    private readonly Random _rng = new();
     private readonly Dictionary<IActorRef, (SpawnObject Spawner, GID ObjectId, string Name)> _loadingCreatures = [];
     private readonly HashSet<SpawnObject> _defeatedInInstance = new(ReferenceEqualityComparer.Instance);
     // Spawners a ResSpawn switched off (m_activate false).
@@ -175,6 +178,7 @@ public sealed class ZonePath : ZoneEntity {
         _creatureActors.Remove(message.Entity);
         _aggroOnLoad.Remove(message.Entity);
         _spawnObjectInfo.Remove(creature.ObjectId);
+        _startNodes.Remove(creature.ObjectId);
         SetCreatureCount(creature.Spawner, CreatureCount(creature.Spawner) - 1);
         Context.Stop(message.Entity);
     }
@@ -192,6 +196,7 @@ public sealed class ZonePath : ZoneEntity {
             }
 
             _spawnObjectInfo.Remove(message.GameObjectID);
+            _startNodes.Remove(message.GameObjectID);
             _creatureActors.RemoveAll(x => x == Sender);
             if (_loadingCreatures.Remove(Sender)) {
                 Timers.Cancel(Sender);
@@ -276,7 +281,14 @@ public sealed class ZonePath : ZoneEntity {
         var spawnItemInfo = PickRandomSpawnObject(spawnObject.m_spawnList).m_objectInfo;
 
         // Get the node to spawn the creature at.
-        var spawnNode = GetRelevantNode(spawnItemInfo);
+        var spawnNode = StartNodeChoice.Choose(spawnItemInfo.m_kStartNodeType, spawnItemInfo.m_startNode, _nodes,
+            _startNodes.Values, _rng);
+        if (spawnNode is null) {
+            Logger.Debug("Spawner {Spawner} has no free start node left, so nothing spawns now.",
+                Logger.Args(spawnObject.m_name));
+
+            return;
+        }
 
         // If creatures are randomized, pick a random template ID.
         if (_randomizeCreatures) {
@@ -314,6 +326,7 @@ public sealed class ZonePath : ZoneEntity {
 
         _creatureActors.Add(creatureActor);
         _spawnObjectInfo.Add(creatureObj.m_globalID, spawnObject);
+        _startNodes[creatureObj.m_globalID] = spawnNode;
         if (cause?.PlayerObject is not null && cause.PlayerActor is not null) {
             _aggroOnLoad[creatureActor] = new ZONE_102_PROTOCOL.MSG_PLAYERMOVE {
                 PlayerObject = cause.PlayerObject,
@@ -391,29 +404,6 @@ public sealed class ZonePath : ZoneEntity {
 
     private void SetCreatureCount(SpawnObject spawnObject, int count)
         => _creatureCount[spawnObject] = (byte) count;
-
-    private NodeObject GetRelevantNode(SpawnObjectInfo spawnInfo) {
-        switch (spawnInfo.m_kStartNodeType) {
-            case StartNodeType.SNT_RANDOM:
-                var rng = new Random();
-                var rngIndex = rng.Next(0, _nodes.Count);
-                return _nodes.ElementAt(rngIndex);
-            case StartNodeType.SNT_RANDOM_UNIQUE:
-                var rng2 = new Random();
-                var rngIndex2 = rng2.Next(0, _nodes.Count);
-                return _nodes.ElementAt(rngIndex2);
-            case StartNodeType.SNT_FIRST:
-                return _nodes.First();
-            case StartNodeType.SNT_LAST:
-                return _nodes.Last();
-            case StartNodeType.SNT_SPECIFIC:
-                return _nodes.FirstOrDefault();
-            default:
-                throw new ArgumentOutOfRangeException(nameof(spawnInfo.m_kStartNodeType),
-                    spawnInfo.m_kStartNodeType,
-                    "Invalid StartNodeType value");
-        }
-    }
 
     private static string CreateEntityActorName(CoreObject coreObject) {
         var actorName = $"{coreObject.m_debugName}_{coreObject.m_globalID.Full}";
