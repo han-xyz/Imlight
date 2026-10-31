@@ -37,7 +37,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -558,7 +558,7 @@ internal class CombatService(SessionActor sessionActor) : MessageService(session
         }
 
         var charObjId = charObj.m_globalID;
-        var effectInternalId = wizard.GameEffects.Count + 1;
+        var effectInternalId = wizard.NextEffectInternalId();
 
         var epoch = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var endTime = epoch + NO_AGGRO_EFFECT_DURATION_IN_SECONDS;

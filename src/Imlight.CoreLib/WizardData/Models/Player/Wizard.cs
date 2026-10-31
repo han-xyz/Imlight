@@ -1139,6 +1139,11 @@ public class Wizard {
         SpellbookBehavior.AddTemporarySpellToBook(spell);
     }
 
+    public int NextEffectInternalId() {
+        // The client removes an effect by its internal ID, so two effects never share one, even after a removal.
+        return GameEffects.Count == 0 ? 0 : GameEffects.Max(effect => effect.m_internalID) + 1;
+    }
+
     public void RemoveTemporarySpell(uint spellTemplateId) {
         SpellbookBehavior.RemoveTemporarySpellFromBook(spellTemplateId);
     }

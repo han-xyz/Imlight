@@ -35,7 +35,7 @@
  * 
  * Created by: Joji, Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System.Collections.Concurrent;
@@ -81,7 +81,7 @@ internal static class CharacterEffectHelper {
                 continue;
             }
 
-            gameEffect.m_internalID = wizard.GameEffects.Count;
+            gameEffect.m_internalID = wizard.NextEffectInternalId();
             var effect = AddGameEffectToStats(wizard.GameStats, effectInfo);
 
             if (gameEffect is ProvideSpellEffect provideSpellEffect) {
