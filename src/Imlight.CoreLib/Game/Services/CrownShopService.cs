@@ -60,6 +60,7 @@ using Imlight.CoreLib.Shared.Networking;
 using Imlight.CoreLib.Shared.Packets;
 using Imlight.CoreLib.Shared.Resources;
 using Imlight.CoreLib.WizardData.Collections;
+using Imlight.CoreLib.WizardData.Models.Misc;
 using Imlight.CoreLib.WizardData.Models.Player;
 using System;
 using System.Collections.Generic;
@@ -247,7 +248,15 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
         }
 
         if (!CrownShopPrice.TryCompute(catalogItem, message.Type, message.Count, out var amountToPay)) {
-            Logger.Warning("Item {0} has no price for currency type {1}.", Logger.Args(message.Item, message.Type));
+            // The currency type and count come from the client, so a price the item does not have is never trusted.
+            var infractionText = $"Player tried to buy crown shop item {message.Item} "
+                + $"with currency type {message.Type} and count {message.Count}, which the item isn't sold for!";
+            GetActiveAccount().AddInfraction(InfractionType.SuspiciousBehavior, infractionText);
+
+            Logger.Warning("{Character} (ID {CharId}) tried to buy crown shop item {Template} "
+                + "with currency type {CurrencyType} (count {Count}), which the item isn't sold for. "
+                + "The purchase was refused, and this has been logged as suspicious behavior.",
+                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizard.CharId, message.Item, message.Type, message.Count));
             SendPurchaseError(s_errorNoPriceForType, message.Item, wizard.IsInDuel);
             return;
         }

@@ -264,7 +264,10 @@ public class Wizard {
         GameStats.m_baseHitpoints = Math.Max(0, GameStats.m_baseHitpoints + healthDifference);
         GameStats.m_baseMana = Math.Max(0, GameStats.m_baseMana + manaDifference);
         GameStats.m_powerPipBase = Math.Max(0, GameStats.m_powerPipBase + powerPipDifference);
-        GameStats.m_energyMax += energyDifference;
+        GameStats.m_energyMax = Math.Max(0, GameStats.m_energyMax + energyDifference);
+
+        // Don't reset XP - preserve overflow XP when leveling up.
+        // XP is managed by AddExperiencePoints/RemoveExperiencePoints.
 
         // Persistent save.
         WizardCollection.UpdateCharacterLevel(this);
