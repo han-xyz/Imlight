@@ -247,16 +247,7 @@ internal class CrownShopService(SessionActor sessionActor) : MessageService(sess
             return;
         }
 
-        if (!CrownShopPrice.TryCompute(catalogItem, message.Type, message.Count, out var amountToPay)) {
-            // The currency type and count come from the client, so a price the item does not have is never trusted.
-            var infractionText = $"Player tried to buy crown shop item {message.Item} "
-                + $"with currency type {message.Type} and count {message.Count}, which the item isn't sold for!";
-            GetActiveAccount().AddInfraction(InfractionType.SuspiciousBehavior, infractionText);
-
-            Logger.Warning("{Character} (ID {CharId}) tried to buy crown shop item {Template} "
-                + "with currency type {CurrencyType} (count {Count}), which the item isn't sold for. "
-                + "The purchase was refused, and this has been logged as suspicious behavior.",
-                Logger.Args(wizard.PlayerNameBehavior.GetWizardName(), wizard.CharId, message.Item, message.Type, message.Count));
+        if (!CrownShopPurchaseRules.TryPrice(wizard, catalogItem, message.Item, message.Type, message.Count, out var amountToPay)) {
             SendPurchaseError(s_errorNoPriceForType, message.Item, wizard.IsInDuel);
             return;
         }
