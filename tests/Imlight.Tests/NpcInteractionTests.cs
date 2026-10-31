@@ -393,4 +393,45 @@ public sealed class NpcInteractionTests {
 
     }
 
+
+    [Fact]
+    public void WizBang_IsSentTwice_ThenOnlyOnChange() {
+        var log = new WizBangSendLog();
+        var player = new object();
+
+        Assert.True(log.ShouldSend(player, WizBangs.None));
+        Assert.True(log.ShouldSend(player, WizBangs.None));
+        Assert.False(log.ShouldSend(player, WizBangs.None));
+        Assert.False(log.ShouldSend(player, WizBangs.None));
+
+        Assert.True(log.ShouldSend(player, WizBangs.Shopping));
+        Assert.True(log.ShouldSend(player, WizBangs.Shopping));
+        Assert.False(log.ShouldSend(player, WizBangs.Shopping));
+    }
+
+    [Fact]
+    public void WizBang_StartsOver_ForAPlayerWhoLeft() {
+        var log = new WizBangSendLog();
+        var player = new object();
+        log.ShouldSend(player, WizBangs.Shopping);
+        log.ShouldSend(player, WizBangs.Shopping);
+        Assert.False(log.ShouldSend(player, WizBangs.Shopping));
+
+        log.Forget(player);
+
+        Assert.True(log.ShouldSend(player, WizBangs.Shopping));
+    }
+
+    [Fact]
+    public void WizBang_IsTrackedPerPlayer() {
+        var log = new WizBangSendLog();
+        var first = new object();
+        var second = new object();
+        log.ShouldSend(first, WizBangs.None);
+        log.ShouldSend(first, WizBangs.None);
+
+        Assert.False(log.ShouldSend(first, WizBangs.None));
+        Assert.True(log.ShouldSend(second, WizBangs.None));
+    }
+
 }
