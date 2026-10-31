@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/30/2026
  */
 
 using System;
@@ -73,6 +73,9 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
     // The services that answer MSG_PRELOGIN are other actors, and their messages have to reach the socket first.
     private const int PreLoginMinimumDelayMs = 100;
     private const float ATTACH_TIMEOUT_SECONDS = 15.0f;
+
+    // todo: only the open chat bit is understood; the rest is the value the client has accepted since 2024.
+    private const uint LoginPermissions = 0b1100_1111;
 
     private Account _account;
     private Wizard _wizard;
@@ -296,7 +299,9 @@ internal class AttachService(SessionActor sessionActor) : MessageService(session
             Data = Compression.CompressWithLength(localGameObjectData),
             IsCSR = _account.AuthLevel > AuthLevel.None ? 1 : 0, // todo: Change this back before prod!
 
-            Permissions = 0b1100_1111,
+            Permissions = _account.HasOpenChat()
+                ? LoginPermissions
+                : LoginPermissions & ~(uint) AccountPermissions.OpenChat,
 
             // Set zone data.
             ZoneName = zoneName,

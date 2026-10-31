@@ -288,7 +288,7 @@ public class Account {
             flags |= AccountFlags.CanReportBugs;
         }
 
-        switch (ChatMode) {
+        switch (GetEffectiveChatMode()) {
             case ChatMode.Open:
                 flags |= AccountFlags.CanChat;
                 flags |= AccountFlags.CanOpenChat;
@@ -326,7 +326,22 @@ public class Account {
         => ChatMode == ChatMode.Closed && AuthLevel < AuthLevel.HallMonitor
             ? (uint) ChatPermissions.None
             : (uint) (GetAccountFlags() & ~NonChatFlags)
-              | (uint) (ChatPermissions.ChatEnabled | ChatPermissions.OpenChatLegacy);
+              | (uint) ChatPermissions.ChatEnabled
+              | (uint) (HasOpenChat() ? ChatPermissions.OpenChatLegacy : ChatPermissions.None);
+
+    /// <summary>
+    /// The chat mode the client is told about. With [Chat] FilterEnabled, open chat becomes filtered chat.
+    /// </summary>
+    public ChatMode GetEffectiveChatMode()
+        => ChatMode == ChatMode.Open && ConfigurationManager.GetValue("Chat.FilterEnabled", false)
+            ? ChatMode.Filtered
+            : ChatMode;
+
+    /// <summary>
+    /// Whether the client lets this account type words outside its whitelist dictionary.
+    /// </summary>
+    public bool HasOpenChat()
+        => AuthLevel >= AuthLevel.HallMonitor || GetEffectiveChatMode() == ChatMode.Open;
 
     /// <summary>
     /// Retrieves the highest level wizard on the account.

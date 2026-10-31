@@ -36,7 +36,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/30/2026
  */
 
 using System;
@@ -64,6 +64,10 @@ namespace Imlight.CoreLib.Game.Services;
 internal class ChatService(SessionActor sessionActor) : MessageService(sessionActor) {
 
     private const string COMMAND_PREFIX = ".";
+
+    // todo: is 1 the client's filtered balloon? Only 2, the open chat balloon, has been seen in game.
+    private const byte FilteredChatBalloon = 1;
+    private const byte OpenChatBalloon = 2;
 
     private Wizard _selectedCharacter;
     private Account _selectedAccount;
@@ -235,7 +239,7 @@ internal class ChatService(SessionActor sessionActor) : MessageService(sessionAc
             Message = RadialChatText.Encode(cleanedMessage),
             SourceID = charObj.m_globalID,
             SourceName = wizard.PlayerNameBehavior.GetPackedNameBytes(),
-            Filter = 2,
+            Filter = account.HasOpenChat() ? OpenChatBalloon : FilteredChatBalloon,
         };
         SendFilteredZoneMessage(msg, wizard.CharId, wizard.Zone);
     }
