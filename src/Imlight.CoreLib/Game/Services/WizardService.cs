@@ -38,7 +38,7 @@
  * 
  * Created by: Jooty, Joji
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/31/2026
  */
 
 using Akka.Actor;
@@ -223,11 +223,15 @@ internal class WizardService(SessionActor sessionActor) : MessageService(session
         SendToSocket(addXpMsg);
     }
 
-    private void AnnounceLevelChange()
-        => TellOtherServices(new GROUP_109_PROTOCOL.MSG_LEVELCHANGED {
+    private void AnnounceLevelChange() {
+        TellOtherServices(new GROUP_109_PROTOCOL.MSG_LEVELCHANGED {
             CharId = _activeWizard.CharId,
             NewLevel = (uint) _activeWizard.MagicSchoolBehavior.Level
         });
+
+        // A quest that opens at the new level changes what an NPC offers, and its marker with it.
+        TellOtherServices(new CHARACTER_103_PROTOCOL.MSG_REQUESTNPCREFRESH());
+    }
 
     #endregion
 
