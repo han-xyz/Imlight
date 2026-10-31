@@ -21,7 +21,8 @@
  * 
  * PURPOSE:
  * Behaviour tests for how SpiralDB prepares its local checkout: cloning into
- * a mounted empty directory and refusing a directory that holds other files.
+ * a mounted empty directory, refusing a directory that holds other files, and
+ * taking the remote's files when the remote moves.
  * 
  * USAGE EXAMPLE:
  * dotnet test tests/Imlight.Tests/Imlight.Tests.csproj
@@ -32,7 +33,7 @@
  * 
  * Created by: Han
  * Version: KALI 1.0
- * Last Updated: 10/26/2026
+ * Last Updated: 10/31/2026
  */
 
 using Imlight.Common;
@@ -40,6 +41,7 @@ using Imlight.CoreLib.WizardData;
 using LibGit2Sharp;
 using System;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace Imlight.Tests;
@@ -98,18 +100,55 @@ public sealed class SpiralDbSyncTests : IDisposable {
         Assert.Contains(dataPath, ex.Message);
     }
 
+    [Fact]
+    public void Sync_RemoteMoved_TakesRemoteFiles() {
+        CreateRemote();
+        var dataPath = Path.Combine(_root, "data");
+        SpiralDB.SyncRepository(dataPath);
+        var remoteTip = CommitToRemote("quests.json", remove: "marker.json");
+
+        SpiralDB.SyncRepository(dataPath);
+
+        using var repository = new Repository(dataPath);
+        Assert.Equal(remoteTip, repository.Head.Tip.Sha);
+        Assert.True(File.Exists(Path.Combine(dataPath, "quests.json")));
+        Assert.False(File.Exists(Path.Combine(dataPath, "marker.json")));
+        Assert.Equal([".git", "quests.json"], Directory.GetFileSystemEntries(dataPath).Select(Path.GetFileName).Order());
+    }
+
+    [Fact]
+    public void Sync_UpToDate_KeepsCheckout() {
+        CreateRemote();
+        var dataPath = Path.Combine(_root, "data");
+        SpiralDB.SyncRepository(dataPath);
+        File.WriteAllText(Path.Combine(dataPath, "local.txt"), "x");
+
+        SpiralDB.SyncRepository(dataPath);
+
+        Assert.True(File.Exists(Path.Combine(dataPath, "local.txt")));
+    }
+
     private void CreateRemote() {
         var remotePath = Path.Combine(_root, "remote");
         Repository.Init(remotePath);
-        File.WriteAllText(Path.Combine(remotePath, "marker.json"), "{}");
+        CommitToRemote("marker.json");
 
         using var repository = new Repository(remotePath);
-        Commands.Stage(repository, "marker.json");
-        var signature = new Signature("test", "test@example.com", DateTimeOffset.UtcNow);
-        repository.Commit("init", signature, signature);
-
         SpiralDB.s_remoteUrl = remotePath;
         SpiralDB.s_cloneDepth = 0;
         SpiralDB.s_branch = repository.Head.FriendlyName;
+    }
+
+    private string CommitToRemote(string add, string remove = null) {
+        var remotePath = Path.Combine(_root, "remote");
+        File.WriteAllText(Path.Combine(remotePath, add), "{}");
+
+        using var repository = new Repository(remotePath);
+        Commands.Stage(repository, add);
+        if (remove != null) {
+            Commands.Remove(repository, remove);
+        }
+        var signature = new Signature("test", "test@example.com", DateTimeOffset.UtcNow);
+        return repository.Commit(add, signature, signature).Sha;
     }
 }

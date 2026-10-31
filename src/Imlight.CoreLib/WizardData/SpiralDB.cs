@@ -35,6 +35,8 @@ namespace Imlight.CoreLib.WizardData;
 
 public static class SpiralDB {
 
+    private const string DownloadFolderName = ".spiraldb-download";
+
     internal static string s_remoteUrl
         = ConfigurationManager.Settings["Database.SpiralDBRemoteUrl"];
     internal static string s_branch
@@ -233,6 +235,9 @@ public static class SpiralDB {
     }
 
     internal static void SyncRepository(string basePath) {
+        var downloadPath = Path.Combine(basePath, DownloadFolderName);
+        DeleteEntry(downloadPath);
+
         if (!Repository.IsValid(basePath)) {
             if (Directory.Exists(basePath) && Directory.EnumerateFileSystemEntries(basePath).Any()) {
                 throw new InvalidOperationException(
@@ -243,27 +248,7 @@ public static class SpiralDB {
                 "SpiralDB not found, downloading it from {RemoteUrl} (branch {Branch})...",
                 Logger.Args(s_remoteUrl, s_branch));
 
-            var startStopWatch = Stopwatch.GetTimestamp();
-
-            var cloneOptions = new CloneOptions {
-                BranchName = s_branch,
-                Checkout = true,
-                IsBare = false
-            };
-
-            cloneOptions.FetchOptions.Depth = s_cloneDepth;
-            cloneOptions.FetchOptions.OnTransferProgress = _ =>
-                Stopwatch.GetElapsedTime(startStopWatch) < TimeSpan.FromSeconds(s_fetchTimeoutSec);
-
-            try {
-                Repository.Clone(s_remoteUrl, basePath, cloneOptions);
-            }
-            catch (Exception ex) when (Stopwatch.GetElapsedTime(startStopWatch) >= TimeSpan.FromSeconds(s_fetchTimeoutSec)) {
-                throw new TimeoutException(
-                    $"SpiralDB Git fetch timed out after {s_fetchTimeoutSec} seconds.",
-                    ex);
-            }
-
+            Clone(basePath);
             return;
         }
 
@@ -275,52 +260,103 @@ public static class SpiralDB {
         }
 
         Logger.Information(
-            "Fetching SpiralDB updates from {RemoteUrl} (branch {Branch})...",
+            "Checking {RemoteUrl} (branch {Branch}) for SpiralDB updates...",
             Logger.Args(s_remoteUrl, s_branch));
 
-        using var repository = new Repository(basePath);
-        var remote = repository.Network.Remotes["origin"]
-            ?? throw new InvalidOperationException(
-                "SpiralDB repository does not have an 'origin' remote.");
+        var remoteTip = GetRemoteTip();
+        using (var repository = new Repository(basePath)) {
+            if (repository.Head.Tip?.Sha == remoteTip) {
+                Logger.Information("SpiralDB is already up to date (commit {Commit}).", Logger.Args(remoteTip[..7]));
+                return;
+            }
+        }
 
+        // LibGit2Sharp deletes .git/shallow when a fetch brings new commits into a shallow clone, so an update is a new clone.
+        try {
+            Clone(downloadPath);
+            ReplaceCheckout(basePath, downloadPath);
+        }
+        finally {
+            DeleteEntry(downloadPath);
+        }
+
+        using var updated = new Repository(basePath);
+        Logger.Information("SpiralDB updated to commit {Commit}.", Logger.Args(updated.Head.Tip.Sha[..7]));
+    }
+
+    private static string GetRemoteTip() {
+        var branchName = $"refs/heads/{s_branch}";
+        var branch = Repository.ListRemoteReferences(s_remoteUrl).FirstOrDefault(reference => reference.CanonicalName == branchName)
+            ?? throw new InvalidOperationException(
+                $"Remote branch '{s_branch}' does not exist.");
+
+        return branch.TargetIdentifier;
+    }
+
+    private static void Clone(string path) {
         var start = Stopwatch.GetTimestamp();
 
-        var fetchOptions = new FetchOptions {
-            Prune = true,
-            Depth = 1,
-            OnTransferProgress = _ =>
-                Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(s_fetchTimeoutSec)
+        var cloneOptions = new CloneOptions {
+            BranchName = s_branch,
+            Checkout = true,
+            IsBare = false
         };
 
+        cloneOptions.FetchOptions.Depth = s_cloneDepth;
+        cloneOptions.FetchOptions.OnTransferProgress = _ =>
+            Stopwatch.GetElapsedTime(start) < TimeSpan.FromSeconds(s_fetchTimeoutSec);
+
         try {
-            Commands.Fetch(
-                repository,
-                remote.Name,
-                new[] { s_branch },
-                fetchOptions,
-                null);
+            Repository.Clone(s_remoteUrl, path, cloneOptions);
         }
         catch (Exception ex) when (Stopwatch.GetElapsedTime(start) >= TimeSpan.FromSeconds(s_fetchTimeoutSec)) {
             throw new TimeoutException(
                 $"SpiralDB Git fetch timed out after {s_fetchTimeoutSec} seconds.",
                 ex);
         }
+    }
 
-        var remoteBranch = repository.Branches[$"origin/{s_branch}"]
-            ?? throw new InvalidOperationException(
-                $"Remote branch 'origin/{s_branch}' does not exist.");
-
-        if (repository.Head.Tip?.Sha == remoteBranch.Tip.Sha) {
-            Logger.Information("SpiralDB is already up to date (commit {Commit}).", Logger.Args(remoteBranch.Tip.Sha[..7]));
-            return;
+    private static void ReplaceCheckout(string basePath, string downloadPath) {
+        // basePath may be a mount point, so its entries move rather than the directory itself.
+        // The old .git goes last: an update cut short keeps the old commit and is retried at the next boot.
+        var gitPath = Path.Combine(basePath, ".git");
+        foreach (var entry in Directory.GetFileSystemEntries(basePath)) {
+            if (entry != gitPath && entry != downloadPath) {
+                DeleteEntry(entry);
+            }
         }
 
-        repository.Reset(
-            ResetMode.Hard,
-            remoteBranch.Tip
-        );
+        foreach (var entry in Directory.GetFileSystemEntries(downloadPath)) {
+            var name = Path.GetFileName(entry);
+            if (name != ".git") {
+                MoveEntry(entry, Path.Combine(basePath, name));
+            }
+        }
 
-        Logger.Information("SpiralDB updated to commit {Commit}.", Logger.Args(remoteBranch.Tip.Sha[..7]));
+        DeleteEntry(gitPath);
+        Directory.Move(Path.Combine(downloadPath, ".git"), gitPath);
+    }
+
+    private static void MoveEntry(string source, string destination) {
+        if (Directory.Exists(source)) {
+            Directory.Move(source, destination);
+        }
+        else {
+            File.Move(source, destination);
+        }
+    }
+
+    private static void DeleteEntry(string path) {
+        if (Directory.Exists(path)) {
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)) {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+            Directory.Delete(path, recursive: true);
+        }
+        else if (File.Exists(path)) {
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+        }
     }
 
     public static CreatureSpellbook GetCreatureSpellbook(string deckName)
