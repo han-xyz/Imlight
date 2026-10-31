@@ -41,7 +41,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/27/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -1309,9 +1309,14 @@ internal sealed class CombatDuelComponent(ZoneEntity entity)
             return;
         }
 
+        var askGroupMates = ConfigurationManager.GetValue("Combat.GroupJoinPrompt", true);
         foreach (var groupMate in _groupReservations.ReserveForGroupOf(charId, ZoneActor, SubCircles)) {
             Logger.Debug("Duel {DuelId} | Holding a circle for group mate {GroupMate} of {CharId}.",
                 Logger.Args(Duel.m_duelID.Full, groupMate.CharId, charId));
+
+            if (!askGroupMates) {
+                continue;
+            }
 
             // Accepting sends MSG_GotoPlayerConfirm back, which GroupService turns into MSG_JOINRESERVEDDUEL.
             groupMate.Session?.Tell(new WIZARD2_53_PROTOCOL.MSG_GotoPlayerConfirm {
