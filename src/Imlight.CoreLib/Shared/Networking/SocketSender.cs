@@ -33,7 +33,7 @@
  * 
  * Created by: Jooty
  * Version: KALI 1.0
- * Last Updated: 10/25/2026
+ * Last Updated: 10/31/2026
  */
 
 using System;
@@ -53,6 +53,11 @@ internal sealed class SocketSender : ReceiveActor, IDisposable {
     private readonly Socket _socket;
     private readonly ushort _sessionid;
     private readonly long _startTimestamp = Stopwatch.GetTimestamp();
+    // [Logging] LogMovementPackets=true logs the movement and object packets too, with the object they concern;
+    // off by default, they drown every other line.
+    private static readonly bool s_logMovementPackets
+        = ConfigurationManager.Settings["Logging.LogMovementPackets"].AsBool();
+
     private readonly List<Type> _suppressedPackets = new() {
             typeof(GAME_5_PROTOCOL.MSG_CLIENTMOVE),
             typeof(GAME_5_PROTOCOL.MSG_CLIENTMOVESTATE),
@@ -155,7 +160,19 @@ internal sealed class SocketSender : ReceiveActor, IDisposable {
             Logger.Verbose("SessionActor {SessionId} sent KiNP packet {ScopedMessageName}",
                 Logger.Args(_sessionid, GetScopedMessageName(packet)));
         }
+        else if (s_logMovementPackets) {
+            Logger.Verbose("SessionActor {SessionId} sent KiNP packet {ScopedMessageName} {Detail}",
+                Logger.Args(_sessionid, GetScopedMessageName(packet), MovementDetail(packet)));
+        }
     }
+
+    private static string MovementDetail(IMessage packet) => packet switch {
+        GAME_5_PROTOCOL.MSG_NEWOBJECT newObject => $"bytes={newObject.Data.Length}",
+        GAME_5_PROTOCOL.MSG_REMOVEOBJECT removeObject => $"object={removeObject.GameObjectID}",
+        GAME_5_PROTOCOL.MSG_MOVESTATE moveState => $"object={moveState.GlobalID} state={moveState.NewState}",
+        GAME_5_PROTOCOL.MSG_SERVERMOVE serverMove => $"mobile={serverMove.MobileID} at={serverMove.LocationX},{serverMove.LocationY},{serverMove.LocationZ}",
+        _ => "",
+    };
 
     private void LogDroppedPacket(IMessage packet, string detail) =>
         Logger.Debug("SessionActor {SessionId} dropped {ScopedMessageName}: socket closed / disposed ({Detail})",
